@@ -478,11 +478,10 @@ export default function Sidebar() {
           defaultModel: DEFAULT_MODEL_BY_PROVIDER.codex,
           createdAt,
         });
-        if (input.remote === null) {
-          await handleNewThread(projectId, {
-            envMode: appSettings.defaultThreadEnvMode,
-          }).catch(() => undefined);
-        } else {
+        await handleNewThread(projectId, {
+          envMode: appSettings.defaultThreadEnvMode,
+        }).catch(() => undefined);
+        if (input.remote !== null) {
           toastManager.add({
             type: "info",
             title: "Remote project added",
@@ -1549,14 +1548,6 @@ export default function Sidebar() {
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
-                                      if (project.remote) {
-                                        toastManager.add({
-                                          type: "info",
-                                          title: "Remote threads are not enabled yet",
-                                          description: `This project is linked to ${project.remote.hostAlias}.`,
-                                        });
-                                        return;
-                                      }
                                       void handleNewThread(project.id, {
                                         envMode: resolveSidebarNewThreadEnvMode({
                                           defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -1569,10 +1560,10 @@ export default function Sidebar() {
                                 }
                               />
                               <TooltipPopup side="top">
-                                {project.remote
-                                  ? `Remote project on ${project.remote.hostAlias}`
-                                  : newThreadShortcutLabel
-                                    ? `New thread (${newThreadShortcutLabel})`
+                                {newThreadShortcutLabel
+                                  ? `New thread (${newThreadShortcutLabel})`
+                                  : project.remote
+                                    ? `New thread on ${project.remote.hostAlias}`
                                     : "New thread"}
                               </TooltipPopup>
                             </Tooltip>

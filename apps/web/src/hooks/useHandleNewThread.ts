@@ -34,6 +34,9 @@ export function useHandleNewThread() {
         envMode?: DraftThreadEnvMode;
       },
     ): Promise<void> => {
+      const project = projects.find((entry) => entry.id === projectId);
+      const requestedEnvMode = options?.envMode ?? "local";
+      const resolvedEnvMode = project?.remote ? "local" : requestedEnvMode;
       const {
         clearProjectDraftThreadId,
         getDraftThread,
@@ -54,7 +57,7 @@ export function useHandleNewThread() {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-              ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+              ...(hasEnvModeOption ? { envMode: resolvedEnvMode } : {}),
             });
           }
           setProjectDraftThreadId(projectId, storedDraftThread.threadId);
@@ -79,7 +82,7 @@ export function useHandleNewThread() {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-            ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+            ...(hasEnvModeOption ? { envMode: resolvedEnvMode } : {}),
           });
         }
         setProjectDraftThreadId(projectId, routeThreadId);
@@ -93,7 +96,7 @@ export function useHandleNewThread() {
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
-          envMode: options?.envMode ?? "local",
+          envMode: resolvedEnvMode,
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
 
@@ -103,7 +106,7 @@ export function useHandleNewThread() {
         });
       })();
     },
-    [navigate, routeThreadId],
+    [navigate, projects, routeThreadId],
   );
 
   return {

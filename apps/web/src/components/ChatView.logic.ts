@@ -1,4 +1,10 @@
-import { ProjectId, type ProviderKind, type ThreadId } from "@t3tools/contracts";
+import {
+  ProjectId,
+  type ProjectRemoteTarget,
+  type ProviderKind,
+  type ServerProviderStatus,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { type ChatMessage, type Thread } from "../types";
 import { randomUUID } from "~/lib/utils";
 import { getAppModelOptions } from "../appSettings";
@@ -122,4 +128,15 @@ export function getCustomModelOptionsByProvider(settings: {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
   };
+}
+
+export function resolveVisibleProviderHealthStatus(input: {
+  status: ServerProviderStatus | null;
+  projectRemote: ProjectRemoteTarget | null;
+}): ServerProviderStatus | null {
+  if (input.projectRemote) {
+    return null;
+  }
+
+  return input.status;
 }

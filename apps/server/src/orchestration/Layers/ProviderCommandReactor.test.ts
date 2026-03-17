@@ -83,7 +83,11 @@ describe("ProviderCommandReactor", () => {
     createdStateDirs.clear();
   });
 
-  async function createHarness(input?: { readonly stateDir?: string }) {
+  async function createHarness(input?: {
+    readonly stateDir?: string;
+    readonly projectWorkspaceRoot?: string;
+    readonly projectRemote?: { readonly kind: "ssh"; readonly hostAlias: string } | null;
+  }) {
     const now = new Date().toISOString();
     const stateDir = input?.stateDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
     createdStateDirs.add(stateDir);
@@ -227,7 +231,8 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
-        workspaceRoot: "/tmp/provider-project",
+        workspaceRoot: input?.projectWorkspaceRoot ?? "/tmp/provider-project",
+        ...(input?.projectRemote !== undefined ? { remote: input.projectRemote } : {}),
         defaultModel: "gpt-5-codex",
         createdAt: now,
       }),
@@ -346,6 +351,48 @@ describe("ProviderCommandReactor", () => {
         codex: {
           reasoningEffort: "high",
           fastMode: true,
+        },
+      },
+    });
+  });
+
+  it("derives SSH-backed provider startup from the thread project", async () => {
+    const harness = await createHarness({
+      projectWorkspaceRoot: "/home/ashvinn/SFAILib",
+      projectRemote: {
+        kind: "ssh",
+        hostAlias: "g7e_axe",
+      },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-remote-ssh"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-remote-ssh"),
+          role: "user",
+          text: "hello remote reactor",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      cwd: "/home/ashvinn/SFAILib",
+      runtimeMode: "approval-required",
+      providerOptions: {
+        codex: {
+          remote: {
+            kind: "ssh",
+            hostAlias: "g7e_axe",
+          },
         },
       },
     });

@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderModelOptions } from "./model";
+import { ProjectRemoteTarget } from "./remote";
 import {
   ApprovalRequestId,
   EventId,
@@ -50,6 +51,7 @@ export type ProviderSession = typeof ProviderSession.Type;
 const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
   homePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  remote: Schema.optional(ProjectRemoteTarget),
 });
 
 export const ProviderStartOptions = Schema.Struct({

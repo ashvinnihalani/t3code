@@ -186,6 +186,35 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts provider-scoped remote codex options in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-remote-options",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-remote-options",
+        role: "user",
+        text: "hello remote",
+        attachments: [],
+      },
+      providerOptions: {
+        codex: {
+          remote: {
+            kind: "ssh",
+            hostAlias: "g7e_axe",
+          },
+        },
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(parsed.providerOptions?.codex?.remote, {
+      kind: "ssh",
+      hostAlias: "g7e_axe",
+    });
+  }),
+);
+
 it.effect(
   "decodes thread.turn-start-requested defaults for provider, runtime mode, and interaction mode",
   () =>
