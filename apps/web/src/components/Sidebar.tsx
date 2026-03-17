@@ -1347,7 +1347,7 @@ export default function Sidebar() {
                     setAddProjectError(null);
                   }}
                 >
-                  Remote SSH
+                  Remote
                 </button>
               </div>
               {projectSourceMode === "local" ? (
@@ -1537,7 +1537,7 @@ export default function Sidebar() {
                               </span>
                               {project.remote ? (
                                 <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                                  SSH {project.remote.hostAlias}
+                                  {project.remote.hostAlias}
                                 </span>
                               ) : null}
                             </SidebarMenuButton>
