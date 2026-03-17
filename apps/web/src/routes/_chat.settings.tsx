@@ -148,7 +148,7 @@ function SettingsRouteView() {
         value: LOCAL_CODEX_SETTINGS_SCOPE,
       },
       ...remoteCodexHosts.map((hostAlias) => ({
-        label: `SSH ${hostAlias}`,
+        label: hostAlias,
         value: encodeCodexSettingsScope(hostAlias),
       })),
     ],
