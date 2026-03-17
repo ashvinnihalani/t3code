@@ -1,4 +1,9 @@
-import type { GitStackedAction, GitStatusResult, ThreadId } from "@t3tools/contracts";
+import type {
+  GitStackedAction,
+  GitStatusResult,
+  ProjectRemoteTarget,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
@@ -33,7 +38,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
-import { openInPreferredEditor } from "~/editorPreferences";
+import { openResolvedEditorTargetInPreferredEditor } from "~/editorPreferences";
 import {
   type GitQueryTarget,
   gitBranchesQueryOptions,
@@ -44,13 +49,13 @@ import {
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
-import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
+import { resolveProjectEditorTargetFromRawPath } from "~/projectEditorTargets";
 
 interface GitActionsControlProps {
   gitTarget: GitQueryTarget;
   activeThreadId: ThreadId | null;
-  isRemoteProject: boolean;
+  projectRemote: ProjectRemoteTarget | null;
 }
 
 interface PendingDefaultBranchAction {
@@ -159,7 +164,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 export default function GitActionsControl({
   gitTarget,
   activeThreadId,
-  isRemoteProject,
+  projectRemote,
 }: GitActionsControlProps) {
   const { settings } = useAppSettings();
   const threadToastData = useMemo(
@@ -627,16 +632,21 @@ export default function GitActionsControl({
         });
         return;
       }
-      if (isRemoteProject) {
+      const target = resolveProjectEditorTargetFromRawPath(filePath, {
+        projectId: gitTarget.projectId ?? undefined,
+        threadId: activeThreadId ?? undefined,
+        referenceRoot: gitTarget.cwd,
+        remote: projectRemote,
+      });
+      if (!target) {
         toastManager.add({
           type: "info",
-          title: "Open in editor is unavailable for remote project paths.",
+          title: "Open in editor is unavailable for this file.",
           data: threadToastData,
         });
         return;
       }
-      const target = resolvePathLinkTarget(filePath, gitTarget.cwd);
-      void openInPreferredEditor(api, target).catch((error) => {
+      void openResolvedEditorTargetInPreferredEditor(api, target).catch((error) => {
         toastManager.add({
           type: "error",
           title: "Unable to open file",
@@ -645,7 +655,7 @@ export default function GitActionsControl({
         });
       });
     },
-    [gitTarget.cwd, isRemoteProject, threadToastData],
+    [activeThreadId, gitTarget.cwd, gitTarget.projectId, projectRemote, threadToastData],
   );
 
   if (!gitTarget.cwd) return null;

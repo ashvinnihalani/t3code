@@ -268,8 +268,14 @@ function toAttachmentPreviewUrl(rawUrl: string): string {
   return rawUrl;
 }
 
-function attachmentPreviewRoutePath(attachmentId: string): string {
-  return `/attachments/${encodeURIComponent(attachmentId)}`;
+function attachmentPreviewRoutePath(
+  projectId: string,
+  threadId: string,
+  attachmentId: string,
+): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(
+    threadId,
+  )}/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
 // ── Pure state transition functions ────────────────────────────────────
@@ -331,7 +337,9 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
             name: attachment.name,
             mimeType: attachment.mimeType,
             sizeBytes: attachment.sizeBytes,
-            previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+            previewUrl: toAttachmentPreviewUrl(
+              attachmentPreviewRoutePath(thread.projectId, thread.id, attachment.id),
+            ),
           }));
           const normalizedMessage: ChatMessage = {
             id: message.id,

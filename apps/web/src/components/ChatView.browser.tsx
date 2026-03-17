@@ -470,7 +470,7 @@ const worker = setupWorker(
       );
     });
   }),
-  http.get("*/attachments/:attachmentId", () =>
+  http.get("*/api/projects/:projectId/threads/:threadId/attachments/:attachmentId", () =>
     HttpResponse.text(ATTACHMENT_SVG, {
       headers: {
         "Content-Type": "image/svg+xml",
@@ -963,11 +963,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.shellOpenInEditor,
+            (request) => request._tag === WS_METHODS.projectsOpenInEditor,
           );
           expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.shellOpenInEditor,
-            cwd: "/repo/project",
+            _tag: WS_METHODS.projectsOpenInEditor,
+            projectId: PROJECT_ID,
             editor: "vscode",
           });
         },

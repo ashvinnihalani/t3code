@@ -16,13 +16,16 @@ import React, {
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { openInPreferredEditor } from "../editorPreferences";
+import { openResolvedEditorTargetInPreferredEditor } from "../editorPreferences";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
-import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
+import {
+  resolveProjectEditorTargetFromMarkdownHref,
+  type ProjectLinkContext,
+} from "../projectEditorTargets";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -47,7 +50,7 @@ class CodeHighlightErrorBoundary extends React.Component<
 
 interface ChatMarkdownProps {
   text: string;
-  cwd: string | undefined;
+  linkContext: ProjectLinkContext;
   isStreaming?: boolean;
 }
 
@@ -235,14 +238,14 @@ function SuspenseShikiCodeBlock({
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({ text, linkContext, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
-        const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
-        if (!targetPath) {
+        const target = resolveProjectEditorTargetFromMarkdownHref(href, linkContext);
+        if (!target) {
           return <a {...props} href={href} target="_blank" rel="noreferrer" />;
         }
 
@@ -255,7 +258,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
               event.stopPropagation();
               const api = readNativeApi();
               if (api) {
-                void openInPreferredEditor(api, targetPath);
+                void openResolvedEditorTargetInPreferredEditor(api, target);
               } else {
                 console.warn("Native API not found. Unable to open file in editor.");
               }
@@ -285,7 +288,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming],
+    [diffThemeName, isStreaming, linkContext],
   );
 
   return (

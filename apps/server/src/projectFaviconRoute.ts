@@ -98,7 +98,9 @@ function serveFallbackFavicon(res: http.ServerResponse): void {
 export function tryHandleProjectFaviconRequest(input: {
   url: URL;
   res: http.ServerResponse;
-  resolveProjectCwd: (projectId: string) => string | null;
+  resolveProject: (
+    projectId: string,
+  ) => { workspaceRoot: string; remote?: { kind: "ssh" } | null } | null;
 }): boolean {
   if (input.url.pathname !== "/api/project-favicon") {
     return false;
@@ -110,12 +112,17 @@ export function tryHandleProjectFaviconRequest(input: {
     input.res.end("Missing projectId parameter");
     return true;
   }
-  const projectCwd = input.resolveProjectCwd(projectId);
-  if (!projectCwd) {
+  const project = input.resolveProject(projectId);
+  if (!project) {
     input.res.writeHead(404, { "Content-Type": "text/plain" });
     input.res.end("Project not found");
     return true;
   }
+  if (project.remote) {
+    serveFallbackFavicon(input.res);
+    return true;
+  }
+  const projectCwd = project.workspaceRoot;
 
   const tryResolvedPaths = (paths: string[], index: number, onExhausted: () => void): void => {
     if (index >= paths.length) {

@@ -13,7 +13,7 @@ export const EditorId = Schema.Literals(EDITORS.map((e) => e.id));
 export type EditorId = typeof EditorId.Type;
 
 export const OpenInEditorInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
+  target: TrimmedNonEmptyString,
   editor: EditorId,
 });
 export type OpenInEditorInput = typeof OpenInEditorInput.Type;

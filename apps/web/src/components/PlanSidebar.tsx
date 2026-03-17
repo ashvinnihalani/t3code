@@ -28,6 +28,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "./ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { type ProjectLinkContext } from "../projectEditorTargets";
 
 function stepStatusIcon(status: string): React.ReactNode {
   if (status === "completed") {
@@ -55,7 +56,7 @@ interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
   projectId: ProjectId | undefined;
-  markdownCwd: string | undefined;
+  linkContext: ProjectLinkContext;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
   onClose: () => void;
@@ -65,7 +66,7 @@ const PlanSidebar = memo(function PlanSidebar({
   activePlan,
   activeProposedPlan,
   projectId,
-  markdownCwd,
+  linkContext,
   workspaceRoot,
   timestampFormat,
   onClose,
@@ -242,7 +243,7 @@ const PlanSidebar = memo(function PlanSidebar({
                 <div className="rounded-lg border border-border/50 bg-background/50 p-3">
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
-                    cwd={markdownCwd}
+                    linkContext={linkContext}
                     isStreaming={false}
                   />
                 </div>

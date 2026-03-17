@@ -22,11 +22,13 @@ function makeTempDir(prefix: string): string {
 
 async function withRouteServer(
   run: (baseUrl: string) => Promise<void>,
-  resolveProjectCwd: (projectId: string) => string | null = () => null,
+  resolveProject: (
+    projectId: string,
+  ) => { workspaceRoot: string; remote?: { kind: "ssh" } | null } | null = () => null,
 ): Promise<void> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (tryHandleProjectFaviconRequest({ url, res, resolveProjectCwd })) {
+    if (tryHandleProjectFaviconRequest({ url, res, resolveProject })) {
       return;
     }
     res.writeHead(404, { "Content-Type": "text/plain" });
@@ -100,7 +102,7 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>favicon</svg>");
       },
-      (projectId) => (projectId === "project-1" ? projectDir : null),
+      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
     );
   });
 
@@ -122,7 +124,7 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand</svg>");
       },
-      (projectId) => (projectId === "project-1" ? projectDir : null),
+      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
     );
   });
 
@@ -144,7 +146,7 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand-html-order</svg>");
       },
-      (projectId) => (projectId === "project-1" ? projectDir : null),
+      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
     );
   });
 
@@ -168,7 +170,7 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand-obj-order</svg>");
       },
-      (projectId) => (projectId === "project-1" ? projectDir : null),
+      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
     );
   });
 
@@ -183,7 +185,23 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toContain('data-fallback="project-favicon"');
       },
-      (projectId) => (projectId === "project-1" ? projectDir : null),
+      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+    );
+  });
+
+  it("serves the fallback favicon for remote projects", async () => {
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-remote";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toContain('data-fallback="project-favicon"');
+      },
+      (projectId) =>
+        projectId === "project-remote"
+          ? { workspaceRoot: "/srv/app", remote: { kind: "ssh" } }
+          : null,
     );
   });
 });

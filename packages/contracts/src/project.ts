@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
+import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import { EditorId } from "./editor";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
@@ -37,11 +37,26 @@ export const ProjectWriteFileInput = Schema.Struct({
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
+export const ProjectEditorTarget = Schema.Struct({
+  ...ProjectRouteInput.fields,
+  threadId: Schema.optional(ThreadId),
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  line: Schema.optional(PositiveInt),
+  column: Schema.optional(PositiveInt),
+});
+export type ProjectEditorTarget = typeof ProjectEditorTarget.Type;
+
 export const ProjectOpenInEditorInput = Schema.Struct({
   ...ProjectRouteInput.fields,
   editor: EditorId,
 });
 export type ProjectOpenInEditorInput = typeof ProjectOpenInEditorInput.Type;
+
+export const ProjectOpenPathInEditorInput = Schema.Struct({
+  ...ProjectEditorTarget.fields,
+  editor: EditorId,
+});
+export type ProjectOpenPathInEditorInput = typeof ProjectOpenPathInEditorInput.Type;
 
 export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,

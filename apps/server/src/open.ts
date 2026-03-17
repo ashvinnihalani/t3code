@@ -23,7 +23,7 @@ export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError",
 }) {}
 
 export interface OpenInEditorInput {
-  readonly cwd: string;
+  readonly target: string;
   readonly editor: EditorId;
 }
 
@@ -43,6 +43,10 @@ function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
   return (
     (editorId === "cursor" || editorId === "vscode") && LINE_COLUMN_SUFFIX_PATTERN.test(target)
   );
+}
+
+function isRemoteUriTarget(target: string): boolean {
+  return target.startsWith("ssh://");
 }
 
 function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
@@ -213,16 +217,22 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   }
 
   if (editorDef.command) {
-    return shouldUseGotoFlag(editorDef.id, input.cwd)
-      ? { command: editorDef.command, args: ["--goto", input.cwd] }
-      : { command: editorDef.command, args: [input.cwd] };
+    return shouldUseGotoFlag(editorDef.id, input.target)
+      ? { command: editorDef.command, args: ["--goto", input.target] }
+      : { command: editorDef.command, args: [input.target] };
   }
 
   if (editorDef.id !== "file-manager") {
     return yield* new OpenError({ message: `Unsupported editor: ${input.editor}` });
   }
 
-  return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
+  if (isRemoteUriTarget(input.target)) {
+    return yield* new OpenError({
+      message: "File manager does not support remote SSH editor targets.",
+    });
+  }
+
+  return { command: fileManagerCommandForPlatform(platform), args: [input.target] };
 });
 
 export const launchDetached = (launch: EditorLaunch) =>
