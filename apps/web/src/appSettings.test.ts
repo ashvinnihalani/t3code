@@ -32,6 +32,7 @@ describe("getAppModelOptions", () => {
 
     expect(options.map((option) => option.slug)).toEqual([
       "gpt-5.4",
+      "gpt-5.4-mini",
       "gpt-5.3-codex",
       "gpt-5.3-codex-spark",
       "gpt-5.2-codex",
@@ -81,6 +82,7 @@ describe("buildGitRequestSettings", () => {
       buildGitRequestSettings({
         gitCommitPrompt: "   ",
         gitHubBinaryPath: "",
+        textGenerationModel: undefined,
       }),
     ).toBeUndefined();
   });
@@ -90,10 +92,12 @@ describe("buildGitRequestSettings", () => {
       buildGitRequestSettings({
         gitCommitPrompt: "  prefer concise infra-focused commits  ",
         gitHubBinaryPath: "  /opt/bin/gh-custom  ",
+        textGenerationModel: "  gpt-5.4-mini  ",
       }),
     ).toEqual({
       commitPrompt: "prefer concise infra-focused commits",
       githubBinaryPath: "/opt/bin/gh-custom",
+      textGenerationModel: "gpt-5.4-mini",
     });
   });
 });

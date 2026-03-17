@@ -169,6 +169,7 @@ export function gitRunStackedActionMutationOptions(input: {
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
         ...(input.settings ? { settings: input.settings } : {}),
+        ...(input.settings ? { settings: input.settings } : {}),
       });
     },
     onSettled: async () => {

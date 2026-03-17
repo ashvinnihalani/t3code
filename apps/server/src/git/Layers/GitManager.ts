@@ -18,6 +18,7 @@ type GitOperationSettings =
   | {
       githubBinaryPath?: string | undefined;
       commitPrompt?: string | undefined;
+      textGenerationModel?: string | undefined;
     }
   | undefined;
 
@@ -294,9 +295,22 @@ function toGitHubCliInputOptions(settings: GitOperationSettings): {
 
 function toCommitGenerationOptions(settings: GitOperationSettings): {
   systemPrompt: string | null;
+  model?: string;
 } {
   const systemPrompt = settings?.commitPrompt?.trim();
-  return { systemPrompt: systemPrompt || null };
+  return {
+    systemPrompt: systemPrompt || null,
+    ...toTextGenerationModelOptions(settings),
+  };
+}
+
+function toTextGenerationModelOptions(settings: GitOperationSettings): {
+  model?: string;
+} {
+  const model = settings?.textGenerationModel?.trim();
+  return {
+    ...(model ? { model } : {}),
+  };
 }
 
 function normalizePullRequestReference(reference: string): string {
@@ -855,6 +869,7 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+        ...toTextGenerationModelOptions(settings),
       });
 
       yield* gitHubCli

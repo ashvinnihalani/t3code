@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
-import { type GitRequestSettings, type ProviderKind } from "@t3tools/contracts";
+import { TrimmedNonEmptyString, type GitRequestSettings, type ProviderKind } from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
@@ -61,6 +61,7 @@ const AppSettingsSchema = Schema.Struct({
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),
+  textGenerationModel: Schema.optional(TrimmedNonEmptyString),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 export interface AppModelOption {
@@ -219,17 +220,19 @@ export function resolveAppModelSelection(
 }
 
 export function buildGitRequestSettings(
-  settings: Pick<AppSettings, "gitCommitPrompt" | "gitHubBinaryPath">,
+  settings: Pick<AppSettings, "gitCommitPrompt" | "gitHubBinaryPath" | "textGenerationModel">,
 ): GitRequestSettings | undefined {
   const githubBinaryPath = settings.gitHubBinaryPath.trim();
   const commitPrompt = settings.gitCommitPrompt.trim();
-  if (!githubBinaryPath && !commitPrompt) {
+  const textGenerationModel = settings.textGenerationModel?.trim() ?? "";
+  if (!githubBinaryPath && !commitPrompt && !textGenerationModel) {
     return undefined;
   }
 
   return {
     ...(githubBinaryPath ? { githubBinaryPath } : {}),
     ...(commitPrompt ? { commitPrompt } : {}),
+    ...(textGenerationModel ? { textGenerationModel } : {}),
   };
 }
 
