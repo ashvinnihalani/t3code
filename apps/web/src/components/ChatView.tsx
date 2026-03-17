@@ -986,6 +986,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     timelineEntries,
   ]);
   const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const localGitCwd = activeProject?.remote ? null : gitCwd;
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const isPathTrigger = composerTriggerKind === "path";
@@ -995,13 +996,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(localGitCwd));
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
-      cwd: gitCwd,
+      cwd: localGitCwd,
       query: effectivePathQuery,
-      enabled: isPathTrigger,
+      enabled: isPathTrigger && !activeProject?.remote,
       limit: 80,
     }),
   );
@@ -1112,7 +1113,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
   // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = branchesQuery.data?.isRepo ?? true;
+  const isGitRepo = activeProject?.remote ? false : (branchesQuery.data?.isRepo ?? true);
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split"),
     [keybindings],
@@ -3435,6 +3436,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
           activeProjectScripts={activeProject?.scripts}
@@ -3444,7 +3446,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           keybindings={keybindings}
           availableEditors={availableEditors}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
-          gitCwd={gitCwd}
+          gitCwd={localGitCwd}
           diffOpen={diffOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
@@ -3502,10 +3504,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
+                markdownCwd={localGitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
-                workspaceRoot={activeProject?.cwd ?? undefined}
+                workspaceRoot={
+                  activeProject?.remote ? undefined : (activeProject?.cwd ?? undefined)
+                }
               />
             </div>
 
