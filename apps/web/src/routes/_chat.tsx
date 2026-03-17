@@ -10,6 +10,7 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
+import { resolveEffectiveThreadEnvMode } from "../threadEnvMode";
 import { Sidebar, SidebarProvider } from "~/components/ui/sidebar";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useAppSettings } from "~/appSettings";
@@ -42,6 +43,7 @@ function ChatRouteGlobalShortcuts() {
 
       const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
       if (!projectId) return;
+      const activeProject = projects.find((project) => project.id === projectId);
 
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -56,6 +58,7 @@ function ChatRouteGlobalShortcuts() {
         void handleNewThread(projectId, {
           envMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
+            projectRemote: activeProject?.remote ?? null,
           }),
         });
         return;
@@ -67,7 +70,11 @@ function ChatRouteGlobalShortcuts() {
       void handleNewThread(projectId, {
         branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
         worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-        envMode: activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
+        envMode: resolveEffectiveThreadEnvMode({
+          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
+          draftThreadEnvMode: activeDraftThread?.envMode,
+          projectRemote: activeProject?.remote ?? null,
+        }),
       });
     };
 

@@ -8,6 +8,7 @@ import {
 } from "../composerDraftStore";
 import { newThreadId } from "../lib/utils";
 import { useStore } from "../store";
+import { resolvePersistedThreadEnvMode } from "../threadEnvMode";
 
 export function useHandleNewThread() {
   const projects = useStore((store) => store.projects);
@@ -35,8 +36,6 @@ export function useHandleNewThread() {
       },
     ): Promise<void> => {
       const project = projects.find((entry) => entry.id === projectId);
-      const requestedEnvMode = options?.envMode ?? "local";
-      const resolvedEnvMode = project?.remote ? "local" : requestedEnvMode;
       const {
         clearProjectDraftThreadId,
         getDraftThread,
@@ -51,13 +50,39 @@ export function useHandleNewThread() {
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)
         : null;
+
+      const resolveEnvMode = (
+        currentWorktreePath: string | null,
+        fallbackEnvMode?: DraftThreadEnvMode,
+      ) =>
+        resolvePersistedThreadEnvMode({
+          projectRemote: project?.remote ?? null,
+          requestedEnvMode: options?.envMode,
+          fallbackEnvMode,
+          worktreePath: hasWorktreePathOption
+            ? (options?.worktreePath ?? null)
+            : currentWorktreePath,
+        });
+
       if (storedDraftThread) {
         return (async () => {
-          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+          const resolvedEnvMode = resolveEnvMode(
+            storedDraftThread.worktreePath,
+            storedDraftThread.envMode,
+          );
+          const shouldNormalizeStoredEnvMode = resolvedEnvMode !== storedDraftThread.envMode;
+          if (
+            hasBranchOption ||
+            hasWorktreePathOption ||
+            hasEnvModeOption ||
+            shouldNormalizeStoredEnvMode
+          ) {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-              ...(hasEnvModeOption ? { envMode: resolvedEnvMode } : {}),
+              ...(hasEnvModeOption || shouldNormalizeStoredEnvMode
+                ? { envMode: resolvedEnvMode }
+                : {}),
             });
           }
           setProjectDraftThreadId(projectId, storedDraftThread.threadId);
@@ -78,11 +103,23 @@ export function useHandleNewThread() {
         routeThreadId &&
         latestActiveDraftThread.projectId === projectId
       ) {
-        if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+        const resolvedEnvMode = resolveEnvMode(
+          latestActiveDraftThread.worktreePath,
+          latestActiveDraftThread.envMode,
+        );
+        const shouldNormalizeActiveEnvMode = resolvedEnvMode !== latestActiveDraftThread.envMode;
+        if (
+          hasBranchOption ||
+          hasWorktreePathOption ||
+          hasEnvModeOption ||
+          shouldNormalizeActiveEnvMode
+        ) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-            ...(hasEnvModeOption ? { envMode: resolvedEnvMode } : {}),
+            ...(hasEnvModeOption || shouldNormalizeActiveEnvMode
+              ? { envMode: resolvedEnvMode }
+              : {}),
           });
         }
         setProjectDraftThreadId(projectId, routeThreadId);
@@ -92,6 +129,7 @@ export function useHandleNewThread() {
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       return (async () => {
+        const resolvedEnvMode = resolveEnvMode(options?.worktreePath ?? null);
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
           branch: options?.branch ?? null,
