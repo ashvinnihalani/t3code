@@ -20,6 +20,7 @@ import type {
 } from "./git";
 import type {
   ProjectOpenInEditorInput,
+  ProjectOpenPathInEditorInput,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -135,9 +136,10 @@ export interface NativeApi {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
     openInEditor: (input: ProjectOpenInEditorInput) => Promise<void>;
+    openPathInEditor: (input: ProjectOpenPathInEditorInput) => Promise<void>;
   };
   shell: {
-    openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
+    openInEditor: (target: string, editor: EditorId) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {

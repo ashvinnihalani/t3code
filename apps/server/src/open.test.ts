@@ -14,7 +14,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   it.effect("returns commands for command-based editors", () =>
     Effect.gen(function* () {
       const antigravityLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "antigravity" },
+        { target: "/tmp/workspace", editor: "antigravity" },
         "darwin",
       );
       assert.deepEqual(antigravityLaunch, {
@@ -23,7 +23,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const cursorLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "cursor" },
+        { target: "/tmp/workspace", editor: "cursor" },
         "darwin",
       );
       assert.deepEqual(cursorLaunch, {
@@ -32,7 +32,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const vscodeLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "vscode" },
+        { target: "/tmp/workspace", editor: "vscode" },
         "darwin",
       );
       assert.deepEqual(vscodeLaunch, {
@@ -41,7 +41,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const zedLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "zed" },
+        { target: "/tmp/workspace", editor: "zed" },
         "darwin",
       );
       assert.deepEqual(zedLaunch, {
@@ -54,7 +54,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   it.effect("uses --goto when editor supports line/column suffixes", () =>
     Effect.gen(function* () {
       const lineOnly = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/AGENTS.md:48", editor: "cursor" },
+        { target: "/tmp/workspace/AGENTS.md:48", editor: "cursor" },
         "darwin",
       );
       assert.deepEqual(lineOnly, {
@@ -63,7 +63,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const lineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "cursor" },
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "cursor" },
         "darwin",
       );
       assert.deepEqual(lineAndColumn, {
@@ -72,7 +72,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const vscodeLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "vscode" },
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "vscode" },
         "darwin",
       );
       assert.deepEqual(vscodeLineAndColumn, {
@@ -81,7 +81,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const zedLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "zed" },
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "zed" },
         "darwin",
       );
       assert.deepEqual(zedLineAndColumn, {
@@ -94,7 +94,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   it.effect("maps file-manager editor to OS open commands", () =>
     Effect.gen(function* () {
       const launch1 = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "file-manager" },
+        { target: "/tmp/workspace", editor: "file-manager" },
         "darwin",
       );
       assert.deepEqual(launch1, {
@@ -103,7 +103,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const launch2 = yield* resolveEditorLaunch(
-        { cwd: "C:\\workspace", editor: "file-manager" },
+        { target: "C:\\workspace", editor: "file-manager" },
         "win32",
       );
       assert.deepEqual(launch2, {
@@ -112,13 +112,23 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       });
 
       const launch3 = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "file-manager" },
+        { target: "/tmp/workspace", editor: "file-manager" },
         "linux",
       );
       assert.deepEqual(launch3, {
         command: "xdg-open",
         args: ["/tmp/workspace"],
       });
+    }),
+  );
+
+  it.effect("rejects remote SSH targets for file-manager", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveEditorLaunch(
+        { target: "ssh://alice@example.com/workspace", editor: "file-manager" },
+        "darwin",
+      ).pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
     }),
   );
 });

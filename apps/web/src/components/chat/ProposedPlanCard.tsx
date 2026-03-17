@@ -26,16 +26,17 @@ import {
 } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 import { readNativeApi } from "~/nativeApi";
+import { type ProjectLinkContext } from "../../projectEditorTargets";
 
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
   projectId,
-  cwd,
+  linkContext,
   workspaceRoot,
 }: {
   planMarkdown: string;
   projectId: ProjectId | undefined;
-  cwd: string | undefined;
+  linkContext: ProjectLinkContext;
   workspaceRoot: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -143,9 +144,17 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
       <div className="mt-4">
         <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
           {canCollapse && !expanded ? (
-            <ChatMarkdown text={collapsedPreview ?? ""} cwd={cwd} isStreaming={false} />
+            <ChatMarkdown
+              text={collapsedPreview ?? ""}
+              linkContext={linkContext}
+              isStreaming={false}
+            />
           ) : (
-            <ChatMarkdown text={displayedPlanMarkdown} cwd={cwd} isStreaming={false} />
+            <ChatMarkdown
+              text={displayedPlanMarkdown}
+              linkContext={linkContext}
+              isStreaming={false}
+            />
           )}
           {canCollapse && !expanded ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-card/95 via-card/80 to-transparent" />

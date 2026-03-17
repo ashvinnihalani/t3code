@@ -1,6 +1,7 @@
 import {
   type EditorId,
   type ProjectId,
+  type ProjectRemoteTarget,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -21,6 +22,7 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
+  activeProjectRemote: ProjectRemoteTarget | null;
   isRemoteProject: boolean;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -44,6 +46,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
+  activeProjectRemote,
   isRemoteProject,
   isGitRepo,
   openInCwd,
@@ -94,20 +97,22 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
-        {activeProjectName && !isRemoteProject && (
+        {activeProjectName && (
           <OpenInPicker
             keybindings={keybindings}
             availableEditors={availableEditors}
             projectId={activeProjectId}
+            threadId={activeThreadId}
             openInCwd={openInCwd}
             openInProjectRoot={openInProjectRoot}
+            isRemoteProject={isRemoteProject}
           />
         )}
         {activeProjectName && (
           <GitActionsControl
             gitTarget={gitTarget}
             activeThreadId={activeThreadId}
-            isRemoteProject={isRemoteProject}
+            projectRemote={activeProjectRemote}
           />
         )}
         <Tooltip>

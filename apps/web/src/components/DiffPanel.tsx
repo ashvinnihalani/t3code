@@ -12,12 +12,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { openInPreferredEditor } from "../editorPreferences";
+import { openResolvedEditorTargetInPreferredEditor } from "../editorPreferences";
 import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { resolvePathLinkTarget } from "../terminal-links";
+import { resolveProjectEditorTargetFromRawPath } from "../projectEditorTargets";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { useTheme } from "../hooks/useTheme";
 import { buildPatchCacheKey } from "../lib/diffRendering";
@@ -310,13 +310,19 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
-      if (!api || activeProject?.remote) return;
-      const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
-      void openInPreferredEditor(api, targetPath).catch((error) => {
+      if (!api || !activeCwd) return;
+      const target = resolveProjectEditorTargetFromRawPath(filePath, {
+        projectId: activeProject?.id ?? undefined,
+        threadId: activeThreadId ?? undefined,
+        referenceRoot: activeCwd,
+        remote: activeProject?.remote ?? null,
+      });
+      if (!target) return;
+      void openResolvedEditorTargetInPreferredEditor(api, target).catch((error) => {
         console.warn("Failed to open diff file in editor.", error);
       });
     },
-    [activeCwd, activeProject?.remote],
+    [activeCwd, activeProject?.id, activeProject?.remote, activeThreadId],
   );
 
   const selectTurn = (turnId: TurnId) => {

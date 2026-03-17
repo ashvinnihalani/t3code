@@ -73,6 +73,24 @@ it.effect("accepts git.preparePullRequestThread requests", () =>
   }),
 );
 
+it.effect("accepts project.openPathInEditor requests", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWebSocketRequest({
+      id: "req-open-path-1",
+      body: {
+        _tag: WS_METHODS.projectsOpenPathInEditor,
+        projectId: "project-1",
+        threadId: "thread-1",
+        relativePath: "src/main.ts",
+        line: 12,
+        column: 3,
+        editor: "cursor",
+      },
+    });
+    assert.strictEqual(parsed.body._tag, WS_METHODS.projectsOpenPathInEditor);
+  }),
+);
+
 it.effect("accepts typed websocket push envelopes with sequence", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeWsResponse({

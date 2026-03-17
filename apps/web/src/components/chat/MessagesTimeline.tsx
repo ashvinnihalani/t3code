@@ -36,6 +36,7 @@ import { computeMessageDurationStart, normalizeCompactToolLabel } from "./Messag
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "../../appSettings";
 import { formatTimestamp } from "../../timestampFormat";
+import { type ProjectLinkContext } from "../../projectEditorTargets";
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
@@ -59,10 +60,10 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   projectId: ProjectId | undefined;
-  markdownCwd: string | undefined;
+  linkContext: ProjectLinkContext;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
-  workspaceRoot: string | undefined;
+  workspaceRootDisplay: string | undefined;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
@@ -84,10 +85,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   projectId,
-  markdownCwd,
+  linkContext,
   resolvedTheme,
   timestampFormat,
-  workspaceRoot,
+  workspaceRootDisplay,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
@@ -428,7 +429,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="min-w-0 px-1 py-0.5">
                 <ChatMarkdown
                   text={messageText}
-                  cwd={markdownCwd}
+                  linkContext={linkContext}
                   isStreaming={Boolean(row.message.streaming)}
                 />
                 {(() => {
@@ -506,8 +507,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
             projectId={projectId}
-            cwd={markdownCwd}
-            workspaceRoot={workspaceRoot}
+            linkContext={linkContext}
+            workspaceRoot={workspaceRootDisplay}
           />
         </div>
       )}

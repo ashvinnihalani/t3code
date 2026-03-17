@@ -914,7 +914,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
     timelineEntries,
   ]);
   const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
-  const localGitCwd = activeProject?.remote ? null : gitCwd;
+  const activeProjectLinkContext = useMemo(
+    () => ({
+      projectId: activeProject?.id,
+      threadId: activeThread?.id,
+      referenceRoot: gitCwd ?? undefined,
+      remote: activeProject?.remote ?? null,
+    }),
+    [activeProject?.id, activeProject?.remote, activeThread?.id, gitCwd],
+  );
   const gitTarget = useMemo(
     () => ({ cwd: gitCwd, projectId: activeProject?.id ?? null }),
     [activeProject?.id, gitCwd],
@@ -3261,6 +3269,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeThreadTitle={activeThread.title}
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
+          activeProjectRemote={activeProject?.remote ?? null}
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
@@ -3331,12 +3340,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 projectId={activeProject?.id}
-                markdownCwd={localGitCwd ?? undefined}
+                linkContext={activeProjectLinkContext}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
-                workspaceRoot={
-                  activeProject?.remote ? undefined : (activeProject?.cwd ?? undefined)
-                }
+                workspaceRootDisplay={activeProject?.cwd ?? undefined}
               />
             </div>
 
@@ -3873,7 +3880,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             activePlan={activePlan}
             activeProposedPlan={activeProposedPlan}
             projectId={activeProject?.id}
-            markdownCwd={gitCwd ?? undefined}
+            linkContext={activeProjectLinkContext}
             workspaceRoot={activeProject?.cwd ?? undefined}
             timestampFormat={timestampFormat}
             onClose={() => {
@@ -3899,7 +3906,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId={activeThread.id}
             cwd={gitCwd ?? activeProject.cwd}
             projectId={activeProject.id}
-            allowPathLinkOpen={!activeProject.remote}
+            projectRemote={activeProject.remote ?? null}
             runtimeEnv={threadTerminalRuntimeEnv}
             height={terminalState.terminalHeight}
             terminalIds={terminalState.terminalIds}

@@ -12,11 +12,14 @@ import { ServerConfig, type ServerConfigShape } from "./config";
 import { makeServerProviderLayer, makeServerRuntimeServicesLayer } from "./serverLayers";
 
 import {
+  CommandId,
   DEFAULT_TERMINAL_ID,
   EDITORS,
   EventId,
+  MessageId,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
+  ProjectId,
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -360,6 +363,107 @@ async function sendRequest(
   }
 }
 
+async function createProjectAndThread(input: {
+  ws: WebSocket;
+  projectId: string;
+  threadId: string;
+  workspaceRoot?: string;
+  remote?: { kind: "ssh"; hostAlias: string } | null;
+  worktreePath?: string | null;
+}): Promise<void> {
+  const createdAt = new Date().toISOString();
+  const projectId = ProjectId.makeUnsafe(input.projectId);
+  const threadId = ThreadId.makeUnsafe(input.threadId);
+
+  const createProjectResponse = await sendRequest(
+    input.ws,
+    ORCHESTRATION_WS_METHODS.dispatchCommand,
+    {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: input.projectId,
+      workspaceRoot: input.workspaceRoot ?? `/tmp/${input.projectId.replace(/\s+/g, "-")}`,
+      defaultModel: "gpt-5-codex",
+      ...(input.remote !== undefined ? { remote: input.remote } : {}),
+      createdAt,
+    },
+  );
+  expect(createProjectResponse.error).toBeUndefined();
+
+  const createThreadResponse = await sendRequest(
+    input.ws,
+    ORCHESTRATION_WS_METHODS.dispatchCommand,
+    {
+      type: "thread.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      threadId,
+      projectId,
+      title: "Thread",
+      model: "gpt-5-codex",
+      interactionMode: "default",
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: input.worktreePath ?? null,
+      createdAt,
+    },
+  );
+  expect(createThreadResponse.error).toBeUndefined();
+}
+
+async function createScopedAttachment(input: {
+  ws: WebSocket;
+  projectId: string;
+  threadId: string;
+  workspaceRoot?: string;
+  remote?: { kind: "ssh"; hostAlias: string } | null;
+  worktreePath?: string | null;
+  attachmentName?: string;
+}): Promise<{ attachmentId: string }> {
+  const createdAt = new Date().toISOString();
+  const threadId = ThreadId.makeUnsafe(input.threadId);
+
+  await createProjectAndThread(input);
+  const turnResponse = await sendRequest(input.ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+    type: "thread.turn.start",
+    commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+    threadId,
+    message: {
+      messageId: MessageId.makeUnsafe(crypto.randomUUID()),
+      role: "user",
+      text: "",
+      attachments: [
+        {
+          type: "image",
+          name: input.attachmentName ?? "0.png",
+          dataUrl: "data:image/png;base64,AA==",
+        },
+      ],
+    },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    createdAt,
+  });
+  expect(turnResponse.error).toBeUndefined();
+
+  const snapshotResponse = await sendRequest(input.ws, ORCHESTRATION_WS_METHODS.getSnapshot);
+  expect(snapshotResponse.error).toBeUndefined();
+  const snapshot = snapshotResponse.result as {
+    threads: Array<{
+      id: string;
+      messages: Array<{
+        attachments?: Array<{ id: string }>;
+      }>;
+    }>;
+  };
+  const thread = snapshot.threads.find((entry) => entry.id === threadId);
+  const attachmentId = thread?.messages.flatMap((message) => message.attachments ?? [])[0]?.id;
+  if (!attachmentId) {
+    throw new Error("Expected attachment to be persisted in the snapshot.");
+  }
+  return { attachmentId };
+}
+
 async function waitForPush<C extends WsPushChannel>(
   ws: WebSocket,
   channel: C,
@@ -589,48 +693,80 @@ describe("WebSocket Server", () => {
     });
   });
 
-  it("serves persisted attachments from stateDir", async () => {
+  it("serves persisted attachments from a project/thread-scoped route", async () => {
     const stateDir = makeTempDir("t3code-state-attachments-");
-    const attachmentPath = path.join(stateDir, "attachments", "thread-a", "message-a", "0.png");
-    fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
-    fs.writeFileSync(attachmentPath, Buffer.from("hello-attachment"));
-
     server = await createTestServer({ cwd: "/test/project", stateDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const response = await fetch(`http://127.0.0.1:${port}/attachments/thread-a/message-a/0.png`);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("image/png");
-    const bytes = Buffer.from(await response.arrayBuffer());
-    expect(bytes).toEqual(Buffer.from("hello-attachment"));
-  });
-
-  it("serves persisted attachments for URL-encoded paths", async () => {
-    const stateDir = makeTempDir("t3code-state-attachments-encoded-");
-    const attachmentPath = path.join(
-      stateDir,
-      "attachments",
-      "thread%20folder",
-      "message%20folder",
-      "file%20name.png",
-    );
-    fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
-    fs.writeFileSync(attachmentPath, Buffer.from("hello-encoded-attachment"));
-
-    server = await createTestServer({ cwd: "/test/project", stateDir });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    const { attachmentId } = await createScopedAttachment({
+      ws,
+      projectId: "project-attachments",
+      threadId: "thread-attachments",
+    });
 
     const response = await fetch(
-      `http://127.0.0.1:${port}/attachments/thread%20folder/message%20folder/file%20name.png`,
+      `http://127.0.0.1:${port}/api/projects/project-attachments/threads/thread-attachments/attachments/${encodeURIComponent(
+        attachmentId,
+      )}`,
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/png");
     const bytes = Buffer.from(await response.arrayBuffer());
-    expect(bytes).toEqual(Buffer.from("hello-encoded-attachment"));
+    expect(bytes).toEqual(Buffer.from([0]));
+  });
+
+  it("serves scoped attachments for URL-encoded project and thread ids", async () => {
+    const stateDir = makeTempDir("t3code-state-attachments-encoded-");
+    server = await createTestServer({ cwd: "/test/project", stateDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    const { attachmentId } = await createScopedAttachment({
+      ws,
+      projectId: "project folder",
+      threadId: "thread folder",
+      attachmentName: "file name.png",
+    });
+
+    const response = await fetch(
+      `http://127.0.0.1:${port}/api/projects/${encodeURIComponent("project folder")}/threads/${encodeURIComponent(
+        "thread folder",
+      )}/attachments/${encodeURIComponent(attachmentId)}`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("image/png");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes).toEqual(Buffer.from([0]));
+  });
+
+  it("rejects scoped attachment requests that do not match the thread ownership", async () => {
+    const stateDir = makeTempDir("t3code-state-attachments-ownership-");
+    server = await createTestServer({ cwd: "/test/project", stateDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    const { attachmentId } = await createScopedAttachment({
+      ws,
+      projectId: "project-owned",
+      threadId: "thread-owned",
+    });
+
+    const response = await fetch(
+      `http://127.0.0.1:${port}/api/projects/project-owned/threads/thread-other/attachments/${encodeURIComponent(
+        attachmentId,
+      )}`,
+    );
+    expect(response.status).toBe(404);
   });
 
   it("serves static index for root path", async () => {
@@ -983,11 +1119,11 @@ describe("WebSocket Server", () => {
   });
 
   it("routes shell.openInEditor through the injected open service", async () => {
-    const openCalls: Array<{ cwd: string; editor: string }> = [];
+    const openCalls: Array<{ target: string; editor: string }> = [];
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
       openInEditor: (input) => {
-        openCalls.push({ cwd: input.cwd, editor: input.editor });
+        openCalls.push({ target: input.target, editor: input.editor });
         return Effect.void;
       },
     };
@@ -1000,11 +1136,197 @@ describe("WebSocket Server", () => {
     connections.push(ws);
 
     const response = await sendRequest(ws, WS_METHODS.shellOpenInEditor, {
-      cwd: "/my/workspace",
+      target: "/my/workspace",
       editor: "cursor",
     });
     expect(response.error).toBeUndefined();
-    expect(openCalls).toEqual([{ cwd: "/my/workspace", editor: "cursor" }]);
+    expect(openCalls).toEqual([{ target: "/my/workspace", editor: "cursor" }]);
+  });
+
+  it("routes project path editor opens through the project-aware resolver", async () => {
+    const openCalls: Array<{ target: string; editor: string }> = [];
+    const openService: OpenShape = {
+      openBrowser: () => Effect.void,
+      openInEditor: (input) => {
+        openCalls.push({ target: input.target, editor: input.editor });
+        return Effect.void;
+      },
+    };
+
+    server = await createTestServer({ cwd: "/my/workspace", open: openService });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId: "project-local-open",
+      threadId: "thread-local-open",
+      workspaceRoot: "/my/workspace/project",
+      worktreePath: "/my/workspace/worktree",
+    });
+
+    const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
+      projectId: "project-local-open",
+      threadId: "thread-local-open",
+      relativePath: "src/main.ts",
+      line: 12,
+      column: 3,
+      editor: "cursor",
+    });
+    expect(response.error).toBeUndefined();
+    expect(openCalls).toEqual([
+      {
+        target: "/my/workspace/worktree/src/main.ts:12:3",
+        editor: "cursor",
+      },
+    ]);
+  });
+
+  it("rejects project path editor opens that escape the project root", async () => {
+    const openService: OpenShape = {
+      openBrowser: () => Effect.void,
+      openInEditor: () => Effect.void,
+    };
+
+    server = await createTestServer({ cwd: "/my/workspace", open: openService });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId: "project-local-escape",
+      threadId: "thread-local-escape",
+      workspaceRoot: "/my/workspace/project",
+    });
+
+    const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
+      projectId: "project-local-escape",
+      threadId: "thread-local-escape",
+      relativePath: "../escape.ts",
+      editor: "cursor",
+    });
+    expect(response.error).toEqual({
+      code: 400,
+      message: "Project path must stay within the project root.",
+    });
+  });
+
+  it("builds ssh editor targets for remote project root and file opens", async () => {
+    const homeDir = makeTempDir("t3code-ssh-home-");
+    fs.mkdirSync(path.join(homeDir, ".ssh"), { recursive: true });
+    fs.writeFileSync(
+      path.join(homeDir, ".ssh", "config"),
+      ["Host prod", "  HostName prod.example.com", "  User alice"].join("\n"),
+      "utf8",
+    );
+    const previousHome = process.env.HOME;
+    process.env.HOME = homeDir;
+
+    const openCalls: Array<{ target: string; editor: string }> = [];
+    const openService: OpenShape = {
+      openBrowser: () => Effect.void,
+      openInEditor: (input) => {
+        openCalls.push({ target: input.target, editor: input.editor });
+        return Effect.void;
+      },
+    };
+
+    try {
+      server = await createTestServer({ cwd: "/my/workspace", open: openService });
+      const addr = server.address();
+      const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+      const [ws] = await connectAndAwaitWelcome(port);
+      connections.push(ws);
+      await createProjectAndThread({
+        ws,
+        projectId: "project-remote-open",
+        threadId: "thread-remote-open",
+        workspaceRoot: "/srv/app",
+        remote: { kind: "ssh", hostAlias: "prod" },
+      });
+
+      const rootResponse = await sendRequest(ws, WS_METHODS.projectsOpenInEditor, {
+        projectId: "project-remote-open",
+        editor: "cursor",
+      });
+      expect(rootResponse.error).toBeUndefined();
+
+      const fileResponse = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
+        projectId: "project-remote-open",
+        threadId: "thread-remote-open",
+        relativePath: "src/main.ts",
+        line: 12,
+        column: 3,
+        editor: "cursor",
+      });
+      expect(fileResponse.error).toBeUndefined();
+      expect(openCalls).toEqual([
+        {
+          target: "ssh://alice@prod.example.com/srv/app",
+          editor: "cursor",
+        },
+        {
+          target: "ssh://alice@prod.example.com/srv/app/src/main.ts",
+          editor: "cursor",
+        },
+      ]);
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
+  });
+
+  it("returns a clear error when remote ssh metadata is incomplete", async () => {
+    const homeDir = makeTempDir("t3code-ssh-home-missing-");
+    fs.mkdirSync(path.join(homeDir, ".ssh"), { recursive: true });
+    fs.writeFileSync(
+      path.join(homeDir, ".ssh", "config"),
+      "Host prod\n  HostName prod.example.com\n",
+      "utf8",
+    );
+    const previousHome = process.env.HOME;
+    process.env.HOME = homeDir;
+
+    try {
+      server = await createTestServer({ cwd: "/my/workspace" });
+      const addr = server.address();
+      const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+      const [ws] = await connectAndAwaitWelcome(port);
+      connections.push(ws);
+      await createProjectAndThread({
+        ws,
+        projectId: "project-remote-missing",
+        threadId: "thread-remote-missing",
+        workspaceRoot: "/srv/app",
+        remote: { kind: "ssh", hostAlias: "prod" },
+      });
+
+      const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
+        projectId: "project-remote-missing",
+        threadId: "thread-remote-missing",
+        relativePath: "src/main.ts",
+        editor: "cursor",
+      });
+      expect(response.error).toEqual({
+        code: 400,
+        message: "SSH host 'prod' is missing a concrete user or hostname.",
+      });
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
   });
 
   it("reads keybindings from the configured state directory", async () => {
@@ -1483,7 +1805,7 @@ describe("WebSocket Server", () => {
           id: "req-broken-open",
           body: {
             _tag: WS_METHODS.shellOpenInEditor,
-            cwd: "/tmp",
+            target: "/tmp",
             editor: "cursor",
           },
         }),

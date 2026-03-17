@@ -37,6 +37,7 @@ import { KeybindingRule } from "./keybindings";
 import { RemoteProjectValidationInput } from "./remote";
 import {
   ProjectOpenInEditorInput,
+  ProjectOpenPathInEditorInput,
   ProjectSearchEntriesInput,
   ProjectWriteFileInput,
 } from "./project";
@@ -53,6 +54,7 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsOpenInEditor: "projects.openInEditor",
+  projectsOpenPathInEditor: "projects.openPathInEditor",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -120,6 +122,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
   tagRequestBody(WS_METHODS.projectsOpenInEditor, ProjectOpenInEditorInput),
+  tagRequestBody(WS_METHODS.projectsOpenPathInEditor, ProjectOpenPathInEditorInput),
 
   // Shell methods
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),

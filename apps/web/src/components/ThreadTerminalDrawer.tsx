@@ -1,6 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
-import { type ProjectId, type ThreadId } from "@t3tools/contracts";
+import { type ProjectId, type ProjectRemoteTarget, type ThreadId } from "@t3tools/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -12,12 +12,8 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
-import { openInPreferredEditor } from "../editorPreferences";
-import {
-  extractTerminalLinks,
-  isTerminalLinkActivation,
-  resolvePathLinkTarget,
-} from "../terminal-links";
+import { openResolvedEditorTargetInPreferredEditor } from "../editorPreferences";
+import { extractTerminalLinks, isTerminalLinkActivation } from "../terminal-links";
 import { isTerminalClearShortcut, terminalNavigationShortcutData } from "../keybindings";
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
@@ -26,6 +22,7 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
+import { resolveProjectEditorTargetFromRawPath } from "../projectEditorTargets";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -112,7 +109,7 @@ interface TerminalViewportProps {
   terminalId: string;
   cwd: string;
   projectId: ProjectId | null;
-  allowPathLinkOpen?: boolean;
+  projectRemote: ProjectRemoteTarget | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   focusRequestId: number;
@@ -126,7 +123,7 @@ function TerminalViewport({
   terminalId,
   cwd,
   projectId,
-  allowPathLinkOpen = true,
+  projectRemote,
   runtimeEnv,
   onSessionExited,
   focusRequestId,
@@ -239,16 +236,17 @@ function TerminalViewport({
                 return;
               }
 
-              if (!allowPathLinkOpen) {
-                writeSystemMessage(
-                  latestTerminal,
-                  "Opening remote filesystem paths in the local editor is unavailable.",
-                );
+              const target = resolveProjectEditorTargetFromRawPath(match.text, {
+                projectId: projectId ?? undefined,
+                threadId,
+                referenceRoot: cwd,
+                remote: projectRemote,
+              });
+              if (!target) {
+                writeSystemMessage(latestTerminal, "Unable to resolve path for editor opening.");
                 return;
               }
-
-              const target = resolvePathLinkTarget(match.text, cwd);
-              void openInPreferredEditor(api, target).catch((error) => {
+              void openResolvedEditorTargetInPreferredEditor(api, target).catch((error) => {
                 writeSystemMessage(
                   latestTerminal,
                   error instanceof Error ? error.message : "Unable to open path",
@@ -405,7 +403,7 @@ function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowPathLinkOpen, cwd, projectId, runtimeEnv, terminalId, threadId]);
+  }, [cwd, projectId, projectRemote, runtimeEnv, terminalId, threadId]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -450,7 +448,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   projectId: ProjectId | null;
-  allowPathLinkOpen?: boolean;
+  projectRemote: ProjectRemoteTarget | null;
   runtimeEnv?: Record<string, string>;
   height: number;
   terminalIds: string[];
@@ -501,7 +499,7 @@ export default function ThreadTerminalDrawer({
   threadId,
   cwd,
   projectId,
-  allowPathLinkOpen = true,
+  projectRemote,
   runtimeEnv,
   height,
   terminalIds,
@@ -815,7 +813,7 @@ export default function ThreadTerminalDrawer({
                         terminalId={terminalId}
                         cwd={cwd}
                         projectId={projectId}
-                        allowPathLinkOpen={allowPathLinkOpen}
+                        projectRemote={projectRemote}
                         {...(runtimeEnv ? { runtimeEnv } : {})}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         focusRequestId={focusRequestId}
@@ -835,7 +833,7 @@ export default function ThreadTerminalDrawer({
                   terminalId={resolvedActiveTerminalId}
                   cwd={cwd}
                   projectId={projectId}
-                  allowPathLinkOpen={allowPathLinkOpen}
+                  projectRemote={projectRemote}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   focusRequestId={focusRequestId}

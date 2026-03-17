@@ -320,6 +320,43 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards project path editor opens to the websocket project method", async () => {
+    requestMock.mockResolvedValue(undefined);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.openPathInEditor({
+      projectId: ProjectId.makeUnsafe("project-1"),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      relativePath: "src/main.ts",
+      line: 12,
+      column: 3,
+      editor: "cursor",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsOpenPathInEditor, {
+      projectId: "project-1",
+      threadId: "thread-1",
+      relativePath: "src/main.ts",
+      line: 12,
+      column: 3,
+      editor: "cursor",
+    });
+  });
+
+  it("forwards shell editor opens using the resolved target field", async () => {
+    requestMock.mockResolvedValue(undefined);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.shell.openInEditor("/tmp/project/file.ts:4", "cursor");
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.shellOpenInEditor, {
+      target: "/tmp/project/file.ts:4",
+      editor: "cursor",
+    });
+  });
+
   it("forwards remote project validation requests to the websocket server method", async () => {
     requestMock.mockResolvedValue({
       workspaceRoot: "/srv/app",

@@ -7,6 +7,7 @@
  * @module Server
  */
 import http from "node:http";
+import nodePath from "node:path";
 import type { Duplex } from "node:stream";
 
 import Mime from "@effect/platform-node/Mime";
@@ -61,11 +62,6 @@ import { Open, resolveAvailableEditors } from "./open";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore.ts";
 import { tryHandleProjectFaviconRequest } from "./projectFaviconRoute";
-import {
-  ATTACHMENTS_ROUTE_PREFIX,
-  normalizeAttachmentRelativePath,
-  resolveAttachmentRelativePath,
-} from "./attachmentPaths";
 
 import {
   createAttachmentId,
@@ -159,16 +155,18 @@ function toPosixRelativePath(input: string): string {
   return input.replaceAll("\\", "/");
 }
 
-function resolveWorkspaceWritePath(params: {
+function resolveWorkspaceRelativePath(params: {
   workspaceRoot: string;
   relativePath: string;
   path: Path.Path;
+  label: string;
+  allowWorkspaceRoot?: boolean;
 }): Effect.Effect<{ absolutePath: string; relativePath: string }, RouteRequestError> {
   const normalizedInputPath = params.relativePath.trim();
   if (params.path.isAbsolute(normalizedInputPath)) {
     return Effect.fail(
       new RouteRequestError({
-        message: "Workspace file path must be relative to the project root.",
+        message: `${params.label} must be relative to the project root.`,
       }),
     );
   }
@@ -177,24 +175,98 @@ function resolveWorkspaceWritePath(params: {
   const relativeToRoot = toPosixRelativePath(
     params.path.relative(params.workspaceRoot, absolutePath),
   );
+  const isWorkspaceRoot = relativeToRoot.length === 0 || relativeToRoot === ".";
   if (
-    relativeToRoot.length === 0 ||
-    relativeToRoot === "." ||
+    (!params.allowWorkspaceRoot && isWorkspaceRoot) ||
     relativeToRoot.startsWith("../") ||
     relativeToRoot === ".." ||
     params.path.isAbsolute(relativeToRoot)
   ) {
     return Effect.fail(
       new RouteRequestError({
-        message: "Workspace file path must stay within the project root.",
+        message: `${params.label} must stay within the project root.`,
       }),
     );
   }
 
   return Effect.succeed({
     absolutePath,
-    relativePath: relativeToRoot,
+    relativePath: isWorkspaceRoot ? "." : relativeToRoot,
   });
+}
+
+function resolveRemoteWorkspaceRelativePath(params: {
+  workspaceRoot: string;
+  relativePath: string;
+  label: string;
+  allowWorkspaceRoot?: boolean;
+}): Effect.Effect<{ absolutePath: string; relativePath: string }, RouteRequestError> {
+  const normalizedInputPath = params.relativePath.trim();
+  if (nodePath.posix.isAbsolute(normalizedInputPath)) {
+    return Effect.fail(
+      new RouteRequestError({
+        message: `${params.label} must be relative to the project root.`,
+      }),
+    );
+  }
+
+  const absolutePath = nodePath.posix.resolve(params.workspaceRoot, normalizedInputPath);
+  const relativeToRoot = nodePath.posix.relative(params.workspaceRoot, absolutePath);
+  const isWorkspaceRoot = relativeToRoot.length === 0 || relativeToRoot === ".";
+  if (
+    (!params.allowWorkspaceRoot && isWorkspaceRoot) ||
+    relativeToRoot.startsWith("../") ||
+    relativeToRoot === ".." ||
+    nodePath.posix.isAbsolute(relativeToRoot)
+  ) {
+    return Effect.fail(
+      new RouteRequestError({
+        message: `${params.label} must stay within the project root.`,
+      }),
+    );
+  }
+
+  return Effect.succeed({
+    absolutePath,
+    relativePath: isWorkspaceRoot ? "." : relativeToRoot,
+  });
+}
+
+const PROJECT_THREAD_ATTACHMENT_ROUTE_PARTS = ["api", "projects"] as const;
+
+function decodeUrlPathSegment(segment: string): string | null {
+  try {
+    const decoded = decodeURIComponent(segment);
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseProjectThreadAttachmentPath(pathname: string): {
+  projectId: string;
+  threadId: string;
+  attachmentId: string;
+} | null {
+  const parts = pathname.split("/").filter((segment) => segment.length > 0);
+  if (
+    parts.length !== 7 ||
+    parts[0] !== PROJECT_THREAD_ATTACHMENT_ROUTE_PARTS[0] ||
+    parts[1] !== PROJECT_THREAD_ATTACHMENT_ROUTE_PARTS[1] ||
+    parts[3] !== "threads" ||
+    parts[5] !== "attachments"
+  ) {
+    return null;
+  }
+
+  const projectId = decodeUrlPathSegment(parts[2] ?? "");
+  const threadId = decodeUrlPathSegment(parts[4] ?? "");
+  const attachmentId = decodeUrlPathSegment(parts[6] ?? "");
+  if (!projectId || !threadId || !attachmentId) {
+    return null;
+  }
+
+  return { projectId, threadId, attachmentId };
 }
 
 function stripRequestTag<T extends { _tag: string }>(body: T) {
@@ -452,8 +524,9 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+        const attachmentRequest = parseProjectThreadAttachmentPath(url.pathname);
         const snapshot =
-          url.pathname === "/api/project-favicon"
+          url.pathname === "/api/project-favicon" || attachmentRequest !== null
             ? yield* projectionReadModelQuery.getSnapshot()
             : null;
         if (
@@ -461,38 +534,60 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           tryHandleProjectFaviconRequest({
             url,
             res,
-            resolveProjectCwd: (projectId) =>
-              snapshot.projects.find((project) => project.id === projectId)?.workspaceRoot ?? null,
+            resolveProject: (projectId) => {
+              const project =
+                snapshot.projects.find(
+                  (entry) => entry.id === projectId && entry.deletedAt === null,
+                ) ?? null;
+              if (!project) {
+                return null;
+              }
+              return {
+                workspaceRoot: project.workspaceRoot,
+                ...(project.remote !== undefined ? { remote: project.remote } : {}),
+              };
+            },
           })
         ) {
           return;
         }
 
-        if (url.pathname.startsWith(ATTACHMENTS_ROUTE_PREFIX)) {
-          const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
-          const normalizedRelativePath = normalizeAttachmentRelativePath(rawRelativePath);
-          if (!normalizedRelativePath) {
-            respond(400, { "Content-Type": "text/plain" }, "Invalid attachment path");
+        if (attachmentRequest && snapshot) {
+          const project = snapshot.projects.find(
+            (entry) => entry.id === attachmentRequest.projectId && entry.deletedAt === null,
+          );
+          if (!project) {
+            respond(404, { "Content-Type": "text/plain" }, "Not Found");
             return;
           }
 
-          const isIdLookup =
-            !normalizedRelativePath.includes("/") && !normalizedRelativePath.includes(".");
-          const filePath = isIdLookup
-            ? resolveAttachmentPathById({
-                stateDir: serverConfig.stateDir,
-                attachmentId: normalizedRelativePath,
-              })
-            : resolveAttachmentRelativePath({
-                stateDir: serverConfig.stateDir,
-                relativePath: normalizedRelativePath,
-              });
+          const thread = snapshot.threads.find(
+            (entry) =>
+              entry.id === attachmentRequest.threadId &&
+              entry.projectId === project.id &&
+              entry.deletedAt === null,
+          );
+          if (!thread) {
+            respond(404, { "Content-Type": "text/plain" }, "Not Found");
+            return;
+          }
+
+          const hasAttachment = thread.messages.some((message) =>
+            (message.attachments ?? []).some(
+              (attachment) => attachment.id === attachmentRequest.attachmentId,
+            ),
+          );
+          if (!hasAttachment) {
+            respond(404, { "Content-Type": "text/plain" }, "Not Found");
+            return;
+          }
+
+          const filePath = resolveAttachmentPathById({
+            stateDir: serverConfig.stateDir,
+            attachmentId: attachmentRequest.attachmentId,
+          });
           if (!filePath) {
-            respond(
-              isIdLookup ? 404 : 400,
-              { "Content-Type": "text/plain" },
-              isIdLookup ? "Not Found" : "Invalid attachment path",
-            );
+            respond(404, { "Content-Type": "text/plain" }, "Not Found");
             return;
           }
 
@@ -642,13 +737,138 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     const snapshot = yield* projectionReadModelQuery.getSnapshot();
-    const project = snapshot.projects.find((entry) => entry.id === projectId);
+    const project = snapshot.projects.find(
+      (entry) => entry.id === projectId && entry.deletedAt === null,
+    );
     if (!project) {
       return yield* new RouteRequestError({
         message: `Project '${projectId}' was not found.`,
       });
     }
     return project;
+  });
+
+  const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const snapshot = yield* projectionReadModelQuery.getSnapshot();
+    const thread = snapshot.threads.find(
+      (entry) => entry.id === threadId && entry.deletedAt === null,
+    );
+    if (!thread) {
+      return yield* new RouteRequestError({
+        message: `Thread '${threadId}' was not found.`,
+      });
+    }
+    return thread;
+  });
+
+  const resolveProjectPathBase = Effect.fnUntraced(function* (input: {
+    readonly projectId: ProjectId;
+    readonly threadId?: ThreadId;
+  }) {
+    const project = yield* resolveProject(input.projectId);
+    if (!input.threadId) {
+      return {
+        project,
+        baseRoot: project.workspaceRoot,
+      };
+    }
+
+    const thread = yield* resolveThread(input.threadId);
+    if (thread.projectId !== project.id) {
+      return yield* new RouteRequestError({
+        message: `Thread '${input.threadId}' does not belong to project '${input.projectId}'.`,
+      });
+    }
+
+    return {
+      project,
+      baseRoot: thread.worktreePath ?? project.workspaceRoot,
+    };
+  });
+
+  const resolveRemoteSshHost = Effect.fnUntraced(function* (hostAlias: string) {
+    const sshHosts = yield* Effect.tryPromise({
+      try: () => listSshHosts(),
+      catch: (cause) =>
+        new RouteRequestError({
+          message: `Failed to resolve SSH host metadata: ${String(cause)}`,
+        }),
+    });
+    const sshHost = sshHosts.find((host) => host.alias === hostAlias);
+    if (!sshHost) {
+      return yield* new RouteRequestError({
+        message: `SSH host '${hostAlias}' was not found in ~/.ssh/config.`,
+      });
+    }
+    const user = sshHost.user;
+    const hostname = sshHost.hostname;
+    if (!user || !hostname) {
+      return yield* new RouteRequestError({
+        message: `SSH host '${hostAlias}' is missing a concrete user or hostname.`,
+      });
+    }
+    return {
+      user,
+      hostname,
+      port: sshHost.port,
+    };
+  });
+
+  const buildRemoteSshEditorTarget = Effect.fnUntraced(function* (input: {
+    readonly hostAlias: string;
+    readonly absolutePath: string;
+  }) {
+    const sshHost = yield* resolveRemoteSshHost(input.hostAlias);
+    const username = sshHost.user;
+    const hostname = sshHost.hostname;
+    const targetUrl = new URL("ssh://placeholder");
+    targetUrl.username = username;
+    targetUrl.hostname = hostname;
+    if (sshHost.port !== null) {
+      targetUrl.port = String(sshHost.port);
+    }
+    targetUrl.pathname = input.absolutePath;
+    return targetUrl.toString();
+  });
+
+  const resolveProjectEditorTarget = Effect.fnUntraced(function* (input: {
+    readonly projectId: ProjectId;
+    readonly threadId?: ThreadId;
+    readonly relativePath?: string;
+    readonly line?: number;
+    readonly column?: number;
+  }) {
+    const { project, baseRoot } = yield* resolveProjectPathBase({
+      projectId: input.projectId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    });
+    const relativePath = input.relativePath ?? ".";
+    if (project.remote?.kind === "ssh") {
+      const resolvedTarget = yield* resolveRemoteWorkspaceRelativePath({
+        workspaceRoot: baseRoot,
+        relativePath,
+        label: "Project path",
+        allowWorkspaceRoot: true,
+      });
+      return yield* buildRemoteSshEditorTarget({
+        hostAlias: project.remote.hostAlias,
+        absolutePath: resolvedTarget.absolutePath,
+      });
+    }
+
+    const resolvedTarget = yield* resolveWorkspaceRelativePath({
+      workspaceRoot: baseRoot,
+      relativePath,
+      path,
+      label: "Project path",
+      allowWorkspaceRoot: true,
+    });
+    if (typeof input.line !== "number") {
+      return resolvedTarget.absolutePath;
+    }
+    return `${resolvedTarget.absolutePath}:${input.line}${
+      typeof input.column === "number" ? `:${input.column}` : ""
+    }`;
   });
 
   const resolveProjectRemote = Effect.fnUntraced(function* (projectId?: ProjectId) {
@@ -832,10 +1052,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           projectId: body.projectId,
           operation: "Workspace file writing",
         });
-        const target = yield* resolveWorkspaceWritePath({
+        const target = yield* resolveWorkspaceRelativePath({
           workspaceRoot,
           relativePath: body.relativePath,
           path,
+          label: "Workspace file path",
         });
         yield* fileSystem
           .makeDirectory(path.dirname(target.absolutePath), { recursive: true })
@@ -860,12 +1081,26 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.projectsOpenInEditor: {
         const body = stripRequestTag(request.body);
-        const workspaceRoot = yield* resolveLocalProjectWorkspaceRoot({
+        const target = yield* resolveProjectEditorTarget({
           projectId: body.projectId,
-          operation: "Project opening",
         });
         return yield* openInEditor({
-          cwd: workspaceRoot,
+          target,
+          editor: body.editor,
+        });
+      }
+
+      case WS_METHODS.projectsOpenPathInEditor: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveProjectEditorTarget({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          relativePath: body.relativePath,
+          ...(body.line !== undefined ? { line: body.line } : {}),
+          ...(body.column !== undefined ? { column: body.column } : {}),
+        });
+        return yield* openInEditor({
+          target,
           editor: body.editor,
         });
       }

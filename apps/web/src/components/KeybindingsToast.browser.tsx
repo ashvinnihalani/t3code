@@ -189,7 +189,10 @@ const worker = setupWorker(
       );
     });
   }),
-  http.get("*/attachments/:attachmentId", () => new HttpResponse(null, { status: 204 })),
+  http.get(
+    "*/api/projects/:projectId/threads/:threadId/attachments/:attachmentId",
+    () => new HttpResponse(null, { status: 204 }),
+  ),
   http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
 );
 

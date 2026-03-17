@@ -1,4 +1,9 @@
-import { EDITORS, EditorId, NativeApi } from "@t3tools/contracts";
+import {
+  EDITORS,
+  EditorId,
+  NativeApi,
+  type ProjectOpenPathInEditorInput,
+} from "@t3tools/contracts";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 
@@ -26,10 +31,36 @@ export function resolveAndPersistPreferredEditor(
   return editor ?? null;
 }
 
-export async function openInPreferredEditor(api: NativeApi, targetPath: string): Promise<EditorId> {
+export type PreferredEditorTarget =
+  | { kind: "shell"; target: string }
+  | { kind: "project-path"; input: Omit<ProjectOpenPathInEditorInput, "editor"> };
+
+async function resolvePreferredEditor(api: NativeApi): Promise<EditorId> {
   const { availableEditors } = await api.server.getConfig();
   const editor = resolveAndPersistPreferredEditor(availableEditors);
   if (!editor) throw new Error("No available editors found.");
-  await api.shell.openInEditor(targetPath, editor);
   return editor;
+}
+
+export async function openResolvedEditorTargetInPreferredEditor(
+  api: NativeApi,
+  target: PreferredEditorTarget,
+): Promise<EditorId> {
+  const editor = await resolvePreferredEditor(api);
+  if (target.kind === "project-path") {
+    await api.projects.openPathInEditor({
+      ...target.input,
+      editor,
+    });
+  } else {
+    await api.shell.openInEditor(target.target, editor);
+  }
+  return editor;
+}
+
+export async function openInPreferredEditor(api: NativeApi, targetPath: string): Promise<EditorId> {
+  return openResolvedEditorTargetInPreferredEditor(api, {
+    kind: "shell",
+    target: targetPath,
+  });
 }
