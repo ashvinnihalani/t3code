@@ -4,6 +4,7 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   EventId,
   type OrchestrationEvent,
+  type ProjectRemoteTarget,
   type ProviderModelOptions,
   type ProviderKind,
   type ProviderStartOptions,
@@ -118,6 +119,20 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
 }
 
+function resolveProjectScopedProviderOptions(input: {
+  readonly providerOptions?: ProviderStartOptions;
+  readonly projectRemote?: ProjectRemoteTarget | null;
+}): ProviderStartOptions | undefined {
+  const codex = input.providerOptions?.codex;
+  const codexOptions = {
+    ...(codex?.binaryPath ? { binaryPath: codex.binaryPath } : {}),
+    ...(codex?.homePath ? { homePath: codex.homePath } : {}),
+    ...(input.projectRemote ? { remote: input.projectRemote } : {}),
+  };
+
+  return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
+}
+
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -214,6 +229,14 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
+    const projectRemote =
+      readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+    const effectiveProviderOptions = resolveProjectScopedProviderOptions({
+      ...(options?.providerOptions !== undefined
+        ? { providerOptions: options.providerOptions }
+        : {}),
+      projectRemote,
+    });
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -232,8 +255,8 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         ...(desiredModel ? { model: desiredModel } : {}),
         ...(options?.modelOptions !== undefined ? { modelOptions: options.modelOptions } : {}),
-        ...(options?.providerOptions !== undefined
-          ? { providerOptions: options.providerOptions }
+        ...(effectiveProviderOptions !== undefined
+          ? { providerOptions: effectiveProviderOptions }
           : {}),
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: desiredRuntimeMode,

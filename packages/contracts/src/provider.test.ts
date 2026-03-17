@@ -24,6 +24,10 @@ describe("ProviderSessionStartInput", () => {
         codex: {
           binaryPath: "/usr/local/bin/codex",
           homePath: "/tmp/.codex",
+          remote: {
+            kind: "ssh",
+            hostAlias: "g7e_axe",
+          },
         },
       },
     });
@@ -32,6 +36,10 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.modelOptions?.codex?.fastMode).toBe(true);
     expect(parsed.providerOptions?.codex?.binaryPath).toBe("/usr/local/bin/codex");
     expect(parsed.providerOptions?.codex?.homePath).toBe("/tmp/.codex");
+    expect(parsed.providerOptions?.codex?.remote).toEqual({
+      kind: "ssh",
+      hostAlias: "g7e_axe",
+    });
   });
 
   it("rejects payloads without runtime mode", () => {

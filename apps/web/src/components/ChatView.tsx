@@ -165,6 +165,7 @@ import {
   LastInvokedScriptByProjectSchema,
   PullRequestDialogState,
   readFileAsDataUrl,
+  resolveVisibleProviderHealthStatus,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   SendPhase,
@@ -607,6 +608,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const providerOptionsForDispatch = useMemo(() => {
+    if (activeProject?.remote) {
+      return undefined;
+    }
     if (!settings.codexBinaryPath && !settings.codexHomePath) {
       return undefined;
     }
@@ -616,7 +620,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
       },
     };
-  }, [settings.codexBinaryPath, settings.codexHomePath]);
+  }, [activeProject?.remote, settings.codexBinaryPath, settings.codexHomePath]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -1087,6 +1091,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
     [activeProvider, providerStatuses],
+  );
+  const visibleProviderStatus = useMemo(
+    () =>
+      resolveVisibleProviderHealthStatus({
+        status: activeProviderStatus,
+        projectRemote: activeProject?.remote ?? null,
+      }),
+    [activeProject?.remote, activeProviderStatus],
   );
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
@@ -2022,9 +2034,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeWorktreePath = activeThread?.worktreePath;
   const envMode: DraftThreadEnvMode = activeWorktreePath
     ? "worktree"
-    : isLocalDraftThread
-      ? (draftThread?.envMode ?? "local")
-      : "local";
+    : activeProject?.remote
+      ? "local"
+      : isLocalDraftThread
+        ? (draftThread?.envMode ?? "local")
+        : "local";
 
   useEffect(() => {
     if (phase !== "running") return;
@@ -3443,7 +3457,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       </header>
 
       {/* Error banner */}
-      <ProviderHealthBanner status={activeProviderStatus} />
+      <ProviderHealthBanner status={visibleProviderStatus} />
       <ThreadErrorBanner
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}

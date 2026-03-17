@@ -7,6 +7,7 @@ import { ApprovalRequestId, ThreadId } from "@t3tools/contracts";
 
 import {
   buildCodexInitializeParams,
+  buildRemoteCodexCommand,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   CodexAppServerManager,
@@ -270,6 +271,16 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("falls back to mise exec when using the default remote codex binary", () => {
+    expect(
+      buildRemoteCodexCommand({
+        binaryPath: "codex",
+        cwd: "/home/ashvinn/SFAILib",
+        subcommand: ["--version"],
+      }),
+    ).toContain("exec mise exec -- codex '--version'");
+  });
+
   it("enables Codex experimental api capabilities during initialize", () => {
     expect(buildCodexInitializeParams()).toEqual({
       clientInfo: {

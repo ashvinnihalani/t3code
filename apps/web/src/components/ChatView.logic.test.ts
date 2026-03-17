@@ -1,7 +1,11 @@
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildExpiredTerminalContextToastCopy, deriveComposerSendState } from "./ChatView.logic";
+import {
+  buildExpiredTerminalContextToastCopy,
+  deriveComposerSendState,
+  resolveVisibleProviderHealthStatus,
+} from "./ChatView.logic";
 
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {
@@ -65,5 +69,45 @@ describe("buildExpiredTerminalContextToastCopy", () => {
       title: "Expired terminal contexts omitted from message",
       description: "Re-add it if you want that terminal output included.",
     });
+  });
+});
+
+describe("resolveVisibleProviderHealthStatus", () => {
+  it("keeps provider health visible for local projects", () => {
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "codex",
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          checkedAt: "2026-03-16T00:00:00.000Z",
+          message: "Codex CLI v0.27.0 is too old for T3 Code.",
+        },
+        projectRemote: null,
+      }),
+    ).toMatchObject({
+      provider: "codex",
+      status: "error",
+    });
+  });
+
+  it("hides local provider health for remote SSH projects", () => {
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "codex",
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          checkedAt: "2026-03-16T00:00:00.000Z",
+          message: "Codex CLI v0.27.0 is too old for T3 Code.",
+        },
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "g7e_axe",
+        },
+      }),
+    ).toBeNull();
   });
 });

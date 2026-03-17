@@ -47,6 +47,7 @@ export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
 const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   homePath: Schema.optional(TrimmedNonEmptyString),
+  remote: Schema.optional(ProjectRemoteTarget),
 });
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
