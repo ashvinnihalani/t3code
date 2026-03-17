@@ -25,7 +25,11 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
-import type { SshHostListResult } from "./remote";
+import type {
+  RemoteProjectValidationInput,
+  RemoteProjectValidationResult,
+  SshHostListResult,
+} from "./remote";
 import type { ServerConfig } from "./server";
 import type {
   TerminalClearInput,
@@ -162,6 +166,9 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     listSshHosts: () => Promise<SshHostListResult>;
+    validateRemoteProject: (
+      input: RemoteProjectValidationInput,
+    ) => Promise<RemoteProjectValidationResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
   };
   orchestration: {

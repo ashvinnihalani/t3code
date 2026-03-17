@@ -34,6 +34,7 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import { KeybindingRule } from "./keybindings";
+import { RemoteProjectValidationInput } from "./remote";
 import {
   ProjectOpenInEditorInput,
   ProjectSearchEntriesInput,
@@ -80,6 +81,7 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverListSshHosts: "server.listSshHosts",
+  serverValidateRemoteProject: "server.validateRemoteProject",
   serverUpsertKeybinding: "server.upsertKeybinding",
 } as const;
 
@@ -146,6 +148,7 @@ const WebSocketRequestBody = Schema.Union([
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverListSshHosts, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverValidateRemoteProject, RemoteProjectValidationInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 ]);
 

@@ -161,6 +161,8 @@ export function createWsNativeApi(): NativeApi {
     server: {
       getConfig: () => transport.request(WS_METHODS.serverGetConfig),
       listSshHosts: () => transport.request(WS_METHODS.serverListSshHosts),
+      validateRemoteProject: (input) =>
+        transport.request(WS_METHODS.serverValidateRemoteProject, input),
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
     orchestration: {

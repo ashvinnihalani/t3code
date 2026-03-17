@@ -1119,6 +1119,7 @@ describe("WebSocket Server", () => {
     });
     expect(response.result).toBeUndefined();
     expect(response.error?.message).toContain("Thread 'thread-missing' not found.");
+    expect(response.error?.message).not.toContain("\n");
   });
 
   it("returns error when requesting turn diff with an inverted range", async () => {

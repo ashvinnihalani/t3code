@@ -79,6 +79,7 @@ import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { listSshHosts } from "./sshHosts";
+import { validateRemoteProjectOverSsh } from "./remote/validateRemoteProject";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -231,6 +232,17 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 class RouteRequestError extends Schema.TaggedErrorClass<RouteRequestError>()("RouteRequestError", {
   message: Schema.String,
 }) {}
+
+function formatRouteFailureMessage(cause: Cause.Cause<unknown>): string {
+  const squashed = Cause.squash(cause);
+  if (squashed instanceof Error) {
+    const message = squashed.message.trim();
+    if (message.length > 0) {
+      return message;
+    }
+  }
+  return Cause.pretty(cause);
+}
 
 export const createServer = Effect.fn(function* (): Effect.fn.Return<
   http.Server,
@@ -1019,6 +1031,21 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             }),
         });
 
+      case WS_METHODS.serverValidateRemoteProject: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () =>
+            validateRemoteProjectOverSsh(body, {
+              localCwd: cwd,
+            }),
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error ? cause.message : "Failed to validate the remote project.",
+            }),
+        });
+      }
+
       case WS_METHODS.serverUpsertKeybinding: {
         const body = stripRequestTag(request.body);
         const keybindingsConfig = yield* keybindingsManager.upsertKeybindingRule(body);
@@ -1061,7 +1088,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     if (Exit.isFailure(result)) {
       return yield* sendWsResponse({
         id: request.success.id,
-        error: { message: Cause.pretty(result.cause) },
+        error: { message: formatRouteFailureMessage(result.cause) },
       });
     }
 
