@@ -915,6 +915,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   ]);
   const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
   const localGitCwd = activeProject?.remote ? null : gitCwd;
+  const gitTarget = useMemo(
+    () => ({ cwd: gitCwd, projectId: activeProject?.id ?? null }),
+    [activeProject?.id, gitCwd],
+  );
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const isPathTrigger = composerTriggerKind === "path";
@@ -924,13 +928,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const branchesQuery = useQuery(gitBranchesQueryOptions(localGitCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
-      cwd: localGitCwd,
+      projectId: activeProject?.id ?? null,
       query: effectivePathQuery,
-      enabled: isPathTrigger && !activeProject?.remote,
+      enabled: isPathTrigger,
       limit: 80,
     }),
   );
@@ -1041,7 +1045,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
   // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = activeProject?.remote ? false : (branchesQuery.data?.isRepo ?? true);
+  const isGitRepo = branchesQuery.data?.isRepo ?? true;
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split"),
     [keybindings],
@@ -1234,6 +1238,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
+            projectId: activeProject.id,
             env: runtimeEnv,
             cols: SCRIPT_TERMINAL_COLS,
             rows: SCRIPT_TERMINAL_ROWS,
@@ -1242,6 +1247,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
+            projectId: activeProject.id,
             env: runtimeEnv,
           };
 
@@ -2331,6 +2337,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         const newBranch = buildTemporaryWorktreeBranchName();
         const result = await createWorktreeMutation.mutateAsync({
           cwd: activeProject.cwd,
+          projectId: activeProject.id,
           branch: baseBranchForWorktree,
           newBranch,
         });
@@ -3251,10 +3258,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
         <ChatHeader
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
+          activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
+          openInProjectRoot={activeThread.worktreePath === null}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
@@ -3262,7 +3271,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           keybindings={keybindings}
           availableEditors={availableEditors}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
-          gitCwd={localGitCwd}
+          gitTarget={gitTarget}
           diffOpen={diffOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
@@ -3320,6 +3329,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
+                projectId={activeProject?.id}
                 markdownCwd={localGitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
@@ -3830,6 +3840,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               threadId={activeThread.id}
               onEnvModeChange={onEnvModeChange}
               envLocked={envLocked}
+              isRemoteProject={Boolean(activeProject?.remote)}
               onComposerFocusRequest={scheduleComposerFocus}
               {...(canCheckoutPullRequestIntoThread
                 ? { onCheckoutPullRequestRequest: openPullRequestDialog }
@@ -3841,6 +3852,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               key={pullRequestDialogState.key}
               open
               cwd={activeProject?.cwd ?? null}
+              projectId={activeProject?.id ?? null}
+              isRemoteProject={Boolean(activeProject?.remote)}
               initialReference={pullRequestDialogState.initialReference}
               onOpenChange={(open) => {
                 if (!open) {
@@ -3858,6 +3871,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           <PlanSidebar
             activePlan={activePlan}
             activeProposedPlan={activeProposedPlan}
+            projectId={activeProject?.id}
             markdownCwd={gitCwd ?? undefined}
             workspaceRoot={activeProject?.cwd ?? undefined}
             timestampFormat={timestampFormat}
@@ -3883,6 +3897,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
             key={activeThread.id}
             threadId={activeThread.id}
             cwd={gitCwd ?? activeProject.cwd}
+            projectId={activeProject.id}
+            allowPathLinkOpen={!activeProject.remote}
             runtimeEnv={threadTerminalRuntimeEnv}
             height={terminalState.terminalHeight}
             terminalIds={terminalState.terminalIds}

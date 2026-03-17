@@ -179,11 +179,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
-  const activeCwd = activeProject?.remote
-    ? null
-    : (activeThread?.worktreePath ?? activeProject?.cwd ?? null);
-  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd));
-  const isGitRepo = activeProject?.remote ? false : (gitBranchesQuery.data?.isRepo ?? true);
+  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const gitTarget = useMemo(
+    () => ({ cwd: activeCwd, projectId: activeProject?.id ?? null }),
+    [activeCwd, activeProject?.id],
+  );
+  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
+  const isGitRepo = gitBranchesQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
@@ -308,13 +310,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
-      if (!api) return;
+      if (!api || activeProject?.remote) return;
       const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
       void openInPreferredEditor(api, targetPath).catch((error) => {
         console.warn("Failed to open diff file in editor.", error);
       });
     },
-    [activeCwd],
+    [activeCwd, activeProject?.remote],
   );
 
   const selectTurn = (turnId: TurnId) => {

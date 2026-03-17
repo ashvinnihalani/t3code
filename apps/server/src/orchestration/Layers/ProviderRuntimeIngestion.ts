@@ -14,8 +14,8 @@ import {
 import { Cache, Cause, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
+import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/isRepo.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -509,12 +509,16 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return false;
     }
-    const workspaceCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
-    });
+    const project = readModel.projects.find((entry) => entry.id === thread.projectId);
+    if (!project) {
+      return false;
+    }
+    const workspaceCwd = thread.worktreePath ?? project.workspaceRoot;
     if (!workspaceCwd) {
       return false;
+    }
+    if (project.remote) {
+      return true;
     }
     return isGitRepository(workspaceCwd);
   });
@@ -1053,6 +1057,24 @@ const make = Effect.gen(function* () {
       if (event.type === "turn.diff.updated") {
         const turnId = toTurnId(event.turnId);
         if (turnId && (yield* isGitRepoForThread(thread.id))) {
+          const payload = runtimePayloadRecord(event);
+          const unifiedDiff =
+            asString(payload?.unifiedDiff) ??
+            asString(payload?.diff) ??
+            asString(payload?.patch) ??
+            "";
+          const files = (() => {
+            try {
+              return parseTurnDiffFilesFromUnifiedDiff(unifiedDiff).map((file) => ({
+                path: file.path,
+                kind: "modified" as const,
+                additions: file.additions,
+                deletions: file.deletions,
+              }));
+            } catch {
+              return [];
+            }
+          })();
           // Skip if a checkpoint already exists for this turn. A real
           // (non-placeholder) capture from CheckpointReactor should not
           // be clobbered, and dispatching a duplicate placeholder for the
@@ -1075,7 +1097,8 @@ const make = Effect.gen(function* () {
               completedAt: now,
               checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
               status: "missing",
-              files: [],
+              files,
+              diff: unifiedDiff,
               assistantMessageId,
               checkpointTurnCount: maxTurnCount + 1,
               createdAt: now,

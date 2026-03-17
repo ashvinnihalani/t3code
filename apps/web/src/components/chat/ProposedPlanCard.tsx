@@ -1,3 +1,4 @@
+import { type ProjectId } from "@t3tools/contracts";
 import { memo, useState, useId } from "react";
 import {
   buildCollapsedProposedPlanPreviewMarkdown,
@@ -28,10 +29,12 @@ import { readNativeApi } from "~/nativeApi";
 
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
+  projectId,
   cwd,
   workspaceRoot,
 }: {
   planMarkdown: string;
+  projectId: ProjectId | undefined;
   cwd: string | undefined;
   workspaceRoot: string | undefined;
 }) {
@@ -70,7 +73,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   const handleSaveToWorkspace = () => {
     const api = readNativeApi();
     const relativePath = savePath.trim();
-    if (!api || !workspaceRoot) {
+    if (!api || !projectId || !workspaceRoot) {
       return;
     }
     if (!relativePath) {
@@ -84,7 +87,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
     setIsSavingToWorkspace(true);
     void api.projects
       .writeFile({
-        cwd: workspaceRoot,
+        projectId,
         relativePath,
         contents: saveContents,
       })
@@ -128,7 +131,10 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
           </MenuTrigger>
           <MenuPopup align="end">
             <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
-            <MenuItem onClick={openSaveDialog} disabled={!workspaceRoot || isSavingToWorkspace}>
+            <MenuItem
+              onClick={openSaveDialog}
+              disabled={!projectId || !workspaceRoot || isSavingToWorkspace}
+            >
               Save to workspace
             </MenuItem>
           </MenuPopup>

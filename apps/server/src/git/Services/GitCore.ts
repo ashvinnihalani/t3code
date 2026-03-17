@@ -20,12 +20,46 @@ import type {
   GitRemoveWorktreeInput,
   GitStatusInput,
   GitStatusResult,
+  ProjectRemoteTarget,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "../Errors.ts";
 
 export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
   upstreamRef: string | null;
+}
+
+export interface GitExecutionContext {
+  cwd: string;
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitStatusExecutionInput extends GitStatusInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitListBranchesExecutionInput extends GitListBranchesInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitCreateWorktreeExecutionInput extends GitCreateWorktreeInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitRemoveWorktreeExecutionInput extends GitRemoveWorktreeInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitCreateBranchExecutionInput extends GitCreateBranchInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitCheckoutExecutionInput extends GitCheckoutInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitInitExecutionInput extends GitInitInput {
+  remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitPreparedCommitContext {
@@ -50,6 +84,7 @@ export interface GitRenameBranchInput {
   cwd: string;
   oldBranch: string;
   newBranch: string;
+  remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitRenameBranchResult {
@@ -60,12 +95,14 @@ export interface GitFetchPullRequestBranchInput {
   cwd: string;
   prNumber: number;
   branch: string;
+  remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitEnsureRemoteInput {
   cwd: string;
   preferredName: string;
   url: string;
+  remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitFetchRemoteBranchInput {
@@ -73,6 +110,7 @@ export interface GitFetchRemoteBranchInput {
   remoteName: string;
   remoteBranch: string;
   localBranch: string;
+  remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitSetBranchUpstreamInput {
@@ -80,6 +118,7 @@ export interface GitSetBranchUpstreamInput {
   branch: string;
   remoteName: string;
   remoteBranch: string;
+  remote?: ProjectRemoteTarget | null;
 }
 
 /**
@@ -89,12 +128,17 @@ export interface GitCoreShape {
   /**
    * Read Git status for a repository.
    */
-  readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
+  readonly status: (
+    input: GitStatusExecutionInput,
+  ) => Effect.Effect<GitStatusResult, GitCommandError>;
 
   /**
    * Read detailed working tree / branch status for a repository.
    */
-  readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+  readonly statusDetails: (
+    cwd: string,
+    remote?: ProjectRemoteTarget | null,
+  ) => Effect.Effect<GitStatusDetails, GitCommandError>;
 
   /**
    * Build staged change context for commit generation.
@@ -102,6 +146,7 @@ export interface GitCoreShape {
   readonly prepareCommitContext: (
     cwd: string,
     filePaths?: readonly string[],
+    remote?: ProjectRemoteTarget | null,
   ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
 
   /**
@@ -111,6 +156,7 @@ export interface GitCoreShape {
     cwd: string,
     subject: string,
     body: string,
+    remote?: ProjectRemoteTarget | null,
   ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
 
   /**
@@ -119,6 +165,7 @@ export interface GitCoreShape {
   readonly pushCurrentBranch: (
     cwd: string,
     fallbackBranch: string | null,
+    remote?: ProjectRemoteTarget | null,
   ) => Effect.Effect<GitPushResult, GitCommandError>;
 
   /**
@@ -127,6 +174,7 @@ export interface GitCoreShape {
   readonly readRangeContext: (
     cwd: string,
     baseBranch: string,
+    remote?: ProjectRemoteTarget | null,
   ) => Effect.Effect<GitRangeContext, GitCommandError>;
 
   /**
@@ -135,25 +183,29 @@ export interface GitCoreShape {
   readonly readConfigValue: (
     cwd: string,
     key: string,
+    remote?: ProjectRemoteTarget | null,
   ) => Effect.Effect<string | null, GitCommandError>;
 
   /**
    * List local + remote branches and branch metadata.
    */
   readonly listBranches: (
-    input: GitListBranchesInput,
+    input: GitListBranchesExecutionInput,
   ) => Effect.Effect<GitListBranchesResult, GitCommandError>;
 
   /**
    * Pull current branch from upstream using fast-forward only.
    */
-  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<GitPullResult, GitCommandError>;
+  readonly pullCurrentBranch: (
+    cwd: string,
+    remote?: ProjectRemoteTarget | null,
+  ) => Effect.Effect<GitPullResult, GitCommandError>;
 
   /**
    * Create a worktree and branch from a base branch.
    */
   readonly createWorktree: (
-    input: GitCreateWorktreeInput,
+    input: GitCreateWorktreeExecutionInput,
   ) => Effect.Effect<GitCreateWorktreeResult, GitCommandError>;
 
   /**
@@ -185,7 +237,9 @@ export interface GitCoreShape {
   /**
    * Remove an existing worktree.
    */
-  readonly removeWorktree: (input: GitRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly removeWorktree: (
+    input: GitRemoveWorktreeExecutionInput,
+  ) => Effect.Effect<void, GitCommandError>;
 
   /**
    * Rename an existing local branch.
@@ -197,24 +251,29 @@ export interface GitCoreShape {
   /**
    * Create a local branch.
    */
-  readonly createBranch: (input: GitCreateBranchInput) => Effect.Effect<void, GitCommandError>;
+  readonly createBranch: (
+    input: GitCreateBranchExecutionInput,
+  ) => Effect.Effect<void, GitCommandError>;
 
   /**
    * Checkout an existing branch and refresh its upstream metadata in background.
    */
   readonly checkoutBranch: (
-    input: GitCheckoutInput,
+    input: GitCheckoutExecutionInput,
   ) => Effect.Effect<void, GitCommandError, Scope.Scope>;
 
   /**
    * Initialize a repository in the provided directory.
    */
-  readonly initRepo: (input: GitInitInput) => Effect.Effect<void, GitCommandError>;
+  readonly initRepo: (input: GitInitExecutionInput) => Effect.Effect<void, GitCommandError>;
 
   /**
    * List local branch names (short format).
    */
-  readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+  readonly listLocalBranchNames: (
+    cwd: string,
+    remote?: ProjectRemoteTarget | null,
+  ) => Effect.Effect<string[], GitCommandError>;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { GitResolvePullRequestResult } from "@t3tools/contracts";
+import type { GitResolvePullRequestResult, ProjectId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +25,8 @@ import { Spinner } from "./ui/spinner";
 interface PullRequestThreadDialogProps {
   open: boolean;
   cwd: string | null;
+  projectId: ProjectId | null;
+  isRemoteProject: boolean;
   initialReference: string | null;
   onOpenChange: (open: boolean) => void;
   onPrepared: (input: { branch: string; worktreePath: string | null }) => Promise<void> | void;
@@ -33,6 +35,8 @@ interface PullRequestThreadDialogProps {
 export function PullRequestThreadDialog({
   open,
   cwd,
+  projectId,
+  isRemoteProject,
   initialReference,
   onOpenChange,
   onPrepared,
@@ -68,9 +72,10 @@ export function PullRequestThreadDialog({
 
   const parsedReference = parsePullRequestReference(reference);
   const parsedDebouncedReference = parsePullRequestReference(debouncedReference);
+  const gitTarget = useMemo(() => ({ cwd, projectId }), [cwd, projectId]);
   const resolvePullRequestQuery = useQuery(
     gitResolvePullRequestQueryOptions({
-      cwd,
+      target: gitTarget,
       reference: open ? parsedDebouncedReference : null,
     }),
   );
@@ -81,13 +86,14 @@ export function PullRequestThreadDialog({
     const cached = queryClient.getQueryData<GitResolvePullRequestResult>([
       "git",
       "pull-request",
+      projectId,
       cwd,
       parsedReference,
     ]);
     return cached?.pullRequest ?? null;
-  }, [cwd, parsedReference, queryClient]);
+  }, [cwd, parsedReference, projectId, queryClient]);
   const preparePullRequestThreadMutation = useMutation(
-    gitPreparePullRequestThreadMutationOptions({ cwd, queryClient }),
+    gitPreparePullRequestThreadMutationOptions({ target: gitTarget, queryClient }),
   );
 
   const liveResolvedPullRequest =
@@ -269,12 +275,17 @@ export function PullRequestThreadDialog({
             }}
             disabled={
               !cwd ||
+              isRemoteProject ||
               !resolvedPullRequest ||
               isResolving ||
               preparePullRequestThreadMutation.isPending
             }
           >
-            {preparingMode === "worktree" ? "Preparing worktree..." : "Worktree"}
+            {isRemoteProject
+              ? "Worktree unavailable on remote"
+              : preparingMode === "worktree"
+                ? "Preparing worktree..."
+                : "Worktree"}
           </Button>
         </DialogFooter>
       </DialogPopup>

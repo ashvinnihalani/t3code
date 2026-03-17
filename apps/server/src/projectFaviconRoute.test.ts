@@ -20,10 +20,13 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
-async function withRouteServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
+async function withRouteServer(
+  run: (baseUrl: string) => Promise<void>,
+  resolveProjectCwd: (projectId: string) => string | null = () => null,
+): Promise<void> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (tryHandleProjectFaviconRequest(url, res)) {
+    if (tryHandleProjectFaviconRequest({ url, res, resolveProjectCwd })) {
       return;
     }
     res.writeHead(404, { "Content-Type": "text/plain" });
@@ -77,11 +80,11 @@ describe("tryHandleProjectFaviconRequest", () => {
     }
   });
 
-  it("returns 400 when cwd is missing", async () => {
+  it("returns 400 when projectId is missing", async () => {
     await withRouteServer(async (baseUrl) => {
       const response = await request(baseUrl, "/api/project-favicon");
       expect(response.statusCode).toBe(400);
-      expect(response.body).toBe("Missing cwd parameter");
+      expect(response.body).toBe("Missing projectId parameter");
     });
   });
 
@@ -89,13 +92,16 @@ describe("tryHandleProjectFaviconRequest", () => {
     const projectDir = makeTempDir("t3code-favicon-route-root-");
     fs.writeFileSync(path.join(projectDir, "favicon.svg"), "<svg>favicon</svg>", "utf8");
 
-    await withRouteServer(async (baseUrl) => {
-      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
-      const response = await request(baseUrl, pathname);
-      expect(response.statusCode).toBe(200);
-      expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toBe("<svg>favicon</svg>");
-    });
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-1";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toBe("<svg>favicon</svg>");
+      },
+      (projectId) => (projectId === "project-1" ? projectDir : null),
+    );
   });
 
   it("resolves icon href from source files when no well-known favicon exists", async () => {
@@ -108,13 +114,16 @@ describe("tryHandleProjectFaviconRequest", () => {
     );
     fs.writeFileSync(iconPath, "<svg>brand</svg>", "utf8");
 
-    await withRouteServer(async (baseUrl) => {
-      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
-      const response = await request(baseUrl, pathname);
-      expect(response.statusCode).toBe(200);
-      expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toBe("<svg>brand</svg>");
-    });
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-1";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toBe("<svg>brand</svg>");
+      },
+      (projectId) => (projectId === "project-1" ? projectDir : null),
+    );
   });
 
   it("resolves icon link when href appears before rel in HTML", async () => {
@@ -127,13 +136,16 @@ describe("tryHandleProjectFaviconRequest", () => {
     );
     fs.writeFileSync(iconPath, "<svg>brand-html-order</svg>", "utf8");
 
-    await withRouteServer(async (baseUrl) => {
-      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
-      const response = await request(baseUrl, pathname);
-      expect(response.statusCode).toBe(200);
-      expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toBe("<svg>brand-html-order</svg>");
-    });
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-1";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toBe("<svg>brand-html-order</svg>");
+      },
+      (projectId) => (projectId === "project-1" ? projectDir : null),
+    );
   });
 
   it("resolves object-style icon metadata when href appears before rel", async () => {
@@ -148,24 +160,30 @@ describe("tryHandleProjectFaviconRequest", () => {
     );
     fs.writeFileSync(iconPath, "<svg>brand-obj-order</svg>", "utf8");
 
-    await withRouteServer(async (baseUrl) => {
-      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
-      const response = await request(baseUrl, pathname);
-      expect(response.statusCode).toBe(200);
-      expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toBe("<svg>brand-obj-order</svg>");
-    });
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-1";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toBe("<svg>brand-obj-order</svg>");
+      },
+      (projectId) => (projectId === "project-1" ? projectDir : null),
+    );
   });
 
   it("serves a fallback favicon when no icon exists", async () => {
     const projectDir = makeTempDir("t3code-favicon-route-fallback-");
 
-    await withRouteServer(async (baseUrl) => {
-      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
-      const response = await request(baseUrl, pathname);
-      expect(response.statusCode).toBe(200);
-      expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toContain('data-fallback="project-favicon"');
-    });
+    await withRouteServer(
+      async (baseUrl) => {
+        const pathname = "/api/project-favicon?projectId=project-1";
+        const response = await request(baseUrl, pathname);
+        expect(response.statusCode).toBe(200);
+        expect(response.contentType).toContain("image/svg+xml");
+        expect(response.body).toContain('data-fallback="project-favicon"');
+      },
+      (projectId) => (projectId === "project-1" ? projectDir : null),
+    );
   });
 });

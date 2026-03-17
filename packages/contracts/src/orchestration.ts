@@ -524,6 +524,7 @@ const ThreadTurnDiffCompleteCommand = Schema.Struct({
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
   files: Schema.Array(OrchestrationCheckpointFile),
+  diff: Schema.optional(Schema.String),
   assistantMessageId: Schema.optional(MessageId),
   checkpointTurnCount: NonNegativeInt,
   createdAt: IsoDateTime,
@@ -739,6 +740,7 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
   files: Schema.Array(OrchestrationCheckpointFile),
+  diff: Schema.optional(Schema.String),
   assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });

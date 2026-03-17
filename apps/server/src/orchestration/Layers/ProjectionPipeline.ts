@@ -837,6 +837,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               checkpointRef: null,
               checkpointStatus: null,
               checkpointFiles: [],
+              checkpointDiff: null,
             });
           }
 
@@ -886,6 +887,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             checkpointRef: null,
             checkpointStatus: null,
             checkpointFiles: [],
+            checkpointDiff: null,
           });
           return;
         }
@@ -921,6 +923,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             checkpointRef: null,
             checkpointStatus: null,
             checkpointFiles: [],
+            checkpointDiff: null,
           });
           return;
         }
@@ -946,6 +949,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               checkpointRef: event.payload.checkpointRef,
               checkpointStatus: event.payload.status,
               checkpointFiles: event.payload.files,
+              checkpointDiff: event.payload.diff ?? existingTurn.value.checkpointDiff ?? null,
               startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
               completedAt: event.payload.completedAt,
@@ -965,6 +969,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             checkpointRef: event.payload.checkpointRef,
             checkpointStatus: event.payload.status,
             checkpointFiles: event.payload.files,
+            checkpointDiff: event.payload.diff ?? null,
           });
           return;
         }

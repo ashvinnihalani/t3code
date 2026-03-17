@@ -1,4 +1,4 @@
-import { type MessageId, type TurnId } from "@t3tools/contracts";
+import { type MessageId, type ProjectId, type TurnId } from "@t3tools/contracts";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   measureElement as measureVirtualElement,
@@ -58,6 +58,7 @@ interface MessagesTimelineProps {
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  projectId: ProjectId | undefined;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -82,6 +83,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRevertUserMessage,
   isRevertingCheckpoint,
   onImageExpand,
+  projectId,
   markdownCwd,
   resolvedTheme,
   timestampFormat,
@@ -503,6 +505,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         <div className="min-w-0 px-1 py-0.5">
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
+            projectId={projectId}
             cwd={markdownCwd}
             workspaceRoot={workspaceRoot}
           />

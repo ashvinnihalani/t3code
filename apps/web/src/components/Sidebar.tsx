@@ -226,10 +226,10 @@ function formatSshHostLabel(host: SshHostSummary): string {
   return host.alias;
 }
 
-function ProjectFavicon({ cwd }: { cwd: string }) {
+function ProjectFavicon({ projectId }: { projectId: ProjectId }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
-  const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
+  const src = `${serverHttpOrigin}/api/project-favicon?projectId=${encodeURIComponent(projectId)}`;
 
   if (status === "error") {
     return <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />;
@@ -339,62 +339,74 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
-  const projectRemoteById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.remote ?? null] as const)),
-    [projects],
+  const gitTargetKey = useCallback(
+    (input: { projectId: ProjectId | null; cwd: string | null }) =>
+      `${input.projectId ?? ""}\u0000${input.cwd ?? ""}`,
+    [],
   );
   const threadGitTargets = useMemo(
     () =>
       threads.map((thread) => ({
         threadId: thread.id,
         branch: thread.branch,
+        projectId: thread.projectId,
         cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
-        isRemote: projectRemoteById.get(thread.projectId) !== null,
       })),
-    [projectCwdById, projectRemoteById, threads],
+    [projectCwdById, threads],
   );
-  const threadGitStatusCwds = useMemo(
+  const threadGitStatusTargets = useMemo(
     () => [
-      ...new Set(
+      ...new Map(
         threadGitTargets
-          .filter((target) => target.branch !== null && !target.isRemote)
-          .map((target) => target.cwd)
-          .filter((cwd): cwd is string => cwd !== null),
-      ),
+          .filter((target) => target.branch !== null && target.cwd !== null)
+          .map((target) => [
+            gitTargetKey({
+              projectId: target.projectId,
+              cwd: target.cwd,
+            }),
+            {
+              projectId: target.projectId,
+              cwd: target.cwd,
+            },
+          ]),
+      ).values(),
     ],
-    [threadGitTargets],
+    [gitTargetKey, threadGitTargets],
   );
   const threadGitStatusQueries = useQueries({
-    queries: threadGitStatusCwds.map((cwd) => ({
-      ...gitStatusQueryOptions(cwd),
+    queries: threadGitStatusTargets.map((target) => ({
+      ...gitStatusQueryOptions(target),
       staleTime: 30_000,
       refetchInterval: 60_000,
     })),
   });
   const prByThreadId = useMemo(() => {
-    const statusByCwd = new Map<string, GitStatusResult>();
-    for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
-      const cwd = threadGitStatusCwds[index];
-      if (!cwd) continue;
+    const statusByTarget = new Map<string, GitStatusResult>();
+    for (let index = 0; index < threadGitStatusTargets.length; index += 1) {
+      const target = threadGitStatusTargets[index];
       const status = threadGitStatusQueries[index]?.data;
-      if (status) {
-        statusByCwd.set(cwd, status);
+      if (status && target) {
+        statusByTarget.set(gitTargetKey(target), status);
       }
     }
 
     const map = new Map<ThreadId, ThreadPr>();
     for (const target of threadGitTargets) {
-      if (target.isRemote) {
-        map.set(target.threadId, null);
-        continue;
-      }
-      const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
+      const status =
+        target.cwd !== null
+          ? statusByTarget.get(
+              gitTargetKey({
+                projectId: target.projectId,
+                cwd: target.cwd,
+              }),
+            )
+          : undefined;
       const branchMatches =
         target.branch !== null && status?.branch !== null && status?.branch === target.branch;
       map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
     }
     return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
+  }, [gitTargetKey, threadGitStatusQueries, threadGitStatusTargets, threadGitTargets]);
 
   useEffect(() => {
     if (projectSourceMode !== "ssh" || sshHosts.length === 0) {
@@ -700,6 +712,7 @@ export default function Sidebar() {
       try {
         await removeWorktreeMutation.mutateAsync({
           cwd: threadProject.cwd,
+          projectId: threadProject.id,
           path: orphanedWorktreePath,
           force: true,
         });
@@ -1530,7 +1543,7 @@ export default function Sidebar() {
                               {project.remote ? (
                                 <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
                               ) : (
-                                <ProjectFavicon cwd={project.cwd} />
+                                <ProjectFavicon projectId={project.id} />
                               )}
                               <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
                                 {project.name}

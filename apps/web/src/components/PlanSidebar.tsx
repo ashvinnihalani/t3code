@@ -1,3 +1,4 @@
+import { type ProjectId } from "@t3tools/contracts";
 import { memo, useState, useCallback } from "react";
 import { type TimestampFormat } from "../appSettings";
 import { Badge } from "./ui/badge";
@@ -53,6 +54,7 @@ function stepStatusIcon(status: string): React.ReactNode {
 interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
+  projectId: ProjectId | undefined;
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
@@ -62,6 +64,7 @@ interface PlanSidebarProps {
 const PlanSidebar = memo(function PlanSidebar({
   activePlan,
   activeProposedPlan,
+  projectId,
   markdownCwd,
   workspaceRoot,
   timestampFormat,
@@ -88,12 +91,12 @@ const PlanSidebar = memo(function PlanSidebar({
 
   const handleSaveToWorkspace = useCallback(() => {
     const api = readNativeApi();
-    if (!api || !workspaceRoot || !planMarkdown) return;
+    if (!api || !projectId || !workspaceRoot || !planMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(planMarkdown);
     setIsSavingToWorkspace(true);
     void api.projects
       .writeFile({
-        cwd: workspaceRoot,
+        projectId,
         relativePath: filename,
         contents: normalizePlanMarkdownForExport(planMarkdown),
       })
@@ -115,7 +118,7 @@ const PlanSidebar = memo(function PlanSidebar({
         () => setIsSavingToWorkspace(false),
         () => setIsSavingToWorkspace(false),
       );
-  }, [planMarkdown, workspaceRoot]);
+  }, [planMarkdown, projectId, workspaceRoot]);
 
   return (
     <div className="flex h-full w-[340px] shrink-0 flex-col border-l border-border/70 bg-card/50">
@@ -156,7 +159,7 @@ const PlanSidebar = memo(function PlanSidebar({
                 <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
                 <MenuItem
                   onClick={handleSaveToWorkspace}
-                  disabled={!workspaceRoot || isSavingToWorkspace}
+                  disabled={!projectId || !workspaceRoot || isSavingToWorkspace}
                 >
                   Save to workspace
                 </MenuItem>

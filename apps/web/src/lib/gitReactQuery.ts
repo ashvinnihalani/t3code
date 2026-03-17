@@ -1,4 +1,4 @@
-import type { GitStackedAction } from "@t3tools/contracts";
+import type { GitStackedAction, ProjectId } from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -7,34 +7,52 @@ const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 
+export interface GitQueryTarget {
+  cwd: string | null;
+  projectId: ProjectId | null;
+}
+
+function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: ProjectId } {
+  if (!target.cwd) {
+    throw new Error("Git is unavailable.");
+  }
+  return {
+    cwd: target.cwd,
+    ...(target.projectId ? { projectId: target.projectId } : {}),
+  };
+}
+
 export const gitQueryKeys = {
   all: ["git"] as const,
-  status: (cwd: string | null) => ["git", "status", cwd] as const,
-  branches: (cwd: string | null) => ["git", "branches", cwd] as const,
+  status: (target: GitQueryTarget) => ["git", "status", target.projectId, target.cwd] as const,
+  branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
 };
 
 export const gitMutationKeys = {
-  init: (cwd: string | null) => ["git", "mutation", "init", cwd] as const,
-  checkout: (cwd: string | null) => ["git", "mutation", "checkout", cwd] as const,
-  runStackedAction: (cwd: string | null) => ["git", "mutation", "run-stacked-action", cwd] as const,
-  pull: (cwd: string | null) => ["git", "mutation", "pull", cwd] as const,
-  preparePullRequestThread: (cwd: string | null) =>
-    ["git", "mutation", "prepare-pull-request-thread", cwd] as const,
+  init: (target: GitQueryTarget) =>
+    ["git", "mutation", "init", target.projectId, target.cwd] as const,
+  checkout: (target: GitQueryTarget) =>
+    ["git", "mutation", "checkout", target.projectId, target.cwd] as const,
+  runStackedAction: (target: GitQueryTarget) =>
+    ["git", "mutation", "run-stacked-action", target.projectId, target.cwd] as const,
+  pull: (target: GitQueryTarget) =>
+    ["git", "mutation", "pull", target.projectId, target.cwd] as const,
+  preparePullRequestThread: (target: GitQueryTarget) =>
+    ["git", "mutation", "prepare-pull-request-thread", target.projectId, target.cwd] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
 }
 
-export function gitStatusQueryOptions(cwd: string | null) {
+export function gitStatusQueryOptions(target: GitQueryTarget) {
   return queryOptions({
-    queryKey: gitQueryKeys.status(cwd),
+    queryKey: gitQueryKeys.status(target),
     queryFn: async () => {
       const api = ensureNativeApi();
-      if (!cwd) throw new Error("Git status is unavailable.");
-      return api.git.status({ cwd });
+      return api.git.status(toGitApiTarget(target));
     },
-    enabled: cwd !== null,
+    enabled: target.cwd !== null,
     staleTime: GIT_STATUS_STALE_TIME_MS,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
@@ -42,15 +60,14 @@ export function gitStatusQueryOptions(cwd: string | null) {
   });
 }
 
-export function gitBranchesQueryOptions(cwd: string | null) {
+export function gitBranchesQueryOptions(target: GitQueryTarget) {
   return queryOptions({
-    queryKey: gitQueryKeys.branches(cwd),
+    queryKey: gitQueryKeys.branches(target),
     queryFn: async () => {
       const api = ensureNativeApi();
-      if (!cwd) throw new Error("Git branches are unavailable.");
-      return api.git.listBranches({ cwd });
+      return api.git.listBranches(toGitApiTarget(target));
     },
-    enabled: cwd !== null,
+    enabled: target.cwd !== null,
     staleTime: GIT_BRANCHES_STALE_TIME_MS,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -59,32 +76,43 @@ export function gitBranchesQueryOptions(cwd: string | null) {
 }
 
 export function gitResolvePullRequestQueryOptions(input: {
-  cwd: string | null;
+  target: GitQueryTarget;
   reference: string | null;
 }) {
   return queryOptions({
-    queryKey: ["git", "pull-request", input.cwd, input.reference] as const,
+    queryKey: [
+      "git",
+      "pull-request",
+      input.target.projectId,
+      input.target.cwd,
+      input.reference,
+    ] as const,
     queryFn: async () => {
       const api = ensureNativeApi();
-      if (!input.cwd || !input.reference) {
+      if (!input.target.cwd || !input.reference) {
         throw new Error("Pull request lookup is unavailable.");
       }
-      return api.git.resolvePullRequest({ cwd: input.cwd, reference: input.reference });
+      return api.git.resolvePullRequest({
+        ...toGitApiTarget(input.target),
+        reference: input.reference,
+      });
     },
-    enabled: input.cwd !== null && input.reference !== null,
+    enabled: input.target.cwd !== null && input.reference !== null,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 }
 
-export function gitInitMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
+export function gitInitMutationOptions(input: {
+  target: GitQueryTarget;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.init(input.cwd),
+    mutationKey: gitMutationKeys.init(input.target),
     mutationFn: async () => {
       const api = ensureNativeApi();
-      if (!input.cwd) throw new Error("Git init is unavailable.");
-      return api.git.init({ cwd: input.cwd });
+      return api.git.init(toGitApiTarget(input.target));
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -93,15 +121,14 @@ export function gitInitMutationOptions(input: { cwd: string | null; queryClient:
 }
 
 export function gitCheckoutMutationOptions(input: {
-  cwd: string | null;
+  target: GitQueryTarget;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.checkout(input.cwd),
+    mutationKey: gitMutationKeys.checkout(input.target),
     mutationFn: async (branch: string) => {
       const api = ensureNativeApi();
-      if (!input.cwd) throw new Error("Git checkout is unavailable.");
-      return api.git.checkout({ cwd: input.cwd, branch });
+      return api.git.checkout({ ...toGitApiTarget(input.target), branch });
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -110,11 +137,11 @@ export function gitCheckoutMutationOptions(input: {
 }
 
 export function gitRunStackedActionMutationOptions(input: {
-  cwd: string | null;
+  target: GitQueryTarget;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.runStackedAction(input.cwd),
+    mutationKey: gitMutationKeys.runStackedAction(input.target),
     mutationFn: async ({
       action,
       commitMessage,
@@ -127,9 +154,8 @@ export function gitRunStackedActionMutationOptions(input: {
       filePaths?: string[];
     }) => {
       const api = ensureNativeApi();
-      if (!input.cwd) throw new Error("Git action is unavailable.");
       return api.git.runStackedAction({
-        cwd: input.cwd,
+        ...toGitApiTarget(input.target),
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
@@ -142,13 +168,15 @@ export function gitRunStackedActionMutationOptions(input: {
   });
 }
 
-export function gitPullMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
+export function gitPullMutationOptions(input: {
+  target: GitQueryTarget;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.pull(input.cwd),
+    mutationKey: gitMutationKeys.pull(input.target),
     mutationFn: async () => {
       const api = ensureNativeApi();
-      if (!input.cwd) throw new Error("Git pull is unavailable.");
-      return api.git.pull({ cwd: input.cwd });
+      return api.git.pull(toGitApiTarget(input.target));
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -160,18 +188,25 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
   return mutationOptions({
     mutationFn: async ({
       cwd,
+      projectId,
       branch,
       newBranch,
       path,
     }: {
       cwd: string;
+      projectId?: ProjectId | null;
       branch: string;
       newBranch: string;
       path?: string | null;
     }) => {
       const api = ensureNativeApi();
-      if (!cwd) throw new Error("Git worktree creation is unavailable.");
-      return api.git.createWorktree({ cwd, branch, newBranch, path: path ?? null });
+      return api.git.createWorktree({
+        cwd,
+        ...(projectId ? { projectId } : {}),
+        branch,
+        newBranch,
+        path: path ?? null,
+      });
     },
     mutationKey: ["git", "mutation", "create-worktree"] as const,
     onSettled: async () => {
@@ -182,10 +217,24 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
 
 export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClient }) {
   return mutationOptions({
-    mutationFn: async ({ cwd, path, force }: { cwd: string; path: string; force?: boolean }) => {
+    mutationFn: async ({
+      cwd,
+      projectId,
+      path,
+      force,
+    }: {
+      cwd: string;
+      projectId?: ProjectId | null;
+      path: string;
+      force?: boolean;
+    }) => {
       const api = ensureNativeApi();
-      if (!cwd) throw new Error("Git worktree removal is unavailable.");
-      return api.git.removeWorktree({ cwd, path, force });
+      return api.git.removeWorktree({
+        cwd,
+        ...(projectId ? { projectId } : {}),
+        path,
+        force,
+      });
     },
     mutationKey: ["git", "mutation", "remove-worktree"] as const,
     onSettled: async () => {
@@ -195,20 +244,19 @@ export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClie
 }
 
 export function gitPreparePullRequestThreadMutationOptions(input: {
-  cwd: string | null;
+  target: GitQueryTarget;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
     mutationFn: async ({ reference, mode }: { reference: string; mode: "local" | "worktree" }) => {
       const api = ensureNativeApi();
-      if (!input.cwd) throw new Error("Pull request thread preparation is unavailable.");
       return api.git.preparePullRequestThread({
-        cwd: input.cwd,
+        ...toGitApiTarget(input.target),
         reference,
         mode,
       });
     },
-    mutationKey: gitMutationKeys.preparePullRequestThread(input.cwd),
+    mutationKey: gitMutationKeys.preparePullRequestThread(input.target),
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
     },

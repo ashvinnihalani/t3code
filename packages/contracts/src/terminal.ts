@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { TrimmedNonEmptyString } from "./baseSchemas";
+import { ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
 
 export const DEFAULT_TERMINAL_ID = "default";
 
@@ -37,6 +37,7 @@ export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionIn
 export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
+  projectId: Schema.optional(ProjectId),
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
@@ -62,6 +63,7 @@ export type TerminalClearInput = Schema.Codec.Encoded<typeof TerminalClearInput>
 export const TerminalRestartInput = Schema.Struct({
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
+  projectId: Schema.optional(ProjectId),
   cols: TerminalColsSchema,
   rows: TerminalRowsSchema,
   env: Schema.optional(TerminalEnvSchema),
