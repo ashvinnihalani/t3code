@@ -304,6 +304,21 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
               status: toLegacySessionStatus(thread.session.status),
               orchestrationStatus: thread.session.status,
               activeTurnId: thread.session.activeTurnId ?? undefined,
+              ...(thread.session.providerThreadId
+                ? { providerThreadId: thread.session.providerThreadId }
+                : {}),
+              ...(thread.session.resumeAvailable !== undefined
+                ? { resumeAvailable: thread.session.resumeAvailable }
+                : {}),
+              ...(thread.session.reconnectState
+                ? { reconnectState: thread.session.reconnectState }
+                : {}),
+              ...(thread.session.reconnectSummary
+                ? { reconnectSummary: thread.session.reconnectSummary }
+                : {}),
+              ...(thread.session.reconnectUpdatedAt
+                ? { reconnectUpdatedAt: thread.session.reconnectUpdatedAt }
+                : {}),
               createdAt: thread.session.updatedAt,
               updatedAt: thread.session.updatedAt,
               ...(thread.session.lastError ? { lastError: thread.session.lastError } : {}),

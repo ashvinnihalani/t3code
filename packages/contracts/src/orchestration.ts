@@ -182,6 +182,15 @@ export const OrchestrationSessionStatus = Schema.Literals([
 ]);
 export type OrchestrationSessionStatus = typeof OrchestrationSessionStatus.Type;
 
+export const OrchestrationSessionReconnectState = Schema.Literals([
+  "fresh-start",
+  "adopt-existing",
+  "resume-thread",
+  "resume-unavailable",
+  "resume-failed",
+]);
+export type OrchestrationSessionReconnectState = typeof OrchestrationSessionReconnectState.Type;
+
 export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
@@ -189,6 +198,11 @@ export const OrchestrationSession = Schema.Struct({
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
+  providerThreadId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  resumeAvailable: Schema.optional(Schema.Boolean),
+  reconnectState: Schema.optional(Schema.NullOr(OrchestrationSessionReconnectState)),
+  reconnectSummary: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  reconnectUpdatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationSession = typeof OrchestrationSession.Type;

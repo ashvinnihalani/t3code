@@ -1030,8 +1030,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       resolveVisibleProviderHealthStatus({
         status: activeProviderStatus,
         projectRemote: activeProject?.remote ?? null,
+        session: activeThread?.session ?? null,
       }),
-    [activeProject?.remote, activeProviderStatus],
+    [activeProject?.remote, activeProviderStatus, activeThread?.session],
   );
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;

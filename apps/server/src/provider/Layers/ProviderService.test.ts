@@ -536,6 +536,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("recovers stale sessions for sendTurn using persisted cwd", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
       const initial = yield* provider.startSession(asThreadId("thread-1"), {
         provider: "codex",
@@ -570,6 +571,26 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, initial.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+
+      const recoveredRuntime = yield* runtimeRepository.getByThreadId({
+        threadId: initial.threadId,
+      });
+      assert.equal(Option.isSome(recoveredRuntime), true);
+      if (Option.isSome(recoveredRuntime)) {
+        const payload = recoveredRuntime.value.runtimePayload;
+        assert.equal(payload !== null && typeof payload === "object", true);
+        if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+          const runtimePayload = payload as {
+            reconnectState?: string;
+            reconnectSummary?: string;
+          };
+          assert.equal(runtimePayload.reconnectState, "resume-thread");
+          assert.equal(
+            runtimePayload.reconnectSummary,
+            "Resumed the persisted remote provider session.",
+          );
+        }
+      }
     }),
   );
 
@@ -627,12 +648,16 @@ routing.layer("ProviderServiceLive routing", (it) => {
             activeTurnId: string | null;
             lastError: string | null;
             lastRuntimeEvent: string | null;
+            resumeAvailable?: boolean;
+            reconnectState?: string;
           };
           assert.equal(runtimePayload.cwd, process.cwd());
           assert.equal(runtimePayload.model, null);
           assert.equal(runtimePayload.activeTurnId, `turn-${String(session.threadId)}`);
           assert.equal(runtimePayload.lastError, null);
           assert.equal(runtimePayload.lastRuntimeEvent, "provider.sendTurn");
+          assert.equal(runtimePayload.resumeAvailable, true);
+          assert.equal(runtimePayload.reconnectState, "fresh-start");
         }
       }
     }),

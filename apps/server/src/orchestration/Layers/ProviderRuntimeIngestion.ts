@@ -869,6 +869,23 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
+              ...(event.type === "thread.started" && event.payload.providerThreadId
+                ? { providerThreadId: event.payload.providerThreadId }
+                : thread.session?.providerThreadId
+                  ? { providerThreadId: thread.session.providerThreadId }
+                  : {}),
+              ...(thread.session?.resumeAvailable !== undefined
+                ? { resumeAvailable: thread.session.resumeAvailable }
+                : {}),
+              ...(thread.session?.reconnectState !== undefined
+                ? { reconnectState: thread.session.reconnectState }
+                : {}),
+              ...(thread.session?.reconnectSummary !== undefined
+                ? { reconnectSummary: thread.session.reconnectSummary }
+                : {}),
+              ...(thread.session?.reconnectUpdatedAt !== undefined
+                ? { reconnectUpdatedAt: thread.session.reconnectUpdatedAt }
+                : {}),
               updatedAt: now,
             },
             createdAt: now,
@@ -1038,6 +1055,21 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
+              ...(thread.session?.providerThreadId
+                ? { providerThreadId: thread.session.providerThreadId }
+                : {}),
+              ...(thread.session?.resumeAvailable !== undefined
+                ? { resumeAvailable: thread.session.resumeAvailable }
+                : {}),
+              ...(thread.session?.reconnectState !== undefined
+                ? { reconnectState: thread.session.reconnectState }
+                : {}),
+              ...(thread.session?.reconnectSummary !== undefined
+                ? { reconnectSummary: thread.session.reconnectSummary }
+                : {}),
+              ...(thread.session?.reconnectUpdatedAt !== undefined
+                ? { reconnectUpdatedAt: thread.session.reconnectUpdatedAt }
+                : {}),
               updatedAt: now,
             },
             createdAt: now,

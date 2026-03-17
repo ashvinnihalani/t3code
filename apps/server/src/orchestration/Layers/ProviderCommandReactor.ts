@@ -19,6 +19,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { readProviderThreadIdFromResumeCursor } from "../../provider/remoteSessionMetadata.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -272,6 +273,10 @@ const make = Effect.gen(function* () {
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
           lastError: session.lastError ?? null,
+          ...(readProviderThreadIdFromResumeCursor(session.resumeCursor)
+            ? { providerThreadId: readProviderThreadIdFromResumeCursor(session.resumeCursor) }
+            : {}),
+          ...(session.resumeCursor !== undefined ? { resumeAvailable: true } : {}),
           updatedAt: session.updatedAt,
         },
         createdAt,

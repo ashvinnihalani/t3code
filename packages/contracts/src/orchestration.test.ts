@@ -245,3 +245,25 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
   }),
 );
+
+it.effect("decodes orchestration session reconnect metadata", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationSession({
+      threadId: "thread-1",
+      status: "stopped",
+      providerName: "codex",
+      providerThreadId: "thread_remote_123",
+      runtimeMode: "full-access",
+      activeTurnId: null,
+      lastError: null,
+      resumeAvailable: true,
+      reconnectState: "resume-thread",
+      reconnectSummary: "Reconnected to provider thread thread_remote_123.",
+      reconnectUpdatedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.providerThreadId, "thread_remote_123");
+    assert.strictEqual(parsed.resumeAvailable, true);
+    assert.strictEqual(parsed.reconnectState, "resume-thread");
+  }),
+);

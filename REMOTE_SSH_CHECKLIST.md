@@ -30,6 +30,12 @@ This tracks the VS Code-style remote SSH work as a file-by-file implementation m
   Projected remote metadata into the SQL snapshot tables.
 - `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`
   Read remote metadata back out of projection storage.
+- `apps/server/src/provider/Layers/ProviderService.ts`
+  Persisted remote runtime reconnect metadata so remote sessions recover cleanly after reconnects.
+- `apps/web/src/components/ChatView.logic.ts`
+  Resolve remote-aware provider health from session reconnect metadata instead of hiding the banner.
+- `apps/web/src/components/chat/ProviderHealthBanner.tsx`
+  Render remote session lifecycle and reconnect status alongside the existing local provider warnings.
 - `apps/web/src/wsNativeApi.ts`
   Wired `server.listSshHosts()` through the browser transport.
 - `apps/web/src/lib/serverReactQuery.ts`
@@ -53,8 +59,6 @@ This tracks the VS Code-style remote SSH work as a file-by-file implementation m
   Route project, git, terminal, attachment, and favicon requests by project target instead of always assuming local disk.
 - `apps/server/src/codexAppServerManager.ts`
   Add a remote transport abstraction so Codex sessions can run over SSH or a remote agent.
-- `apps/server/src/provider/Layers/ProviderService.ts`
-  Persist enough remote runtime metadata to recover remote sessions cleanly after reconnects.
 - `apps/server/src/projectFaviconRoute.ts`
   Teach favicon lookup to resolve via project identity instead of raw `cwd`.
 - `apps/server/src/workspaceEntries.ts`
