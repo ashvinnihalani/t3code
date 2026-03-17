@@ -118,7 +118,7 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { resolveAppModelSelection, useAppSettings } from "../appSettings";
+import { getCodexHostOverride, resolveAppModelSelection, useAppSettings } from "../appSettings";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
@@ -528,20 +528,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
+  const activeProjectCodexHostAlias =
+    activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
+  const activeProjectCodexOverride = useMemo(
+    () => getCodexHostOverride(settings, activeProjectCodexHostAlias),
+    [activeProjectCodexHostAlias, settings],
+  );
   const providerOptionsForDispatch = useMemo(() => {
-    if (activeProject?.remote) {
-      return undefined;
-    }
-    if (!settings.codexBinaryPath && !settings.codexHomePath) {
+    if (!activeProjectCodexOverride.binaryPath && !activeProjectCodexOverride.homePath) {
       return undefined;
     }
     return {
       codex: {
-        ...(settings.codexBinaryPath ? { binaryPath: settings.codexBinaryPath } : {}),
-        ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
+        ...(activeProjectCodexOverride.binaryPath
+          ? { binaryPath: activeProjectCodexOverride.binaryPath }
+          : {}),
+        ...(activeProjectCodexOverride.homePath
+          ? { homePath: activeProjectCodexOverride.homePath }
+          : {}),
       },
     };
-  }, [activeProject?.remote, settings.codexBinaryPath, settings.codexHomePath]);
+  }, [activeProjectCodexOverride.binaryPath, activeProjectCodexOverride.homePath]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),

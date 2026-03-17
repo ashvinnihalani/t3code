@@ -37,7 +37,7 @@ function envCaptureEnd(name: string): string {
   return `__T3CODE_ENV_${name}_END__`;
 }
 
-function buildEnvironmentCaptureCommand(names: ReadonlyArray<string>): string {
+export function buildEnvironmentCaptureCommand(names: ReadonlyArray<string>): string {
   return names
     .map((name) => {
       if (!SHELL_ENV_NAME_PATTERN.test(name)) {
@@ -74,6 +74,20 @@ function extractEnvironmentValue(output: string, name: string): string | undefin
   return value.length > 0 ? value : undefined;
 }
 
+export function extractEnvironmentFromShellOutput(
+  output: string,
+  names: ReadonlyArray<string>,
+): Partial<Record<string, string>> {
+  const environment: Partial<Record<string, string>> = {};
+  for (const name of names) {
+    const value = extractEnvironmentValue(output, name);
+    if (value !== undefined) {
+      environment[name] = value;
+    }
+  }
+  return environment;
+}
+
 export type ShellEnvironmentReader = (
   shell: string,
   names: ReadonlyArray<string>,
@@ -94,13 +108,5 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
     timeout: 5000,
   });
 
-  const environment: Partial<Record<string, string>> = {};
-  for (const name of names) {
-    const value = extractEnvironmentValue(output, name);
-    if (value !== undefined) {
-      environment[name] = value;
-    }
-  }
-
-  return environment;
+  return extractEnvironmentFromShellOutput(output, names);
 };

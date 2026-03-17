@@ -271,14 +271,25 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
-  it("falls back to mise exec when using the default remote codex binary", () => {
+  it("uses direct codex execution for the default remote codex binary", () => {
+    const command = buildRemoteCodexCommand({
+      binaryPath: "codex",
+      cwd: "/home/ashvinn/SFAILib",
+      subcommand: ["--version"],
+    });
+
+    expect(command).toContain("exec 'codex' '--version'");
+    expect(command).not.toContain("mise");
+  });
+
+  it("exports a captured PATH for remote codex commands when provided", () => {
     expect(
       buildRemoteCodexCommand({
         binaryPath: "codex",
-        cwd: "/home/ashvinn/SFAILib",
-        subcommand: ["--version"],
+        pathEnv: "/opt/node/bin:/usr/bin",
+        subcommand: ["app-server"],
       }),
-    ).toContain("exec mise exec -- codex '--version'");
+    ).toContain("export PATH='/opt/node/bin:/usr/bin' && exec 'codex' 'app-server'");
   });
 
   it("enables Codex experimental api capabilities during initialize", () => {
