@@ -13,13 +13,23 @@ export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
 };
+const CodexSettingsPathSchema = Schema.String.check(Schema.isMaxLength(4096)).pipe(
+  Schema.withConstructorDefault(() => Option.some("")),
+  Schema.withDecodingDefault(() => ""),
+);
+const CodexHostOverrideSchema = Schema.Struct({
+  binaryPath: CodexSettingsPathSchema,
+  homePath: CodexSettingsPathSchema,
+});
+export type CodexHostOverride = typeof CodexHostOverrideSchema.Type;
+const DEFAULT_CODEX_HOST_OVERRIDE = CodexHostOverrideSchema.makeUnsafe({});
 
 const AppSettingsSchema = Schema.Struct({
-  codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
-    Schema.withConstructorDefault(() => Option.some("")),
-  ),
-  codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
-    Schema.withConstructorDefault(() => Option.some("")),
+  codexBinaryPath: CodexSettingsPathSchema,
+  codexHomePath: CodexSettingsPathSchema,
+  codexRemoteOverrides: Schema.Record(Schema.String, CodexHostOverrideSchema).pipe(
+    Schema.withConstructorDefault(() => Option.some({})),
+    Schema.withDecodingDefault(() => ({})),
   ),
   defaultThreadEnvMode: Schema.Literals(["local", "worktree"]).pipe(
     Schema.withConstructorDefault(() => Option.some("local")),
@@ -44,6 +54,55 @@ export interface AppModelOption {
 }
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+
+export function getCodexHostOverride(
+  settings: Pick<AppSettings, "codexBinaryPath" | "codexHomePath" | "codexRemoteOverrides">,
+  hostAlias?: string | null,
+): CodexHostOverride {
+  if (!hostAlias) {
+    return {
+      binaryPath: settings.codexBinaryPath,
+      homePath: settings.codexHomePath,
+    };
+  }
+
+  const override = settings.codexRemoteOverrides[hostAlias];
+  if (!override) {
+    return { ...DEFAULT_CODEX_HOST_OVERRIDE };
+  }
+
+  return {
+    binaryPath: override.binaryPath,
+    homePath: override.homePath,
+  };
+}
+
+export function buildCodexHostOverridePatch(
+  settings: Pick<AppSettings, "codexBinaryPath" | "codexHomePath" | "codexRemoteOverrides">,
+  patch: Partial<CodexHostOverride>,
+  hostAlias?: string | null,
+): Partial<AppSettings> {
+  const nextOverride = {
+    ...getCodexHostOverride(settings, hostAlias),
+    ...patch,
+  };
+
+  if (!hostAlias) {
+    return {
+      codexBinaryPath: nextOverride.binaryPath,
+      codexHomePath: nextOverride.homePath,
+    };
+  }
+
+  const codexRemoteOverrides = { ...settings.codexRemoteOverrides };
+  if (!nextOverride.binaryPath && !nextOverride.homePath) {
+    delete codexRemoteOverrides[hostAlias];
+  } else {
+    codexRemoteOverrides[hostAlias] = nextOverride;
+  }
+
+  return { codexRemoteOverrides };
+}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,

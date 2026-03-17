@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildEnvironmentCaptureCommand,
+  extractEnvironmentFromShellOutput,
   extractPathFromShellOutput,
   readEnvironmentFromLoginShell,
   readPathFromLoginShell,
@@ -61,6 +63,35 @@ describe("readPathFromLoginShell", () => {
 });
 
 describe("readEnvironmentFromLoginShell", () => {
+  it("builds a shell-agnostic capture command for requested variables", () => {
+    expect(buildEnvironmentCaptureCommand(["PATH", "SSH_AUTH_SOCK"])).toContain(
+      "printenv PATH || true",
+    );
+    expect(buildEnvironmentCaptureCommand(["PATH", "SSH_AUTH_SOCK"])).toContain(
+      "printenv SSH_AUTH_SOCK || true",
+    );
+  });
+
+  it("extracts requested environment variables from shell output", () => {
+    expect(
+      extractEnvironmentFromShellOutput(
+        [
+          "Welcome to fish",
+          "__T3CODE_ENV_PATH_START__",
+          "/a:/b",
+          "__T3CODE_ENV_PATH_END__",
+          "__T3CODE_ENV_SSH_AUTH_SOCK_START__",
+          "/tmp/secretive.sock",
+          "__T3CODE_ENV_SSH_AUTH_SOCK_END__",
+        ].join("\n"),
+        ["PATH", "SSH_AUTH_SOCK"],
+      ),
+    ).toEqual({
+      PATH: "/a:/b",
+      SSH_AUTH_SOCK: "/tmp/secretive.sock",
+    });
+  });
+
   it("extracts multiple environment variables from a login shell command", () => {
     const execFile = vi.fn<
       (

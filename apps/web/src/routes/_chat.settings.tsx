@@ -1,14 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ProviderKind, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
-import { getAppModelOptions, MAX_CUSTOM_MODEL_LENGTH, useAppSettings } from "../appSettings";
+import {
+  getAppModelOptions,
+  MAX_CUSTOM_MODEL_LENGTH,
+  buildCodexHostOverridePatch,
+  getCodexHostOverride,
+  useAppSettings,
+} from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
+import { useStore } from "../store";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -61,6 +68,18 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+const LOCAL_CODEX_SETTINGS_SCOPE = "local";
+const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
+
+function encodeCodexSettingsScope(hostAlias: string | null): string {
+  return hostAlias ? `${SSH_CODEX_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_CODEX_SETTINGS_SCOPE;
+}
+
+function decodeCodexSettingsScope(scope: string): string | null {
+  return scope.startsWith(SSH_CODEX_SETTINGS_SCOPE_PREFIX)
+    ? scope.slice(SSH_CODEX_SETTINGS_SCOPE_PREFIX.length)
+    : null;
+}
 
 function getCustomModelsForProvider(
   settings: ReturnType<typeof useAppSettings>["settings"],
@@ -95,9 +114,13 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
+  const projects = useStore((store) => store.projects);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const [selectedCodexSettingsScope, setSelectedCodexSettingsScope] = useState(
+    LOCAL_CODEX_SETTINGS_SCOPE,
+  );
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -107,8 +130,49 @@ function SettingsRouteView() {
     Partial<Record<ProviderKind, string | null>>
   >({});
 
-  const codexBinaryPath = settings.codexBinaryPath;
-  const codexHomePath = settings.codexHomePath;
+  const remoteCodexHosts = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projects.flatMap((project) =>
+            project.remote?.kind === "ssh" ? [project.remote.hostAlias] : [],
+          ),
+        ),
+      ).toSorted((left, right) => left.localeCompare(right)),
+    [projects],
+  );
+  const codexSettingsScopeOptions = useMemo(
+    () => [
+      {
+        label: "Local",
+        value: LOCAL_CODEX_SETTINGS_SCOPE,
+      },
+      ...remoteCodexHosts.map((hostAlias) => ({
+        label: `SSH ${hostAlias}`,
+        value: encodeCodexSettingsScope(hostAlias),
+      })),
+    ],
+    [remoteCodexHosts],
+  );
+  const hasRemoteCodexHosts = remoteCodexHosts.length > 0;
+
+  useEffect(() => {
+    if (selectedCodexSettingsScope === LOCAL_CODEX_SETTINGS_SCOPE) {
+      return;
+    }
+
+    if (!codexSettingsScopeOptions.some((option) => option.value === selectedCodexSettingsScope)) {
+      setSelectedCodexSettingsScope(LOCAL_CODEX_SETTINGS_SCOPE);
+    }
+  }, [codexSettingsScopeOptions, selectedCodexSettingsScope]);
+
+  const selectedCodexHostAlias = decodeCodexSettingsScope(selectedCodexSettingsScope);
+  const selectedCodexSettingsOption =
+    codexSettingsScopeOptions.find((option) => option.value === selectedCodexSettingsScope) ??
+    codexSettingsScopeOptions[0];
+  const codexHostOverride = getCodexHostOverride(settings, selectedCodexHostAlias);
+  const codexBinaryPath = codexHostOverride.binaryPath;
+  const codexHomePath = codexHostOverride.homePath;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
@@ -328,17 +392,67 @@ function SettingsRouteView() {
               </div>
 
               <div className="space-y-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="codex-settings-host"
+                    className="block text-xs font-medium text-foreground"
+                  >
+                    Host
+                  </label>
+                  <Select
+                    value={selectedCodexSettingsScope}
+                    onValueChange={(value) => {
+                      if (
+                        value === null ||
+                        !codexSettingsScopeOptions.some((option) => option.value === value)
+                      ) {
+                        return;
+                      }
+                      setSelectedCodexSettingsScope(value);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="codex-settings-host"
+                      className="w-full"
+                      aria-label="Codex settings host"
+                      disabled={!hasRemoteCodexHosts}
+                    >
+                      <SelectValue>{selectedCodexSettingsOption?.label ?? "Local"}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {codexSettingsScopeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {hasRemoteCodexHosts
+                      ? "Choose which machine these overrides apply to. Remote host overrides are stored locally on this device for now."
+                      : "Only local projects are open right now, so these overrides are locked to Local."}
+                  </span>
+                </div>
+
                 <label htmlFor="codex-binary-path" className="block space-y-1">
                   <span className="text-xs font-medium text-foreground">Codex binary path</span>
                   <Input
                     id="codex-binary-path"
                     value={codexBinaryPath}
-                    onChange={(event) => updateSettings({ codexBinaryPath: event.target.value })}
+                    onChange={(event) =>
+                      updateSettings(
+                        buildCodexHostOverridePatch(
+                          settings,
+                          { binaryPath: event.target.value },
+                          selectedCodexHostAlias,
+                        ),
+                      )
+                    }
                     placeholder="codex"
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>codex</code> from your PATH.
+                    Leave blank to use <code>codex</code> from your PATH on the selected host.
                   </span>
                 </label>
 
@@ -347,7 +461,15 @@ function SettingsRouteView() {
                   <Input
                     id="codex-home-path"
                     value={codexHomePath}
-                    onChange={(event) => updateSettings({ codexHomePath: event.target.value })}
+                    onChange={(event) =>
+                      updateSettings(
+                        buildCodexHostOverridePatch(
+                          settings,
+                          { homePath: event.target.value },
+                          selectedCodexHostAlias,
+                        ),
+                      )
+                    }
                     placeholder="/Users/you/.codex"
                     spellCheck={false}
                   />
@@ -358,7 +480,7 @@ function SettingsRouteView() {
 
                 <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
-                    <p>Binary source</p>
+                    <p>Binary source for {selectedCodexSettingsOption?.label ?? "Local"}</p>
                     <p className="mt-1 break-all font-mono text-[11px] text-foreground">
                       {codexBinaryPath || "PATH"}
                     </p>
@@ -368,10 +490,16 @@ function SettingsRouteView() {
                     variant="outline"
                     className="self-start"
                     onClick={() =>
-                      updateSettings({
-                        codexBinaryPath: defaults.codexBinaryPath,
-                        codexHomePath: defaults.codexHomePath,
-                      })
+                      updateSettings(
+                        buildCodexHostOverridePatch(
+                          settings,
+                          {
+                            binaryPath: defaults.codexBinaryPath,
+                            homePath: defaults.codexHomePath,
+                          },
+                          selectedCodexHostAlias,
+                        ),
+                      )
                     }
                   >
                     Reset codex overrides
