@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
+import type { ProjectRemoteTarget } from "@t3tools/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
@@ -43,6 +44,7 @@ interface FakeGhScenario {
 interface FakeGitTextGeneration {
   generateCommitMessage: (input: {
     cwd: string;
+    remote?: ProjectRemoteTarget | null;
     branch: string | null;
     stagedSummary: string;
     stagedPatch: string;
@@ -53,6 +55,7 @@ interface FakeGitTextGeneration {
   >;
   generatePrContent: (input: {
     cwd: string;
+    remote?: ProjectRemoteTarget | null;
     baseBranch: string;
     headBranch: string;
     commitSummary: string;
@@ -61,6 +64,7 @@ interface FakeGitTextGeneration {
   }) => Effect.Effect<{ title: string; body: string }, TextGenerationError>;
   generateBranchName: (input: {
     cwd: string;
+    remote?: ProjectRemoteTarget | null;
     message: string;
   }) => Effect.Effect<{ branch: string }, TextGenerationError>;
 }
@@ -404,8 +408,8 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             input.headSelector,
             "--title",
             input.title,
-            "--body-file",
-            input.bodyFile,
+            "--body",
+            input.body,
           ],
         }).pipe(Effect.asVoid),
       getDefaultBranch: (input) =>

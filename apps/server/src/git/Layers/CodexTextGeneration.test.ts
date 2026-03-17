@@ -35,6 +35,16 @@ function makeFakeCodexBinary(dir: string) {
         "    fi",
         "    continue",
         "  fi",
+        '  if [ "$1" = "--config" ]; then',
+        "    shift",
+        '    if [ "$1" = "tools.web_search=false" ]; then',
+        '      seen_disable_web_search="1"',
+        "    fi",
+        "    continue",
+        "  fi",
+        '  if [ "$1" = "--output-schema" ]; then',
+        '    seen_output_schema="1"',
+        "  fi",
         '  if [ "$1" = "--output-last-message" ]; then',
         "    shift",
         '    output_path="$1"',
@@ -45,6 +55,14 @@ function makeFakeCodexBinary(dir: string) {
         'if [ "$T3_FAKE_CODEX_REQUIRE_IMAGE" = "1" ] && [ "$seen_image" != "1" ]; then',
         '  printf "%s\\n" "missing --image input" >&2',
         "  exit 2",
+        "fi",
+        'if [ "$T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED" = "1" ] && [ "$seen_disable_web_search" != "1" ]; then',
+        '  printf "%s\\n" "missing tools.web_search=false override" >&2',
+        "  exit 6",
+        "fi",
+        'if [ "$T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA" = "1" ] && [ "$seen_output_schema" = "1" ]; then',
+        '  printf "%s\\n" "unexpected argument --output-schema" >&2',
+        "  exit 5",
         "fi",
         'if [ -n "$T3_FAKE_CODEX_STDIN_MUST_CONTAIN" ]; then',
         '  printf "%s" "$stdin_content" | grep -F -- "$T3_FAKE_CODEX_STDIN_MUST_CONTAIN" >/dev/null || {',
@@ -61,7 +79,10 @@ function makeFakeCodexBinary(dir: string) {
         'if [ -n "$T3_FAKE_CODEX_STDERR" ]; then',
         '  printf "%s\\n" "$T3_FAKE_CODEX_STDERR" >&2',
         "fi",
-        'if [ -n "$output_path" ]; then',
+        'if [ -n "$T3_FAKE_CODEX_STDOUT" ]; then',
+        '  printf "%s\\n" "$T3_FAKE_CODEX_STDOUT"',
+        "fi",
+        'if [ -n "$output_path" ] && [ "$T3_FAKE_CODEX_SKIP_OUTPUT_FILE" != "1" ]; then',
         '  node -e \'const fs=require("node:fs"); const value=process.argv[2] ?? ""; fs.writeFileSync(process.argv[1], Buffer.from(value, "base64"));\' "$output_path" "${T3_FAKE_CODEX_OUTPUT_B64:-e30=}"',
         "fi",
         'exit "${T3_FAKE_CODEX_EXIT_CODE:-0}"',
@@ -76,9 +97,13 @@ function makeFakeCodexBinary(dir: string) {
 function withFakeCodexEnv<A, E, R>(
   input: {
     output: string;
+    skipOutputFile?: boolean;
     exitCode?: number;
     stderr?: string;
+    stdout?: string;
     requireImage?: boolean;
+    failOnOutputSchema?: boolean;
+    requireWebSearchDisabled?: boolean;
     stdinMustContain?: string;
     stdinMustNotContain?: string;
   },
@@ -91,15 +116,26 @@ function withFakeCodexEnv<A, E, R>(
       const binDir = yield* makeFakeCodexBinary(tempDir);
       const previousPath = process.env.PATH;
       const previousOutput = process.env.T3_FAKE_CODEX_OUTPUT_B64;
+      const previousSkipOutputFile = process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
       const previousExitCode = process.env.T3_FAKE_CODEX_EXIT_CODE;
       const previousStderr = process.env.T3_FAKE_CODEX_STDERR;
+      const previousStdout = process.env.T3_FAKE_CODEX_STDOUT;
       const previousRequireImage = process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
+      const previousFailOnOutputSchema = process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
+      const previousRequireWebSearchDisabled =
+        process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
       const previousStdinMustContain = process.env.T3_FAKE_CODEX_STDIN_MUST_CONTAIN;
       const previousStdinMustNotContain = process.env.T3_FAKE_CODEX_STDIN_MUST_NOT_CONTAIN;
 
       yield* Effect.sync(() => {
         process.env.PATH = `${binDir}:${previousPath ?? ""}`;
         process.env.T3_FAKE_CODEX_OUTPUT_B64 = Buffer.from(input.output, "utf8").toString("base64");
+
+        if (input.skipOutputFile) {
+          process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE = "1";
+        } else {
+          delete process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
+        }
 
         if (input.exitCode !== undefined) {
           process.env.T3_FAKE_CODEX_EXIT_CODE = String(input.exitCode);
@@ -113,10 +149,28 @@ function withFakeCodexEnv<A, E, R>(
           delete process.env.T3_FAKE_CODEX_STDERR;
         }
 
+        if (input.stdout !== undefined) {
+          process.env.T3_FAKE_CODEX_STDOUT = input.stdout;
+        } else {
+          delete process.env.T3_FAKE_CODEX_STDOUT;
+        }
+
         if (input.requireImage) {
           process.env.T3_FAKE_CODEX_REQUIRE_IMAGE = "1";
         } else {
           delete process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
+        }
+
+        if (input.failOnOutputSchema) {
+          process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA = "1";
+        } else {
+          delete process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
+        }
+
+        if (input.requireWebSearchDisabled) {
+          process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED = "1";
+        } else {
+          delete process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
         }
 
         if (input.stdinMustContain !== undefined) {
@@ -135,9 +189,13 @@ function withFakeCodexEnv<A, E, R>(
       return {
         previousPath,
         previousOutput,
+        previousSkipOutputFile,
         previousExitCode,
         previousStderr,
+        previousStdout,
         previousRequireImage,
+        previousFailOnOutputSchema,
+        previousRequireWebSearchDisabled,
         previousStdinMustContain,
         previousStdinMustNotContain,
       };
@@ -153,6 +211,12 @@ function withFakeCodexEnv<A, E, R>(
           process.env.T3_FAKE_CODEX_OUTPUT_B64 = previous.previousOutput;
         }
 
+        if (previous.previousSkipOutputFile === undefined) {
+          delete process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
+        } else {
+          process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE = previous.previousSkipOutputFile;
+        }
+
         if (previous.previousExitCode === undefined) {
           delete process.env.T3_FAKE_CODEX_EXIT_CODE;
         } else {
@@ -165,10 +229,29 @@ function withFakeCodexEnv<A, E, R>(
           process.env.T3_FAKE_CODEX_STDERR = previous.previousStderr;
         }
 
+        if (previous.previousStdout === undefined) {
+          delete process.env.T3_FAKE_CODEX_STDOUT;
+        } else {
+          process.env.T3_FAKE_CODEX_STDOUT = previous.previousStdout;
+        }
+
         if (previous.previousRequireImage === undefined) {
           delete process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
         } else {
           process.env.T3_FAKE_CODEX_REQUIRE_IMAGE = previous.previousRequireImage;
+        }
+
+        if (previous.previousFailOnOutputSchema === undefined) {
+          delete process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
+        } else {
+          process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA = previous.previousFailOnOutputSchema;
+        }
+
+        if (previous.previousRequireWebSearchDisabled === undefined) {
+          delete process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
+        } else {
+          process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED =
+            previous.previousRequireWebSearchDisabled;
         }
 
         if (previous.previousStdinMustContain === undefined) {
@@ -240,6 +323,173 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
 
         expect(generated.subject).toBe("Add important change");
         expect(generated.branch).toBe("feature/fix/important-system-change");
+      }),
+    ),
+  );
+
+  it.effect("falls back to a local working directory for remote commit message generation", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Add remote-safe commit message generation",
+          body: "",
+        }),
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: "/home/remote-user/project",
+          remote: { kind: "ssh", hostAlias: "test-remote" },
+          branch: "feature/remote-commit-message",
+          stagedSummary: "M src/index.ts",
+          stagedPatch: "diff --git a/src/index.ts b/src/index.ts",
+        });
+
+        expect(generated.subject).toBe("Add remote-safe commit message generation");
+      }),
+    ),
+  );
+
+  it.effect("does not require codex output-schema CLI support", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Use output-last-message only",
+          body: "",
+        }),
+        failOnOutputSchema: true,
+        requireWebSearchDisabled: true,
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/output-last-message-only",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+        });
+
+        expect(generated.subject).toBe("Use output-last-message only");
+      }),
+    ),
+  );
+
+  it.effect("parses fenced JSON from codex output-last-message", () =>
+    withFakeCodexEnv(
+      {
+        output: '```json\n{"subject":"Add fenced-json fallback","body":""}\n```',
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/fenced-json",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+        });
+
+        expect(generated.subject).toBe("Add fenced-json fallback");
+      }),
+    ),
+  );
+
+  it.effect("falls back to plain-text commit messages when codex skips JSON output", () =>
+    withFakeCodexEnv(
+      {
+        output: ["Add resilient commit parsing", "", "- tolerate plain-text codex output"].join(
+          "\n",
+        ),
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/plain-text-fallback",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+        });
+
+        expect(generated.subject).toBe("Add resilient commit parsing");
+        expect(generated.body).toBe("- tolerate plain-text codex output");
+      }),
+    ),
+  );
+
+  it.effect("falls back to labeled plain-text commit output with branch suggestions", () =>
+    withFakeCodexEnv(
+      {
+        output: [
+          "Subject: Add resilient remote commit generation",
+          "Body:",
+          "- parse plain-text fallback output",
+          "Branch: fix/remote-commit-generation",
+        ].join("\n"),
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/plain-text-branch-fallback",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          includeBranch: true,
+        });
+
+        expect(generated.subject).toBe("Add resilient remote commit generation");
+        expect(generated.body).toBe("- parse plain-text fallback output");
+        expect(generated.branch).toBe("feature/fix/remote-commit-generation");
+      }),
+    ),
+  );
+
+  it.effect("falls back to stdout when codex leaves output-last-message empty", () =>
+    withFakeCodexEnv(
+      {
+        output: "",
+        skipOutputFile: true,
+        stdout: "Subject: Read commit output from stdout\nBody:\n- keep commit generation working",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/stdout-fallback",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+        });
+
+        expect(generated.subject).toBe("Read commit output from stdout");
+        expect(generated.body).toBe("- keep commit generation working");
+      }),
+    ),
+  );
+
+  it.effect("uses a generic commit message when codex returns no usable output", () =>
+    withFakeCodexEnv(
+      {
+        output: "",
+        skipOutputFile: true,
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/generic-fallback",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          includeBranch: true,
+        });
+
+        expect(generated.subject).toBe("Update project files");
+        expect(generated.body).toBe("");
+        expect(generated.branch).toBe("feature/update-project-files");
       }),
     ),
   );

@@ -1,6 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
-import { type ThreadId } from "@t3tools/contracts";
+import { type ProjectId, type ThreadId } from "@t3tools/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -185,6 +185,8 @@ interface TerminalViewportProps {
   terminalId: string;
   terminalLabel: string;
   cwd: string;
+  projectId: ProjectId | null;
+  allowPathLinkOpen?: boolean;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -199,6 +201,8 @@ function TerminalViewport({
   terminalId,
   terminalLabel,
   cwd,
+  projectId,
+  allowPathLinkOpen = true,
   runtimeEnv,
   onSessionExited,
   onAddTerminalContext,
@@ -402,6 +406,14 @@ function TerminalViewport({
                 return;
               }
 
+              if (!allowPathLinkOpen) {
+                writeSystemMessage(
+                  latestTerminal,
+                  "Opening remote filesystem paths in the local editor is unavailable.",
+                );
+                return;
+              }
+
               const target = resolvePathLinkTarget(match.text, cwd);
               void openInPreferredEditor(api, target).catch((error) => {
                 writeSystemMessage(
@@ -479,6 +491,7 @@ function TerminalViewport({
           threadId,
           terminalId,
           cwd,
+          ...(projectId ? { projectId } : {}),
           cols: activeTerminal.cols,
           rows: activeTerminal.rows,
           ...(runtimeEnv ? { env: runtimeEnv } : {}),
@@ -600,7 +613,7 @@ function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, runtimeEnv, terminalId, threadId]);
+  }, [allowPathLinkOpen, cwd, projectId, runtimeEnv, terminalId, threadId]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -646,6 +659,8 @@ function TerminalViewport({
 interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
+  projectId: ProjectId | null;
+  allowPathLinkOpen?: boolean;
   runtimeEnv?: Record<string, string>;
   height: number;
   terminalIds: string[];
@@ -696,6 +711,8 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
 export default function ThreadTerminalDrawer({
   threadId,
   cwd,
+  projectId,
+  allowPathLinkOpen = true,
   runtimeEnv,
   height,
   terminalIds,
@@ -1010,6 +1027,8 @@ export default function ThreadTerminalDrawer({
                         terminalId={terminalId}
                         terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                         cwd={cwd}
+                        projectId={projectId}
+                        allowPathLinkOpen={allowPathLinkOpen}
                         {...(runtimeEnv ? { runtimeEnv } : {})}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         onAddTerminalContext={onAddTerminalContext}
@@ -1030,6 +1049,8 @@ export default function ThreadTerminalDrawer({
                   terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={cwd}
+                  projectId={projectId}
+                  allowPathLinkOpen={allowPathLinkOpen}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}

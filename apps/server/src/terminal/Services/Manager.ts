@@ -7,6 +7,7 @@
  * @module TerminalManager
  */
 import {
+  ProjectRemoteTarget,
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
@@ -29,6 +30,7 @@ export interface TerminalSessionState {
   threadId: string;
   terminalId: string;
   cwd: string;
+  remote: ProjectRemoteTarget | null;
   status: TerminalSessionStatus;
   pid: number | null;
   history: string;
@@ -49,7 +51,15 @@ export interface ShellCandidate {
   args?: string[];
 }
 
-export interface TerminalStartInput extends TerminalOpenInput {
+export interface TerminalOpenExecutionInput extends TerminalOpenInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface TerminalRestartExecutionInput extends TerminalRestartInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface TerminalStartInput extends TerminalOpenExecutionInput {
   cols: number;
   rows: number;
 }
@@ -65,7 +75,7 @@ export interface TerminalManagerShape {
    * persisted history on first open.
    */
   readonly open: (
-    input: TerminalOpenInput,
+    input: TerminalOpenExecutionInput,
   ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
 
   /**
@@ -89,7 +99,7 @@ export interface TerminalManagerShape {
    * Always resets history before spawning the new process.
    */
   readonly restart: (
-    input: TerminalRestartInput,
+    input: TerminalRestartExecutionInput,
   ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
 
   /**

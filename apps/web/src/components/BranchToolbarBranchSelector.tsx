@@ -1,4 +1,4 @@
-import type { GitBranch } from "@t3tools/contracts";
+import type { GitBranch, ProjectId } from "@t3tools/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";
@@ -42,6 +42,7 @@ import {
 import { toastManager } from "./ui/toast";
 
 interface BranchToolbarBranchSelectorProps {
+  activeProjectId: ProjectId;
   activeProjectCwd: string;
   activeThreadBranch: string | null;
   activeWorktreePath: string | null;
@@ -73,6 +74,7 @@ function getBranchTriggerLabel(input: {
 }
 
 export function BranchToolbarBranchSelector({
+  activeProjectId,
   activeProjectCwd,
   activeThreadBranch,
   activeWorktreePath,
@@ -87,9 +89,13 @@ export function BranchToolbarBranchSelector({
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
+  const gitTarget = useMemo(
+    () => ({ cwd: branchCwd, projectId: activeProjectId }),
+    [activeProjectId, branchCwd],
+  );
 
-  const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd));
-  const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
+  const branchStatusQuery = useQuery(gitStatusQueryOptions(gitTarget));
   const branches = useMemo(
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],
@@ -190,7 +196,11 @@ export function BranchToolbarBranchSelector({
     runBranchAction(async () => {
       setOptimisticBranch(selectedBranchName);
       try {
-        await api.git.checkout({ cwd: selectionTarget.checkoutCwd, branch: branch.name });
+        await api.git.checkout({
+          cwd: selectionTarget.checkoutCwd,
+          projectId: activeProjectId,
+          branch: branch.name,
+        });
         await invalidateGitQueries(queryClient);
       } catch (error) {
         toastManager.add({
@@ -203,7 +213,9 @@ export function BranchToolbarBranchSelector({
 
       let nextBranchName = selectedBranchName;
       if (branch.isRemote) {
-        const status = await api.git.status({ cwd: branchCwd }).catch(() => null);
+        const status = await api.git
+          .status({ cwd: branchCwd, projectId: activeProjectId })
+          .catch(() => null);
         if (status?.branch) {
           nextBranchName = status.branch;
         }
@@ -226,9 +238,9 @@ export function BranchToolbarBranchSelector({
       setOptimisticBranch(name);
 
       try {
-        await api.git.createBranch({ cwd: branchCwd, branch: name });
+        await api.git.createBranch({ cwd: branchCwd, projectId: activeProjectId, branch: name });
         try {
-          await api.git.checkout({ cwd: branchCwd, branch: name });
+          await api.git.checkout({ cwd: branchCwd, projectId: activeProjectId, branch: name });
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -278,10 +290,10 @@ export function BranchToolbarBranchSelector({
         return;
       }
       void queryClient.invalidateQueries({
-        queryKey: gitQueryKeys.branches(branchCwd),
+        queryKey: gitQueryKeys.branches(gitTarget),
       });
     },
-    [branchCwd, queryClient],
+    [gitTarget, queryClient],
   );
 
   const branchListScrollElementRef = useRef<HTMLDivElement | null>(null);

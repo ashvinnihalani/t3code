@@ -4,9 +4,10 @@ import {
   type OrchestrationGetFullThreadDiffResult,
   type OrchestrationGetTurnDiffResult as OrchestrationGetTurnDiffResultType,
 } from "@t3tools/contracts";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { CheckpointInvariantError, CheckpointUnavailableError } from "../Errors.ts";
 import { checkpointRefForThreadTurn, resolveThreadWorkspaceCwd } from "../Utils.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
@@ -16,9 +17,12 @@ import {
 } from "../Services/CheckpointDiffQuery.ts";
 
 const isTurnDiffResult = Schema.is(OrchestrationGetTurnDiffResult);
+const isProviderDiffCheckpointRef = (checkpointRef: string) =>
+  checkpointRef.startsWith("provider-diff:");
 
 const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const projectionTurnRepository = yield* ProjectionTurnRepository;
   const checkpointStore = yield* CheckpointStore;
 
   const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = (input) =>
@@ -87,14 +91,50 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const toCheckpointRef = thread.checkpoints.find(
+      const toCheckpoint = thread.checkpoints.find(
         (checkpoint) => checkpoint.checkpointTurnCount === input.toTurnCount,
-      )?.checkpointRef;
+      );
+      const toCheckpointRef = toCheckpoint?.checkpointRef;
       if (!toCheckpointRef) {
         return yield* new CheckpointUnavailableError({
           threadId: input.threadId,
           turnCount: input.toTurnCount,
           detail: `Checkpoint ref is unavailable for turn ${input.toTurnCount}.`,
+        });
+      }
+
+      if (
+        toCheckpoint &&
+        isProviderDiffCheckpointRef(toCheckpoint.checkpointRef) &&
+        input.fromTurnCount === Math.max(0, input.toTurnCount - 1)
+      ) {
+        const turnRowOption = yield* projectionTurnRepository.getByTurnId({
+          threadId: input.threadId,
+          turnId: toCheckpoint.turnId,
+        });
+        if (
+          Option.isSome(turnRowOption) &&
+          typeof turnRowOption.value.checkpointDiff === "string"
+        ) {
+          const turnDiff: OrchestrationGetTurnDiffResultType = {
+            threadId: input.threadId,
+            fromTurnCount: input.fromTurnCount,
+            toTurnCount: input.toTurnCount,
+            diff: turnRowOption.value.checkpointDiff,
+          };
+          if (!isTurnDiffResult(turnDiff)) {
+            return yield* new CheckpointInvariantError({
+              operation,
+              detail: "Computed provider turn diff result does not satisfy contract schema.",
+            });
+          }
+          return turnDiff;
+        }
+
+        return yield* new CheckpointUnavailableError({
+          threadId: input.threadId,
+          turnCount: input.toTurnCount,
+          detail: `Provider diff is unavailable for turn ${input.toTurnCount}.`,
         });
       }
 

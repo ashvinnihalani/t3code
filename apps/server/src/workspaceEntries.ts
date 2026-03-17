@@ -2,12 +2,9 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { runProcess } from "./processRunner";
+import { buildSshExecArgs } from "./sshCommand";
 
-import {
-  ProjectEntry,
-  ProjectSearchEntriesInput,
-  ProjectSearchEntriesResult,
-} from "@t3tools/contracts";
+import { ProjectEntry, ProjectRemoteTarget, ProjectSearchEntriesResult } from "@t3tools/contracts";
 
 const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
@@ -47,6 +44,20 @@ const inFlightWorkspaceIndexBuilds = new Map<string, Promise<WorkspaceIndex>>();
 
 function toPosixPath(input: string): string {
   return input.split(path.sep).join("/");
+}
+
+function normalizeWorkspaceRelativePath(input: string): string {
+  return toPosixPath(input).replace(/^\.\//, "").replace(/^\/+/, "");
+}
+
+function workspaceCacheKey(input: {
+  cwd: string;
+  remote?: ProjectRemoteTarget | null | undefined;
+}): string {
+  if (input.remote?.kind === "ssh") {
+    return `ssh:${input.remote.hostAlias}:${input.cwd}`;
+  }
+  return input.cwd;
 }
 
 function parentPathOf(input: string): string | undefined {
@@ -250,9 +261,59 @@ async function mapWithConcurrency<TInput, TOutput>(
   return results;
 }
 
-async function isInsideGitWorkTree(cwd: string): Promise<boolean> {
-  const insideWorkTree = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], {
+async function runWorkspaceProcess(input: {
+  cwd: string;
+  command: string;
+  args: ReadonlyArray<string>;
+  remote?: ProjectRemoteTarget | null | undefined;
+  stdin?: string;
+  allowNonZeroExit?: boolean;
+  timeoutMs?: number;
+  maxBufferBytes?: number;
+  outputMode?: "error" | "truncate";
+}) {
+  if (input.remote?.kind === "ssh") {
+    return runProcess(
+      "ssh",
+      buildSshExecArgs({
+        hostAlias: input.remote.hostAlias,
+        command: input.command,
+        args: input.args,
+        cwd: input.cwd,
+        localCwd: process.cwd(),
+      }),
+      {
+        cwd: process.cwd(),
+        ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+        ...(input.allowNonZeroExit !== undefined
+          ? { allowNonZeroExit: input.allowNonZeroExit }
+          : {}),
+        ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+        ...(input.maxBufferBytes !== undefined ? { maxBufferBytes: input.maxBufferBytes } : {}),
+        ...(input.outputMode !== undefined ? { outputMode: input.outputMode } : {}),
+      },
+    );
+  }
+
+  return runProcess(input.command, input.args, {
+    cwd: input.cwd,
+    ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+    ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.maxBufferBytes !== undefined ? { maxBufferBytes: input.maxBufferBytes } : {}),
+    ...(input.outputMode !== undefined ? { outputMode: input.outputMode } : {}),
+  });
+}
+
+async function isInsideGitWorkTree(
+  cwd: string,
+  remote?: ProjectRemoteTarget | null,
+): Promise<boolean> {
+  const insideWorkTree = await runWorkspaceProcess({
     cwd,
+    command: "git",
+    args: ["rev-parse", "--is-inside-work-tree"],
+    remote,
     allowNonZeroExit: true,
     timeoutMs: 5_000,
     maxBufferBytes: 4_096,
@@ -262,7 +323,11 @@ async function isInsideGitWorkTree(cwd: string): Promise<boolean> {
   );
 }
 
-async function filterGitIgnoredPaths(cwd: string, relativePaths: string[]): Promise<string[]> {
+async function filterGitIgnoredPaths(
+  cwd: string,
+  relativePaths: string[],
+  remote?: ProjectRemoteTarget | null,
+): Promise<string[]> {
   if (relativePaths.length === 0) {
     return relativePaths;
   }
@@ -276,8 +341,11 @@ async function filterGitIgnoredPaths(cwd: string, relativePaths: string[]): Prom
       return true;
     }
 
-    const checkIgnore = await runProcess("git", ["check-ignore", "--no-index", "-z", "--stdin"], {
+    const checkIgnore = await runWorkspaceProcess({
       cwd,
+      command: "git",
+      args: ["check-ignore", "--no-index", "-z", "--stdin"],
+      remote,
       allowNonZeroExit: true,
       timeoutMs: 20_000,
       maxBufferBytes: 16 * 1024 * 1024,
@@ -335,22 +403,24 @@ async function filterGitIgnoredPaths(cwd: string, relativePaths: string[]): Prom
   return relativePaths.filter((relativePath) => !ignoredPaths.has(relativePath));
 }
 
-async function buildWorkspaceIndexFromGit(cwd: string): Promise<WorkspaceIndex | null> {
-  if (!(await isInsideGitWorkTree(cwd))) {
+async function buildWorkspaceIndexFromGit(
+  cwd: string,
+  remote?: ProjectRemoteTarget | null,
+): Promise<WorkspaceIndex | null> {
+  if (!(await isInsideGitWorkTree(cwd, remote))) {
     return null;
   }
 
-  const listedFiles = await runProcess(
-    "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    {
-      cwd,
-      allowNonZeroExit: true,
-      timeoutMs: 20_000,
-      maxBufferBytes: 16 * 1024 * 1024,
-      outputMode: "truncate",
-    },
-  ).catch(() => null);
+  const listedFiles = await runWorkspaceProcess({
+    cwd,
+    command: "git",
+    args: ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    remote,
+    allowNonZeroExit: true,
+    timeoutMs: 20_000,
+    maxBufferBytes: 16 * 1024 * 1024,
+    outputMode: "truncate",
+  }).catch(() => null);
   if (!listedFiles || listedFiles.code !== 0) {
     return null;
   }
@@ -359,9 +429,9 @@ async function buildWorkspaceIndexFromGit(cwd: string): Promise<WorkspaceIndex |
     listedFiles.stdout,
     Boolean(listedFiles.stdoutTruncated),
   )
-    .map((entry) => toPosixPath(entry))
+    .map((entry) => normalizeWorkspaceRelativePath(entry))
     .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
-  const filePaths = await filterGitIgnoredPaths(cwd, listedPaths);
+  const filePaths = await filterGitIgnoredPaths(cwd, listedPaths, remote);
 
   const directorySet = new Set<string>();
   for (const filePath of filePaths) {
@@ -401,12 +471,85 @@ async function buildWorkspaceIndexFromGit(cwd: string): Promise<WorkspaceIndex |
   };
 }
 
-async function buildWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
-  const gitIndexed = await buildWorkspaceIndexFromGit(cwd);
+async function listRemoteFindPaths(
+  cwd: string,
+  remote: ProjectRemoteTarget,
+  type: "directory" | "file",
+): Promise<string[] | null> {
+  const result = await runWorkspaceProcess({
+    cwd,
+    command: "find",
+    args: [".", "-mindepth", "1", "-type", type === "directory" ? "d" : "f", "-print0"],
+    remote,
+    allowNonZeroExit: true,
+    timeoutMs: 20_000,
+    maxBufferBytes: 16 * 1024 * 1024,
+    outputMode: "truncate",
+  }).catch(() => null);
+  if (!result || result.code !== 0) {
+    return null;
+  }
+
+  return splitNullSeparatedPaths(result.stdout, Boolean(result.stdoutTruncated))
+    .map((entry) => normalizeWorkspaceRelativePath(entry))
+    .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
+}
+
+async function buildRemoteWorkspaceIndex(
+  cwd: string,
+  remote: ProjectRemoteTarget,
+): Promise<WorkspaceIndex> {
+  const [directoryPaths, filePaths] = await Promise.all([
+    listRemoteFindPaths(cwd, remote, "directory"),
+    listRemoteFindPaths(cwd, remote, "file"),
+  ]);
+
+  if (!directoryPaths || !filePaths) {
+    throw new Error(`Unable to scan remote workspace entries at '${remote.hostAlias}:${cwd}'.`);
+  }
+
+  const directoryEntries = [...new Set(directoryPaths)]
+    .toSorted((left, right) => left.localeCompare(right))
+    .map(
+      (directoryPath): ProjectEntry => ({
+        path: directoryPath,
+        kind: "directory",
+        parentPath: parentPathOf(directoryPath),
+      }),
+    )
+    .map(toSearchableWorkspaceEntry);
+  const fileEntries = [...new Set(filePaths)]
+    .toSorted((left, right) => left.localeCompare(right))
+    .map(
+      (filePath): ProjectEntry => ({
+        path: filePath,
+        kind: "file",
+        parentPath: parentPathOf(filePath),
+      }),
+    )
+    .map(toSearchableWorkspaceEntry);
+
+  const entries = [...directoryEntries, ...fileEntries];
+  return {
+    scannedAt: Date.now(),
+    entries: entries.slice(0, WORKSPACE_INDEX_MAX_ENTRIES),
+    truncated: entries.length > WORKSPACE_INDEX_MAX_ENTRIES,
+  };
+}
+
+async function buildWorkspaceIndex(
+  cwd: string,
+  remote?: ProjectRemoteTarget | null,
+): Promise<WorkspaceIndex> {
+  const gitIndexed = await buildWorkspaceIndexFromGit(cwd, remote);
   if (gitIndexed) {
     return gitIndexed;
   }
-  const shouldFilterWithGitIgnore = await isInsideGitWorkTree(cwd);
+  if (remote?.kind === "ssh") {
+    return buildRemoteWorkspaceIndex(cwd, remote);
+  }
+
+  const shouldFilterWithGitIgnore = await isInsideGitWorkTree(cwd, remote);
 
   let pendingDirectories: string[] = [""];
   const entries: SearchableWorkspaceEntry[] = [];
@@ -467,7 +610,7 @@ async function buildWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
       candidateEntries.map((entry) => entry.relativePath),
     );
     const allowedPathSet = shouldFilterWithGitIgnore
-      ? new Set(await filterGitIgnoredPaths(cwd, candidatePaths))
+      ? new Set(await filterGitIgnoredPaths(cwd, candidatePaths, remote))
       : null;
 
     for (const candidateEntries of candidateEntriesByDirectory) {
@@ -506,20 +649,24 @@ async function buildWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
   };
 }
 
-async function getWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
-  const cached = workspaceIndexCache.get(cwd);
+async function getWorkspaceIndex(input: {
+  cwd: string;
+  remote?: ProjectRemoteTarget | null | undefined;
+}): Promise<WorkspaceIndex> {
+  const cacheKey = workspaceCacheKey(input);
+  const cached = workspaceIndexCache.get(cacheKey);
   if (cached && Date.now() - cached.scannedAt < WORKSPACE_CACHE_TTL_MS) {
     return cached;
   }
 
-  const inFlight = inFlightWorkspaceIndexBuilds.get(cwd);
+  const inFlight = inFlightWorkspaceIndexBuilds.get(cacheKey);
   if (inFlight) {
     return inFlight;
   }
 
-  const nextPromise = buildWorkspaceIndex(cwd)
+  const nextPromise = buildWorkspaceIndex(input.cwd, input.remote)
     .then((next) => {
-      workspaceIndexCache.set(cwd, next);
+      workspaceIndexCache.set(cacheKey, next);
       while (workspaceIndexCache.size > WORKSPACE_CACHE_MAX_KEYS) {
         const oldestKey = workspaceIndexCache.keys().next().value;
         if (!oldestKey) break;
@@ -528,21 +675,22 @@ async function getWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
       return next;
     })
     .finally(() => {
-      inFlightWorkspaceIndexBuilds.delete(cwd);
+      inFlightWorkspaceIndexBuilds.delete(cacheKey);
     });
-  inFlightWorkspaceIndexBuilds.set(cwd, nextPromise);
+  inFlightWorkspaceIndexBuilds.set(cacheKey, nextPromise);
   return nextPromise;
 }
 
-export function clearWorkspaceIndexCache(cwd: string): void {
-  workspaceIndexCache.delete(cwd);
-  inFlightWorkspaceIndexBuilds.delete(cwd);
+export function clearWorkspaceIndexCache(cwd: string, remote?: ProjectRemoteTarget | null): void {
+  const cacheKey = workspaceCacheKey({ cwd, remote });
+  workspaceIndexCache.delete(cacheKey);
+  inFlightWorkspaceIndexBuilds.delete(cacheKey);
 }
 
 export async function searchWorkspaceEntries(
-  input: ProjectSearchEntriesInput,
+  input: WorkspaceEntrySearchInput,
 ): Promise<ProjectSearchEntriesResult> {
-  const index = await getWorkspaceIndex(input.cwd);
+  const index = await getWorkspaceIndex({ cwd: input.cwd, remote: input.remote });
   const normalizedQuery = normalizeQuery(input.query);
   const limit = Math.max(0, Math.floor(input.limit));
   const rankedEntries: RankedWorkspaceEntry[] = [];
@@ -562,4 +710,10 @@ export async function searchWorkspaceEntries(
     entries: rankedEntries.map((candidate) => candidate.entry),
     truncated: index.truncated || matchedEntryCount > limit,
   };
+}
+export interface WorkspaceEntrySearchInput {
+  cwd: string;
+  remote?: ProjectRemoteTarget | null;
+  query: string;
+  limit: number;
 }

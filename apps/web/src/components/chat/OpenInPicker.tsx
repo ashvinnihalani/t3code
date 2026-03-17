@@ -1,4 +1,4 @@
-import { EditorId, type ResolvedKeybindingsConfig } from "@t3tools/contracts";
+import { EditorId, type ProjectId, type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
@@ -48,11 +48,15 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
 export const OpenInPicker = memo(function OpenInPicker({
   keybindings,
   availableEditors,
+  projectId,
   openInCwd,
+  openInProjectRoot,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
+  projectId: ProjectId | null;
   openInCwd: string | null;
+  openInProjectRoot: boolean;
 }) {
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const options = useMemo(
@@ -64,13 +68,19 @@ export const OpenInPicker = memo(function OpenInPicker({
   const openInEditor = useCallback(
     (editorId: EditorId | null) => {
       const api = readNativeApi();
-      if (!api || !openInCwd) return;
+      if (!api) return;
       const editor = editorId ?? preferredEditor;
       if (!editor) return;
-      void api.shell.openInEditor(openInCwd, editor);
+      if (openInProjectRoot && projectId) {
+        void api.projects.openInEditor({ projectId, editor });
+      } else if (openInCwd) {
+        void api.shell.openInEditor(openInCwd, editor);
+      } else {
+        return;
+      }
       setPreferredEditor(editor);
     },
-    [preferredEditor, openInCwd, setPreferredEditor],
+    [openInCwd, openInProjectRoot, preferredEditor, projectId, setPreferredEditor],
   );
 
   const openFavoriteEditorShortcutLabel = useMemo(
@@ -82,22 +92,32 @@ export const OpenInPicker = memo(function OpenInPicker({
     const handler = (e: globalThis.KeyboardEvent) => {
       const api = readNativeApi();
       if (!isOpenFavoriteEditorShortcut(e, keybindings)) return;
-      if (!api || !openInCwd) return;
+      if (!api) return;
       if (!preferredEditor) return;
+      if (openInProjectRoot && !projectId) return;
+      if (!openInProjectRoot && !openInCwd) return;
 
       e.preventDefault();
-      void api.shell.openInEditor(openInCwd, preferredEditor);
+      if (openInProjectRoot && projectId) {
+        void api.projects.openInEditor({ projectId, editor: preferredEditor });
+        return;
+      }
+      if (openInCwd) {
+        void api.shell.openInEditor(openInCwd, preferredEditor);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [preferredEditor, keybindings, openInCwd]);
+  }, [preferredEditor, keybindings, openInCwd, openInProjectRoot, projectId]);
+
+  const canOpen = Boolean(preferredEditor) && ((openInProjectRoot && projectId) || openInCwd);
 
   return (
     <Group aria-label="Subscription actions">
       <Button
         size="xs"
         variant="outline"
-        disabled={!preferredEditor || !openInCwd}
+        disabled={!canOpen}
         onClick={() => openInEditor(preferredEditor)}
       >
         {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}

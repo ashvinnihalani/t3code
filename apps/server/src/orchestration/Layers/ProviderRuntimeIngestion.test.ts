@@ -155,8 +155,18 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   async function createHarness() {
-    const workspaceRoot = makeTempDir("t3-provider-project-");
-    fs.mkdirSync(path.join(workspaceRoot, ".git"));
+    return createHarnessWithProject();
+  }
+
+  async function createHarnessWithProject(input?: {
+    workspaceRoot?: string;
+    remote?: { kind: "ssh"; hostAlias: string } | null;
+    createLocalGitDir?: boolean;
+  }) {
+    const workspaceRoot = input?.workspaceRoot ?? makeTempDir("t3-provider-project-");
+    if (input?.createLocalGitDir !== false) {
+      fs.mkdirSync(path.join(workspaceRoot, ".git"));
+    }
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionPipelineLive),
@@ -186,6 +196,7 @@ describe("ProviderRuntimeIngestion", () => {
         projectId: asProjectId("project-1"),
         title: "Provider Project",
         workspaceRoot,
+        ...(input?.remote !== undefined ? { remote: input.remote } : {}),
         defaultModel: "gpt-5-codex",
         createdAt,
       }),
@@ -1780,7 +1791,14 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-p1"),
       itemId: asItemId("item-p1-assistant"),
       payload: {
-        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n",
+        unifiedDiff: [
+          "diff --git a/file.txt b/file.txt",
+          "--- a/file.txt",
+          "+++ b/file.txt",
+          "@@ -0,0 +1 @@",
+          "+hello",
+          "",
+        ].join("\n"),
       },
     });
 
@@ -1841,6 +1859,54 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+    expect(checkpoint?.files).toEqual([
+      { path: "file.txt", kind: "modified", additions: 1, deletions: 0 },
+    ]);
+  });
+
+  it("tracks turn diff summaries for remote projects", async () => {
+    const harness = await createHarnessWithProject({
+      workspaceRoot: "/home/remote-user/project",
+      remote: { kind: "ssh", hostAlias: "test-remote" },
+      createLocalGitDir: false,
+    });
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-remote-turn-diff-updated"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-remote-1"),
+      itemId: asItemId("item-remote-assistant"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1,2 @@",
+          " console.log('hello');",
+          "+console.log('remote');",
+          "",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.checkpoints.some(
+        (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-remote-1",
+      ),
+    );
+
+    const checkpoint = thread.checkpoints.find(
+      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-remote-1",
+    );
+    expect(checkpoint?.status).toBe("missing");
+    expect(checkpoint?.assistantMessageId).toBe("assistant:item-remote-assistant");
+    expect(checkpoint?.files).toEqual([
+      { path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 },
+    ]);
   });
 
   it("projects Codex task lifecycle chunks into thread activities", async () => {

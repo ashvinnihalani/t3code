@@ -23,6 +23,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  isRemoteProject: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -31,6 +32,7 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
+  isRemoteProject,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -110,7 +112,7 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
-      {envLocked || activeWorktreePath ? (
+      {envLocked || activeWorktreePath || isRemoteProject ? (
         <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
           {activeWorktreePath ? (
             <>
@@ -156,6 +158,7 @@ export default function BranchToolbar({
       )}
 
       <BranchToolbarBranchSelector
+        activeProjectId={activeProject.id}
         activeProjectCwd={activeProject.cwd}
         activeThreadBranch={activeThreadBranch}
         activeWorktreePath={activeWorktreePath}

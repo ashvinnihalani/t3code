@@ -95,15 +95,25 @@ function serveFallbackFavicon(res: http.ServerResponse): void {
   res.end(FALLBACK_FAVICON_SVG);
 }
 
-export function tryHandleProjectFaviconRequest(url: URL, res: http.ServerResponse): boolean {
-  if (url.pathname !== "/api/project-favicon") {
+export function tryHandleProjectFaviconRequest(input: {
+  url: URL;
+  res: http.ServerResponse;
+  resolveProjectCwd: (projectId: string) => string | null;
+}): boolean {
+  if (input.url.pathname !== "/api/project-favicon") {
     return false;
   }
 
-  const projectCwd = url.searchParams.get("cwd");
+  const projectId = input.url.searchParams.get("projectId");
+  if (!projectId) {
+    input.res.writeHead(400, { "Content-Type": "text/plain" });
+    input.res.end("Missing projectId parameter");
+    return true;
+  }
+  const projectCwd = input.resolveProjectCwd(projectId);
   if (!projectCwd) {
-    res.writeHead(400, { "Content-Type": "text/plain" });
-    res.end("Missing cwd parameter");
+    input.res.writeHead(404, { "Content-Type": "text/plain" });
+    input.res.end("Project not found");
     return true;
   }
 
@@ -122,13 +132,13 @@ export function tryHandleProjectFaviconRequest(url: URL, res: http.ServerRespons
         tryResolvedPaths(paths, index + 1, onExhausted);
         return;
       }
-      serveFaviconFile(candidate, res);
+      serveFaviconFile(candidate, input.res);
     });
   };
 
   const trySourceFiles = (index: number): void => {
     if (index >= ICON_SOURCE_FILES.length) {
-      serveFallbackFavicon(res);
+      serveFallbackFavicon(input.res);
       return;
     }
     const sourceFile = path.join(projectCwd, ICON_SOURCE_FILES[index]!);
@@ -162,7 +172,7 @@ export function tryHandleProjectFaviconRequest(url: URL, res: http.ServerRespons
         tryCandidates(index + 1);
         return;
       }
-      serveFaviconFile(candidate, res);
+      serveFaviconFile(candidate, input.res);
     });
   };
 

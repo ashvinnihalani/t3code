@@ -2,6 +2,7 @@ import { Effect, Layer, Schema } from "effect";
 import { PositiveInt, TrimmedNonEmptyString } from "@t3tools/contracts";
 
 import { runProcess } from "../../processRunner";
+import { buildSshExecArgs } from "../../sshCommand";
 import { GitHubCliError } from "../Errors.ts";
 import {
   GitHubCli,
@@ -165,10 +166,25 @@ const makeGitHubCli = Effect.sync(() => {
   const execute: GitHubCliShape["execute"] = (input) =>
     Effect.tryPromise({
       try: () =>
-        runProcess("gh", input.args, {
-          cwd: input.cwd,
-          timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        }),
+        input.remote?.kind === "ssh"
+          ? runProcess(
+              "ssh",
+              buildSshExecArgs({
+                hostAlias: input.remote.hostAlias,
+                command: "gh",
+                args: input.args,
+                cwd: input.cwd,
+                localCwd: process.cwd(),
+              }),
+              {
+                cwd: process.cwd(),
+                timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+              },
+            )
+          : runProcess("gh", input.args, {
+              cwd: input.cwd,
+              timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            }),
       catch: (error) => normalizeGitHubCliError("execute", error),
     });
 
@@ -189,6 +205,7 @@ const makeGitHubCli = Effect.sync(() => {
           "--json",
           "number,title,url,baseRefName,headRefName",
         ],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -213,6 +230,7 @@ const makeGitHubCli = Effect.sync(() => {
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -229,6 +247,7 @@ const makeGitHubCli = Effect.sync(() => {
       execute({
         cwd: input.cwd,
         args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -253,14 +272,16 @@ const makeGitHubCli = Effect.sync(() => {
           input.headSelector,
           "--title",
           input.title,
-          "--body-file",
-          input.bodyFile,
+          "--body",
+          input.body,
         ],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
         args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();
@@ -271,6 +292,7 @@ const makeGitHubCli = Effect.sync(() => {
       execute({
         cwd: input.cwd,
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
+        ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(Effect.asVoid),
   } satisfies GitHubCliShape;
 

@@ -1,11 +1,13 @@
 import {
   type EditorId,
+  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
+import type { GitQueryTarget } from "~/lib/gitReactQuery";
 import { DiffIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -17,16 +19,18 @@ import { OpenInPicker } from "./OpenInPicker";
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   isRemoteProject: boolean;
   isGitRepo: boolean;
   openInCwd: string | null;
+  openInProjectRoot: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   diffToggleShortcutLabel: string | null;
-  gitCwd: string | null;
+  gitTarget: GitQueryTarget;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
@@ -38,16 +42,18 @@ interface ChatHeaderProps {
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
+  activeProjectId,
   activeProjectName,
   isRemoteProject,
   isGitRepo,
   openInCwd,
+  openInProjectRoot,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
   availableEditors,
   diffToggleShortcutLabel,
-  gitCwd,
+  gitTarget,
   diffOpen,
   onRunProjectScript,
   onAddProjectScript,
@@ -88,15 +94,21 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
-        {activeProjectName && (
+        {activeProjectName && !isRemoteProject && (
           <OpenInPicker
             keybindings={keybindings}
             availableEditors={availableEditors}
+            projectId={activeProjectId}
             openInCwd={openInCwd}
+            openInProjectRoot={openInProjectRoot}
           />
         )}
-        {activeProjectName && !isRemoteProject && (
-          <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />
+        {activeProjectName && (
+          <GitActionsControl
+            gitTarget={gitTarget}
+            activeThreadId={activeThreadId}
+            isRemoteProject={isRemoteProject}
+          />
         )}
         <Tooltip>
           <TooltipTrigger

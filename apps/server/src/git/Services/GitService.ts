@@ -8,6 +8,7 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
+import type { ProjectRemoteTarget } from "@t3tools/contracts";
 
 import type { GitCommandError } from "../Errors.ts";
 
@@ -19,6 +20,7 @@ export interface ExecuteGitInput {
   readonly allowNonZeroExit?: boolean;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
+  readonly remote?: ProjectRemoteTarget | null;
 }
 
 export interface ExecuteGitResult {

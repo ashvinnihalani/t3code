@@ -287,9 +287,11 @@ describe("startSession", () => {
       buildRemoteCodexCommand({
         binaryPath: "codex",
         pathEnv: "/opt/node/bin:/usr/bin",
-        subcommand: ["app-server"],
+        subcommand: ["app-server", "-c", "tools.web_search=false"],
       }),
-    ).toContain("export PATH='/opt/node/bin:/usr/bin' && exec 'codex' 'app-server'");
+    ).toContain(
+      "export PATH='/opt/node/bin:/usr/bin' && exec 'codex' 'app-server' '-c' 'tools.web_search=false'",
+    );
   });
 
   it("enables Codex experimental api capabilities during initialize", () => {

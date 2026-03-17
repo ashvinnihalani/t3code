@@ -15,10 +15,27 @@ import {
   GitRunStackedActionResult,
   GitStatusInput,
   GitStatusResult,
+  ProjectRemoteTarget,
 } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 import type { GitManagerServiceError } from "../Errors.ts";
+
+export interface GitStatusExecutionInput extends GitStatusInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitPullRequestRefExecutionInput extends GitPullRequestRefInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitPreparePullRequestThreadExecutionInput extends GitPreparePullRequestThreadInput {
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitRunStackedActionExecutionInput extends GitRunStackedActionInput {
+  remote?: ProjectRemoteTarget | null;
+}
 
 /**
  * GitManagerShape - Service API for high-level Git workflow actions.
@@ -28,21 +45,21 @@ export interface GitManagerShape {
    * Read current repository Git status plus open PR metadata when available.
    */
   readonly status: (
-    input: GitStatusInput,
+    input: GitStatusExecutionInput,
   ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
 
   /**
    * Resolve a pull request by URL/number against the current repository.
    */
   readonly resolvePullRequest: (
-    input: GitPullRequestRefInput,
+    input: GitPullRequestRefExecutionInput,
   ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
 
   /**
    * Prepare a new thread workspace from a pull request in local or worktree mode.
    */
   readonly preparePullRequestThread: (
-    input: GitPreparePullRequestThreadInput,
+    input: GitPreparePullRequestThreadExecutionInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
 
   /**
@@ -50,7 +67,7 @@ export interface GitManagerShape {
    * When `featureBranch` is set, creates and checks out a feature branch first.
    */
   readonly runStackedAction: (
-    input: GitRunStackedActionInput,
+    input: GitRunStackedActionExecutionInput,
   ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
 }
 

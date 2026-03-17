@@ -151,6 +151,7 @@ export interface CodexThreadSnapshot {
 
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
 const SHELL_ENV_CAPTURE_TIMEOUT_MS = 5_000;
+const CODEX_DISABLE_WEB_SEARCH_CONFIG = "tools.web_search=false";
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
 const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE_CHAR}\\[[0-9;]*m`, "g");
@@ -1682,7 +1683,7 @@ function spawnCodexAppServerProcess(input: {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.homePath ? { homePath: input.homePath } : {}),
         ...(remoteEnvironment.PATH ? { pathEnv: remoteEnvironment.PATH } : {}),
-        subcommand: ["app-server"],
+        subcommand: ["app-server", "-c", CODEX_DISABLE_WEB_SEARCH_CONFIG],
       }),
       {
         cwd: input.localCwd,
@@ -1693,7 +1694,7 @@ function spawnCodexAppServerProcess(input: {
     );
   }
 
-  return spawn(input.binaryPath, ["app-server"], {
+  return spawn(input.binaryPath, ["app-server", "-c", CODEX_DISABLE_WEB_SEARCH_CONFIG], {
     cwd: input.cwd ?? input.localCwd,
     env: {
       ...process.env,

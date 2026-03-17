@@ -8,6 +8,8 @@
  */
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { runProcess } from "../../processRunner";
+import { buildSshExecArgs } from "../../sshCommand";
 import { GitCommandError } from "../Errors.ts";
 import {
   ExecuteGitInput,
@@ -77,13 +79,50 @@ const makeGitService = Effect.gen(function* () {
     } as const;
     const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+    const remote = input.remote;
+    const normalizedEnv = input.env
+      ? Object.fromEntries(
+          Object.entries(input.env).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
+        )
+      : undefined;
+
+    if (remote?.kind === "ssh") {
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          runProcess(
+            "ssh",
+            buildSshExecArgs({
+              hostAlias: remote.hostAlias,
+              command: "git",
+              args: commandInput.args,
+              cwd: commandInput.cwd,
+              ...(normalizedEnv ? { env: normalizedEnv } : {}),
+              localCwd: process.cwd(),
+            }),
+            {
+              cwd: process.cwd(),
+              timeoutMs,
+              allowNonZeroExit: input.allowNonZeroExit,
+              maxBufferBytes: maxOutputBytes,
+            },
+          ),
+        catch: toGitCommandError(commandInput, "failed to spawn."),
+      });
+      return {
+        code: result.code ?? 1,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      } satisfies ExecuteGitResult;
+    }
 
     const commandEffect = Effect.gen(function* () {
       const child = yield* commandSpawner
         .spawn(
           ChildProcess.make("git", commandInput.args, {
             cwd: commandInput.cwd,
-            ...(input.env ? { env: input.env } : {}),
+            ...(normalizedEnv ? { env: normalizedEnv } : {}),
           }),
         )
         .pipe(Effect.mapError(toGitCommandError(commandInput, "failed to spawn.")));

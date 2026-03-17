@@ -440,7 +440,19 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-        if (tryHandleProjectFaviconRequest(url, res)) {
+        const snapshot =
+          url.pathname === "/api/project-favicon"
+            ? yield* projectionReadModelQuery.getSnapshot()
+            : null;
+        if (
+          snapshot &&
+          tryHandleProjectFaviconRequest({
+            url,
+            res,
+            resolveProjectCwd: (projectId) =>
+              snapshot.projects.find((project) => project.id === projectId)?.workspaceRoot ?? null,
+          })
+        ) {
           return;
         }
 
@@ -616,6 +628,37 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
+  const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
+    const snapshot = yield* projectionReadModelQuery.getSnapshot();
+    const project = snapshot.projects.find((entry) => entry.id === projectId);
+    if (!project) {
+      return yield* new RouteRequestError({
+        message: `Project '${projectId}' was not found.`,
+      });
+    }
+    return project;
+  });
+
+  const resolveProjectRemote = Effect.fnUntraced(function* (projectId?: ProjectId) {
+    if (!projectId) {
+      return null;
+    }
+    const project = yield* resolveProject(projectId);
+    return project.remote ?? null;
+  });
+
+  const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
+    readonly projectId: ProjectId;
+    readonly operation: string;
+  }) {
+    const project = yield* resolveProject(input.projectId);
+    if (project.remote) {
+      return yield* new RouteRequestError({
+        message: `${input.operation} is unavailable for remote projects.`,
+      });
+    }
+    return project.workspaceRoot;
+  });
   const checkpointDiffQuery = yield* CheckpointDiffQuery;
   const orchestrationReactor = yield* OrchestrationReactor;
   const { openInEditor } = yield* Open;
@@ -755,8 +798,15 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.projectsSearchEntries: {
         const body = stripRequestTag(request.body);
+        const project = yield* resolveProject(body.projectId);
         return yield* Effect.tryPromise({
-          try: () => searchWorkspaceEntries(body),
+          try: () =>
+            searchWorkspaceEntries({
+              cwd: project.workspaceRoot,
+              remote: project.remote ?? null,
+              query: body.query,
+              limit: body.limit,
+            }),
           catch: (cause) =>
             new RouteRequestError({
               message: `Failed to search workspace entries: ${String(cause)}`,
@@ -766,8 +816,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.projectsWriteFile: {
         const body = stripRequestTag(request.body);
+        const workspaceRoot = yield* resolveLocalProjectWorkspaceRoot({
+          projectId: body.projectId,
+          operation: "Workspace file writing",
+        });
         const target = yield* resolveWorkspaceWritePath({
-          workspaceRoot: body.cwd,
+          workspaceRoot,
           relativePath: body.relativePath,
           path,
         });
@@ -792,6 +846,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { relativePath: target.relativePath };
       }
 
+      case WS_METHODS.projectsOpenInEditor: {
+        const body = stripRequestTag(request.body);
+        const workspaceRoot = yield* resolveLocalProjectWorkspaceRoot({
+          projectId: body.projectId,
+          operation: "Project opening",
+        });
+        return yield* openInEditor({
+          cwd: workspaceRoot,
+          editor: body.editor,
+        });
+      }
+
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
         return yield* openInEditor(body);
@@ -799,62 +865,109 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitStatus: {
         const body = stripRequestTag(request.body);
-        return yield* gitManager.status(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* gitManager.status({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitPull: {
         const body = stripRequestTag(request.body);
-        return yield* git.pullCurrentBranch(body.cwd);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.pullCurrentBranch(body.cwd, remote);
       }
 
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
-        return yield* gitManager.runStackedAction(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* gitManager.runStackedAction({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitResolvePullRequest: {
         const body = stripRequestTag(request.body);
-        return yield* gitManager.resolvePullRequest(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* gitManager.resolvePullRequest({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitPreparePullRequestThread: {
         const body = stripRequestTag(request.body);
-        return yield* gitManager.preparePullRequestThread(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* gitManager.preparePullRequestThread({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitListBranches: {
         const body = stripRequestTag(request.body);
-        return yield* git.listBranches(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.listBranches({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitCreateWorktree: {
         const body = stripRequestTag(request.body);
-        return yield* git.createWorktree(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.createWorktree({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitRemoveWorktree: {
         const body = stripRequestTag(request.body);
-        return yield* git.removeWorktree(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.removeWorktree({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitCreateBranch: {
         const body = stripRequestTag(request.body);
-        return yield* git.createBranch(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.createBranch({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.gitCheckout: {
         const body = stripRequestTag(request.body);
-        return yield* Effect.scoped(git.checkoutBranch(body));
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* Effect.scoped(
+          git.checkoutBranch({
+            ...body,
+            ...(remote ? { remote } : {}),
+          }),
+        );
       }
 
       case WS_METHODS.gitInit: {
         const body = stripRequestTag(request.body);
-        return yield* git.initRepo(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* git.initRepo({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.terminalOpen: {
         const body = stripRequestTag(request.body);
-        return yield* terminalManager.open(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* terminalManager.open({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.terminalWrite: {
@@ -874,7 +987,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.terminalRestart: {
         const body = stripRequestTag(request.body);
-        return yield* terminalManager.restart(body);
+        const remote = yield* resolveProjectRemote(body.projectId);
+        return yield* terminalManager.restart({
+          ...body,
+          ...(remote ? { remote } : {}),
+        });
       }
 
       case WS_METHODS.terminalClose: {
