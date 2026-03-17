@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { Effect, Exit, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  type ProjectRemoteTarget,
+} from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -18,7 +21,6 @@ import {
   TextGeneration,
 } from "../Services/TextGeneration.ts";
 
-const CODEX_MODEL = "gpt-5.3-codex";
 const CODEX_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
 const CODEX_DISABLE_WEB_SEARCH_CONFIG = "tools.web_search=false";
@@ -406,6 +408,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     fallbackDecode,
     imagePaths = [],
     cleanupPaths = [],
+    model,
   }: {
     operation: "generateCommitMessage" | "generatePrContent" | "generateBranchName";
     cwd: string;
@@ -415,6 +418,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     fallbackDecode?: ((rawOutput: string) => S["Type"] | null) | undefined;
     imagePaths?: ReadonlyArray<string>;
     cleanupPaths?: ReadonlyArray<string>;
+    model?: string;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
       const executionCwd = yield* resolveCodexWorkingDirectory({
@@ -442,7 +446,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             "-s",
             "read-only",
             "--model",
-            CODEX_MODEL,
+            model ?? DEFAULT_GIT_TEXT_GENERATION_MODEL,
             "--config",
             `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
             "--config",
@@ -612,6 +616,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       prompt,
       outputSchemaJson,
       fallbackDecode: (rawOutput) => parseCommitMessageFallback(rawOutput, wantsBranch),
+      ...(input.model ? { model: input.model } : {}),
     }).pipe(
       Effect.map(
         (generated) =>
@@ -658,6 +663,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         title: Schema.String,
         body: Schema.String,
       }),
+      ...(input.model ? { model: input.model } : {}),
     }).pipe(
       Effect.map(
         (generated) =>
@@ -710,6 +716,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           branch: Schema.String,
         }),
         imagePaths,
+        ...(input.model ? { model: input.model } : {}),
       });
 
       return {

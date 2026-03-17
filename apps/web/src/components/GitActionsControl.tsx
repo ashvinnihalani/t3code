@@ -166,6 +166,7 @@ export default function GitActionsControl({
   activeThreadId,
   projectRemote,
 }: GitActionsControlProps) {
+  const { settings } = useAppSettings();
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -177,7 +178,6 @@ export default function GitActionsControl({
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
-  const { settings } = useAppSettings();
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
 
   const { data: gitStatus = null, error: gitStatusError } = useQuery(

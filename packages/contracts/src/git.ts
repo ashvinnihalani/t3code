@@ -22,6 +22,7 @@ const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
 const GitRequestSettings = Schema.Struct({
   githubBinaryPath: Schema.optional(Schema.String.check(Schema.isMaxLength(4096))),
   commitPrompt: Schema.optional(Schema.String.check(Schema.isMaxLength(10_000))),
+  textGenerationModel: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type GitRequestSettings = typeof GitRequestSettings.Type;
 
