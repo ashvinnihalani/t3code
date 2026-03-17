@@ -17,7 +17,7 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
-import { ClaudeAI, CursorIcon, Gemini, Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import { ClaudeAI, CursorIcon, Gemini, Icon, KiroCliIcon, OpenAI, OpenCodeIcon } from "../Icons";
 import { cn } from "~/lib/utils";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
@@ -72,6 +72,7 @@ const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option
 const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
+  { id: "kiroCli", label: "Kiro CLI", icon: KiroCliIcon },
 ] as const;
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
