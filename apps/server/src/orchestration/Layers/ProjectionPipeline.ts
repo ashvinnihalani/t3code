@@ -362,6 +362,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             projectId: event.payload.projectId,
             title: event.payload.title,
             workspaceRoot: event.payload.workspaceRoot,
+            remote: event.payload.remote ?? null,
             defaultModel: event.payload.defaultModel,
             scripts: event.payload.scripts,
             createdAt: event.payload.createdAt,
@@ -383,6 +384,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.workspaceRoot !== undefined
               ? { workspaceRoot: event.payload.workspaceRoot }
               : {}),
+            ...(event.payload.remote !== undefined ? { remote: event.payload.remote } : {}),
             ...(event.payload.defaultModel !== undefined
               ? { defaultModel: event.payload.defaultModel }
               : {}),

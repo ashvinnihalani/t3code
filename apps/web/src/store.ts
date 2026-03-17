@@ -2,6 +2,7 @@ import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ProviderKind,
+  type ProjectRemoteTarget,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
@@ -24,8 +25,9 @@ export interface AppState {
   threadsHydrated: boolean;
 }
 
-const PERSISTED_STATE_KEY = "t3code:renderer-state:v8";
+const PERSISTED_STATE_KEY = "t3code:renderer-state:v9";
 const LEGACY_PERSISTED_STATE_KEYS = [
+  "t3code:renderer-state:v8",
   "t3code:renderer-state:v7",
   "t3code:renderer-state:v6",
   "t3code:renderer-state:v5",
@@ -42,8 +44,15 @@ const initialState: AppState = {
   threads: [],
   threadsHydrated: false,
 };
-const persistedExpandedProjectCwds = new Set<string>();
-const persistedProjectOrderCwds: string[] = [];
+const persistedExpandedProjectKeys = new Set<string>();
+const persistedProjectOrderKeys: string[] = [];
+
+function projectPersistenceKey(input: {
+  cwd: string;
+  remote?: ProjectRemoteTarget | null;
+}): string {
+  return input.remote ? `ssh:${input.remote.hostAlias}:${input.cwd}` : `local:${input.cwd}`;
+}
 
 // ── Persist helpers ──────────────────────────────────────────────────
 
@@ -53,19 +62,23 @@ function readPersistedState(): AppState {
     const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
     if (!raw) return initialState;
     const parsed = JSON.parse(raw) as {
-      expandedProjectCwds?: string[];
-      projectOrderCwds?: string[];
+      expandedProjectKeys?: string[];
+      projectOrderKeys?: string[];
     };
-    persistedExpandedProjectCwds.clear();
-    persistedProjectOrderCwds.length = 0;
-    for (const cwd of parsed.expandedProjectCwds ?? []) {
-      if (typeof cwd === "string" && cwd.length > 0) {
-        persistedExpandedProjectCwds.add(cwd);
+    persistedExpandedProjectKeys.clear();
+    persistedProjectOrderKeys.length = 0;
+    for (const projectKey of parsed.expandedProjectKeys ?? []) {
+      if (typeof projectKey === "string" && projectKey.length > 0) {
+        persistedExpandedProjectKeys.add(projectKey);
       }
     }
-    for (const cwd of parsed.projectOrderCwds ?? []) {
-      if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
-        persistedProjectOrderCwds.push(cwd);
+    for (const projectKey of parsed.projectOrderKeys ?? []) {
+      if (
+        typeof projectKey === "string" &&
+        projectKey.length > 0 &&
+        !persistedProjectOrderKeys.includes(projectKey)
+      ) {
+        persistedProjectOrderKeys.push(projectKey);
       }
     }
     return { ...initialState };
@@ -82,10 +95,10 @@ function persistState(state: AppState): void {
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
-        expandedProjectCwds: state.projects
+        expandedProjectKeys: state.projects
           .filter((project) => project.expanded)
-          .map((project) => project.cwd),
-        projectOrderCwds: state.projects.map((project) => project.cwd),
+          .map((project) => projectPersistenceKey(project)),
+        projectOrderKeys: state.projects.map((project) => projectPersistenceKey(project)),
       }),
     );
     if (!legacyKeysCleanedUp) {
@@ -122,43 +135,59 @@ function mapProjectsFromReadModel(
   previous: Project[],
 ): Project[] {
   const previousById = new Map(previous.map((project) => [project.id, project] as const));
-  const previousByCwd = new Map(previous.map((project) => [project.cwd, project] as const));
-  const previousOrderById = new Map(previous.map((project, index) => [project.id, index] as const));
-  const previousOrderByCwd = new Map(
-    previous.map((project, index) => [project.cwd, index] as const),
+  const previousByKey = new Map(
+    previous.map((project) => [projectPersistenceKey(project), project] as const),
   );
-  const persistedOrderByCwd = new Map(
-    persistedProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
+  const previousOrderById = new Map(previous.map((project, index) => [project.id, index] as const));
+  const previousOrderByKey = new Map(
+    previous.map((project, index) => [projectPersistenceKey(project), index] as const),
+  );
+  const persistedOrderByKey = new Map(
+    persistedProjectOrderKeys.map((projectKey, index) => [projectKey, index] as const),
   );
   const usePersistedOrder = previous.length === 0;
 
   const mappedProjects = incoming.map((project) => {
-    const existing = previousById.get(project.id) ?? previousByCwd.get(project.workspaceRoot);
-    return {
+    const incomingProjectKey = projectPersistenceKey({
+      cwd: project.workspaceRoot,
+      remote: project.remote ?? null,
+    });
+    const existing = previousById.get(project.id) ?? previousByKey.get(incomingProjectKey);
+    const nextProject = {
       id: project.id,
       name: project.title,
       cwd: project.workspaceRoot,
+      remote: project.remote ?? null,
+      model: resolveModelSlug(
+        existing?.model ?? project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex,
+      ),
+      expanded: true,
+      scripts: project.scripts.map((script) => ({ ...script })),
+    } satisfies Project;
+    const projectKey = projectPersistenceKey(nextProject);
+    return {
+      ...nextProject,
       model:
         existing?.model ??
         resolveModelSlug(project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex),
       expanded:
         existing?.expanded ??
-        (persistedExpandedProjectCwds.size > 0
-          ? persistedExpandedProjectCwds.has(project.workspaceRoot)
+        (persistedExpandedProjectKeys.size > 0
+          ? persistedExpandedProjectKeys.has(projectKey)
           : true),
-      scripts: project.scripts.map((script) => ({ ...script })),
+      remote: project.remote ?? null,
     } satisfies Project;
   });
 
   return mappedProjects
     .map((project, incomingIndex) => {
-      const previousIndex =
-        previousOrderById.get(project.id) ?? previousOrderByCwd.get(project.cwd);
-      const persistedIndex = usePersistedOrder ? persistedOrderByCwd.get(project.cwd) : undefined;
+      const projectKey = projectPersistenceKey(project);
+      const previousIndex = previousOrderById.get(project.id) ?? previousOrderByKey.get(projectKey);
+      const persistedIndex = usePersistedOrder ? persistedOrderByKey.get(projectKey) : undefined;
       const orderIndex =
         previousIndex ??
         persistedIndex ??
-        (usePersistedOrder ? persistedProjectOrderCwds.length : previous.length) + incomingIndex;
+        (usePersistedOrder ? persistedProjectOrderKeys.length : previous.length) + incomingIndex;
       return { project, incomingIndex, orderIndex };
     })
     .toSorted((a, b) => {

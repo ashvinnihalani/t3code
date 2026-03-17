@@ -1,5 +1,6 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
 import { ProviderModelOptions } from "./model";
+import { ProjectRemoteTarget } from "./remote";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -133,6 +134,7 @@ export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModel: Schema.NullOr(TrimmedNonEmptyString),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -294,6 +296,7 @@ export const ProjectCreateCommand = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModel: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
@@ -304,6 +307,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   projectId: ProjectId,
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModel: Schema.optional(TrimmedNonEmptyString),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
@@ -598,6 +602,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModel: Schema.NullOr(TrimmedNonEmptyString),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -608,6 +613,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   projectId: ProjectId,
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModel: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   updatedAt: IsoDateTime,

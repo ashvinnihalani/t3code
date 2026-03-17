@@ -78,6 +78,7 @@ import { expandHomePath } from "./os-jank.ts";
 import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
+import { listSshHosts } from "./sshHosts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -299,8 +300,17 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const normalizeDispatchCommand = Effect.fnUntraced(function* (input: {
     readonly command: ClientOrchestrationCommand;
   }) {
-    const normalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (workspaceRoot: string) {
-      const normalizedWorkspaceRoot = path.resolve(yield* expandHomePath(workspaceRoot.trim()));
+    const normalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
+      readonly workspaceRoot: string;
+      readonly remote?: { readonly kind: "ssh"; readonly hostAlias: string } | null;
+    }) {
+      if (input.remote?.kind === "ssh") {
+        return input.workspaceRoot.trim();
+      }
+
+      const normalizedWorkspaceRoot = path.resolve(
+        yield* expandHomePath(input.workspaceRoot.trim()),
+      );
       const workspaceStat = yield* fileSystem
         .stat(normalizedWorkspaceRoot)
         .pipe(Effect.catch(() => Effect.succeed(null)));
@@ -320,14 +330,20 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     if (input.command.type === "project.create") {
       return {
         ...input.command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(input.command.workspaceRoot),
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot({
+          workspaceRoot: input.command.workspaceRoot,
+          remote: input.command.remote ?? null,
+        }),
       } satisfies OrchestrationCommand;
     }
 
     if (input.command.type === "project.meta.update" && input.command.workspaceRoot !== undefined) {
       return {
         ...input.command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(input.command.workspaceRoot),
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot({
+          workspaceRoot: input.command.workspaceRoot,
+          remote: input.command.remote ?? null,
+        }),
       } satisfies OrchestrationCommand;
     }
 
@@ -876,6 +892,15 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           providers: providerStatuses,
           availableEditors,
         };
+
+      case WS_METHODS.serverListSshHosts:
+        return yield* Effect.tryPromise({
+          try: async () => ({ hosts: await listSshHosts() }),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to list SSH hosts: ${String(cause)}`,
+            }),
+        });
 
       case WS_METHODS.serverUpsertKeybinding: {
         const body = stripRequestTag(request.body);
