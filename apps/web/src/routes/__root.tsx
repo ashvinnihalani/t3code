@@ -216,6 +216,7 @@ function EventRouter() {
       }
       domainEventFlushThrottler.maybeExecute();
     });
+    void syncSnapshot();
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
       if (hasRunningSubprocess === null) {
