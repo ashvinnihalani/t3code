@@ -18,6 +18,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  isRemoteProject: boolean;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -38,6 +39,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   activeProjectName,
+  isRemoteProject,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -68,7 +70,7 @@ export const ChatHeader = memo(function ChatHeader({
             {activeProjectName}
           </Badge>
         )}
-        {activeProjectName && !isGitRepo && (
+        {activeProjectName && !isGitRepo && !isRemoteProject && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
           </Badge>
@@ -93,7 +95,9 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+        {activeProjectName && !isRemoteProject && (
+          <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

@@ -339,20 +339,25 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
+  const projectRemoteById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.remote ?? null] as const)),
+    [projects],
+  );
   const threadGitTargets = useMemo(
     () =>
       threads.map((thread) => ({
         threadId: thread.id,
         branch: thread.branch,
         cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
+        isRemote: projectRemoteById.get(thread.projectId) !== null,
       })),
-    [projectCwdById, threads],
+    [projectCwdById, projectRemoteById, threads],
   );
   const threadGitStatusCwds = useMemo(
     () => [
       ...new Set(
         threadGitTargets
-          .filter((target) => target.branch !== null)
+          .filter((target) => target.branch !== null && !target.isRemote)
           .map((target) => target.cwd)
           .filter((cwd): cwd is string => cwd !== null),
       ),
@@ -379,6 +384,10 @@ export default function Sidebar() {
 
     const map = new Map<ThreadId, ThreadPr>();
     for (const target of threadGitTargets) {
+      if (target.isRemote) {
+        map.set(target.threadId, null);
+        continue;
+      }
       const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
       const branchMatches =
         target.branch !== null && status?.branch !== null && status?.branch === target.branch;

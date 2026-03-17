@@ -179,9 +179,11 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
-  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
-  const isGitRepo = gitBranchesQuery.data?.isRepo ?? true;
+  const activeCwd = activeProject?.remote
+    ? null
+    : (activeThread?.worktreePath ?? activeProject?.cwd ?? null);
+  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd));
+  const isGitRepo = activeProject?.remote ? false : (gitBranchesQuery.data?.isRepo ?? true);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
