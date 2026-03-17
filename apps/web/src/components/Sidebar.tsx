@@ -30,6 +30,8 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
   ProjectId,
+  type ProjectRemoteTarget,
+  type SshHostSummary,
   ThreadId,
   type GitStatusResult,
   type ResolvedKeybindingsConfig,
@@ -44,7 +46,7 @@ import { useStore } from "../store";
 import { shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
-import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { serverConfigQueryOptions, serverSshHostsQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -90,6 +92,7 @@ import {
   shouldClearThreadSelectionOnMouseDown,
 } from "./Sidebar.logic";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import type { Project } from "../types";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
@@ -202,6 +205,27 @@ function getServerHttpOrigin(): string {
 
 const serverHttpOrigin = getServerHttpOrigin();
 
+function projectMatchesLocation(
+  project: Pick<Project, "cwd" | "remote">,
+  input: { cwd: string; remote: ProjectRemoteTarget | null },
+): boolean {
+  return (
+    project.cwd === input.cwd &&
+    project.remote?.kind === input.remote?.kind &&
+    project.remote?.hostAlias === input.remote?.hostAlias
+  );
+}
+
+function formatSshHostLabel(host: SshHostSummary): string {
+  if (host.user && host.hostname) {
+    return `${host.alias} (${host.user}@${host.hostname})`;
+  }
+  if (host.hostname) {
+    return `${host.alias} (${host.hostname})`;
+  }
+  return host.alias;
+}
+
 function ProjectFavicon({ cwd }: { cwd: string }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
@@ -281,10 +305,14 @@ export default function Sidebar() {
     ...serverConfigQueryOptions(),
     select: (config) => config.keybindings,
   });
+  const { data: sshHostsResult } = useQuery(serverSshHostsQueryOptions());
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const [addingProject, setAddingProject] = useState(false);
+  const [projectSourceMode, setProjectSourceMode] = useState<"local" | "ssh">("local");
   const [newCwd, setNewCwd] = useState("");
+  const [newRemotePath, setNewRemotePath] = useState("");
+  const [selectedSshHost, setSelectedSshHost] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
@@ -305,8 +333,8 @@ export default function Sidebar() {
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
-  const shouldBrowseForProjectImmediately = isElectron;
-  const shouldShowProjectPathEntry = addingProject && !shouldBrowseForProjectImmediately;
+  const sshHosts = useMemo(() => sshHostsResult?.hosts ?? [], [sshHostsResult]);
+  const shouldShowProjectPathEntry = addingProject;
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -359,6 +387,16 @@ export default function Sidebar() {
     return map;
   }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
 
+  useEffect(() => {
+    if (projectSourceMode !== "ssh" || sshHosts.length === 0) {
+      return;
+    }
+    if (sshHosts.some((host) => host.alias === selectedSshHost)) {
+      return;
+    }
+    setSelectedSshHost(sshHosts[0]?.alias ?? "");
+  }, [projectSourceMode, selectedSshHost, sshHosts]);
+
   const openPrLink = useCallback((event: React.MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
     event.stopPropagation();
@@ -400,9 +438,9 @@ export default function Sidebar() {
     [navigate, threads],
   );
 
-  const addProjectFromPath = useCallback(
-    async (rawCwd: string) => {
-      const cwd = rawCwd.trim();
+  const addProject = useCallback(
+    async (input: { rawCwd: string; remote: ProjectRemoteTarget | null }) => {
+      const cwd = input.rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
       if (!api) return;
@@ -411,11 +449,15 @@ export default function Sidebar() {
       const finishAddingProject = () => {
         setIsAddingProject(false);
         setNewCwd("");
+        setNewRemotePath("");
         setAddProjectError(null);
         setAddingProject(false);
+        setProjectSourceMode("local");
       };
 
-      const existing = projects.find((project) => project.cwd === cwd);
+      const existing = projects.find((project) =>
+        projectMatchesLocation(project, { cwd, remote: input.remote }),
+      );
       if (existing) {
         focusMostRecentThreadForProject(existing.id);
         finishAddingProject();
@@ -432,25 +474,26 @@ export default function Sidebar() {
           projectId,
           title,
           workspaceRoot: cwd,
+          remote: input.remote,
           defaultModel: DEFAULT_MODEL_BY_PROVIDER.codex,
           createdAt,
         });
-        await handleNewThread(projectId, {
-          envMode: appSettings.defaultThreadEnvMode,
-        }).catch(() => undefined);
+        if (input.remote === null) {
+          await handleNewThread(projectId, {
+            envMode: appSettings.defaultThreadEnvMode,
+          }).catch(() => undefined);
+        } else {
+          toastManager.add({
+            type: "info",
+            title: "Remote project added",
+            description: `Saved ${cwd} on SSH host ${input.remote.hostAlias}.`,
+          });
+        }
       } catch (error) {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
         setIsAddingProject(false);
-        if (shouldBrowseForProjectImmediately) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to add project",
-            description,
-          });
-        } else {
-          setAddProjectError(description);
-        }
+        setAddProjectError(description);
         return;
       }
       finishAddingProject();
@@ -460,16 +503,35 @@ export default function Sidebar() {
       handleNewThread,
       isAddingProject,
       projects,
-      shouldBrowseForProjectImmediately,
       appSettings.defaultThreadEnvMode,
     ],
   );
 
   const handleAddProject = () => {
-    void addProjectFromPath(newCwd);
+    if (projectSourceMode === "ssh") {
+      void addProject({
+        rawCwd: newRemotePath,
+        remote: selectedSshHost
+          ? {
+              kind: "ssh",
+              hostAlias: selectedSshHost,
+            }
+          : null,
+      });
+      return;
+    }
+
+    void addProject({
+      rawCwd: newCwd,
+      remote: null,
+    });
   };
 
-  const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
+  const canAddProject =
+    !isAddingProject &&
+    (projectSourceMode === "ssh"
+      ? selectedSshHost.trim().length > 0 && newRemotePath.trim().length > 0
+      : newCwd.trim().length > 0);
 
   const handlePickFolder = async () => {
     const api = readNativeApi();
@@ -482,8 +544,8 @@ export default function Sidebar() {
       // Ignore picker failures and leave the current thread selection unchanged.
     }
     if (pickedPath) {
-      await addProjectFromPath(pickedPath);
-    } else if (!shouldBrowseForProjectImmediately) {
+      await addProject({ rawCwd: pickedPath, remote: null });
+    } else {
       addProjectInputRef.current?.focus();
     }
     setIsPickingFolder(false);
@@ -491,10 +553,6 @@ export default function Sidebar() {
 
   const handleStartAddProject = () => {
     setAddProjectError(null);
-    if (shouldBrowseForProjectImmediately) {
-      void handlePickFolder();
-      return;
-    }
     setAddingProject((prev) => !prev);
   };
 
@@ -1254,49 +1312,136 @@ export default function Sidebar() {
 
           {shouldShowProjectPathEntry && (
             <div className="mb-2 px-1">
-              {isElectron && (
+              <div className="mb-1.5 grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
-                  className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void handlePickFolder()}
-                  disabled={isPickingFolder || isAddingProject}
-                >
-                  <FolderIcon className="size-3.5" />
-                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                </button>
-              )}
-              <div className="flex gap-1.5">
-                <input
-                  ref={addProjectInputRef}
-                  className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
-                    addProjectError
-                      ? "border-red-500/70 focus:border-red-500"
-                      : "border-border focus:border-ring"
+                  className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                    projectSourceMode === "local"
+                      ? "border-ring bg-accent text-foreground"
+                      : "border-border bg-secondary text-muted-foreground hover:text-foreground"
                   }`}
-                  placeholder="/path/to/project"
-                  value={newCwd}
-                  onChange={(event) => {
-                    setNewCwd(event.target.value);
+                  onClick={() => {
+                    setProjectSourceMode("local");
                     setAddProjectError(null);
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") handleAddProject();
-                    if (event.key === "Escape") {
-                      setAddingProject(false);
-                      setAddProjectError(null);
-                    }
-                  }}
-                  autoFocus
-                />
+                >
+                  Local
+                </button>
                 <button
                   type="button"
-                  className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
-                  onClick={handleAddProject}
-                  disabled={!canAddProject}
+                  className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                    projectSourceMode === "ssh"
+                      ? "border-ring bg-accent text-foreground"
+                      : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => {
+                    setProjectSourceMode("ssh");
+                    setAddProjectError(null);
+                  }}
                 >
-                  {isAddingProject ? "Adding..." : "Add"}
+                  Remote SSH
                 </button>
               </div>
+              {projectSourceMode === "local" ? (
+                <>
+                  {isElectron && (
+                    <button
+                      type="button"
+                      className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => void handlePickFolder()}
+                      disabled={isPickingFolder || isAddingProject}
+                    >
+                      <FolderIcon className="size-3.5" />
+                      {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                    </button>
+                  )}
+                  <div className="flex gap-1.5">
+                    <input
+                      ref={addProjectInputRef}
+                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
+                        addProjectError
+                          ? "border-red-500/70 focus:border-red-500"
+                          : "border-border focus:border-ring"
+                      }`}
+                      placeholder="/path/to/project"
+                      value={newCwd}
+                      onChange={(event) => {
+                        setNewCwd(event.target.value);
+                        setAddProjectError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleAddProject();
+                        if (event.key === "Escape") {
+                          setAddingProject(false);
+                          setAddProjectError(null);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
+                      onClick={handleAddProject}
+                      disabled={!canAddProject}
+                    >
+                      {isAddingProject ? "Adding..." : "Add"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <select
+                    className="w-full rounded-md border border-border bg-secondary px-2 py-1 text-xs text-foreground focus:border-ring focus:outline-none"
+                    value={selectedSshHost}
+                    onChange={(event) => {
+                      setSelectedSshHost(event.target.value);
+                      setAddProjectError(null);
+                    }}
+                  >
+                    <option value="">
+                      {sshHosts.length === 0 ? "No SSH hosts found" : "Select an SSH host"}
+                    </option>
+                    {sshHosts.map((host) => (
+                      <option key={host.alias} value={host.alias}>
+                        {formatSshHostLabel(host)}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex gap-1.5">
+                    <input
+                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
+                        addProjectError
+                          ? "border-red-500/70 focus:border-red-500"
+                          : "border-border focus:border-ring"
+                      }`}
+                      placeholder="/path/on/remote/host"
+                      value={newRemotePath}
+                      onChange={(event) => {
+                        setNewRemotePath(event.target.value);
+                        setAddProjectError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleAddProject();
+                        if (event.key === "Escape") {
+                          setAddingProject(false);
+                          setAddProjectError(null);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
+                      onClick={handleAddProject}
+                      disabled={!canAddProject}
+                    >
+                      {isAddingProject ? "Adding..." : "Add"}
+                    </button>
+                  </div>
+                  <p className="px-0.5 text-[11px] leading-tight text-muted-foreground/60">
+                    SSH hosts are read from your local <code>~/.ssh/config</code>.
+                  </p>
+                </div>
+              )}
               {addProjectError && (
                 <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
                   {addProjectError}
@@ -1309,6 +1454,7 @@ export default function Sidebar() {
                   onClick={() => {
                     setAddingProject(false);
                     setAddProjectError(null);
+                    setProjectSourceMode("local");
                   }}
                 >
                   Cancel
@@ -1373,10 +1519,19 @@ export default function Sidebar() {
                                   project.expanded ? "rotate-90" : ""
                                 }`}
                               />
-                              <ProjectFavicon cwd={project.cwd} />
-                              <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+                              {project.remote ? (
+                                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
+                              ) : (
+                                <ProjectFavicon cwd={project.cwd} />
+                              )}
+                              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
                                 {project.name}
                               </span>
+                              {project.remote ? (
+                                <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
+                                  SSH {project.remote.hostAlias}
+                                </span>
+                              ) : null}
                             </SidebarMenuButton>
                             <Tooltip>
                               <TooltipTrigger
@@ -1394,6 +1549,14 @@ export default function Sidebar() {
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
+                                      if (project.remote) {
+                                        toastManager.add({
+                                          type: "info",
+                                          title: "Remote threads are not enabled yet",
+                                          description: `This project is linked to ${project.remote.hostAlias}.`,
+                                        });
+                                        return;
+                                      }
                                       void handleNewThread(project.id, {
                                         envMode: resolveSidebarNewThreadEnvMode({
                                           defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -1406,9 +1569,11 @@ export default function Sidebar() {
                                 }
                               />
                               <TooltipPopup side="top">
-                                {newThreadShortcutLabel
-                                  ? `New thread (${newThreadShortcutLabel})`
-                                  : "New thread"}
+                                {project.remote
+                                  ? `Remote project on ${project.remote.hostAlias}`
+                                  : newThreadShortcutLabel
+                                    ? `New thread (${newThreadShortcutLabel})`
+                                    : "New thread"}
                               </TooltipPopup>
                             </Tooltip>
                           </div>

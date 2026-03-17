@@ -3,6 +3,7 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  ProjectRemoteTarget,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -78,6 +79,7 @@ export interface Project {
   id: ProjectId;
   name: string;
   cwd: string;
+  remote?: ProjectRemoteTarget | null;
   model: string;
   expanded: boolean;
   scripts: ProjectScript[];

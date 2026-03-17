@@ -5,6 +5,7 @@ import {
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationReadModel,
+  ProjectRemoteTarget,
   ProjectScript,
   TurnId,
   type OrchestrationCheckpointSummary,
@@ -44,6 +45,7 @@ const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+    remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -137,6 +139,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
+          remote_json AS "remote",
           default_model AS "defaultModel",
           scripts_json AS "scripts",
           created_at AS "createdAt",
@@ -517,6 +520,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             id: row.projectId,
             title: row.title,
             workspaceRoot: row.workspaceRoot,
+            remote: row.remote,
             defaultModel: row.defaultModel,
             scripts: row.scripts,
             createdAt: row.createdAt,

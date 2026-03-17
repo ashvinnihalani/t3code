@@ -4,6 +4,7 @@ import { ensureNativeApi } from "~/nativeApi";
 export const serverQueryKeys = {
   all: ["server"] as const,
   config: () => ["server", "config"] as const,
+  sshHosts: () => ["server", "ssh-hosts"] as const,
 };
 
 export function serverConfigQueryOptions() {
@@ -14,5 +15,16 @@ export function serverConfigQueryOptions() {
       return api.server.getConfig();
     },
     staleTime: Infinity,
+  });
+}
+
+export function serverSshHostsQueryOptions() {
+  return queryOptions({
+    queryKey: serverQueryKeys.sshHosts(),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      return api.server.listSshHosts();
+    },
+    staleTime: 30_000,
   });
 }

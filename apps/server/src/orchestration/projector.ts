@@ -181,6 +181,7 @@ export function projectEvent(
             id: payload.projectId,
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
+            ...(payload.remote !== undefined ? { remote: payload.remote } : {}),
             defaultModel: payload.defaultModel,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
@@ -211,6 +212,7 @@ export function projectEvent(
                   ...(payload.workspaceRoot !== undefined
                     ? { workspaceRoot: payload.workspaceRoot }
                     : {}),
+                  ...(payload.remote !== undefined ? { remote: payload.remote } : {}),
                   ...(payload.defaultModel !== undefined
                     ? { defaultModel: payload.defaultModel }
                     : {}),
