@@ -1,11 +1,12 @@
 import {
+  type OrchestrationSessionReconnectState,
   ProjectId,
   type ProjectRemoteTarget,
   type ProviderKind,
   type ServerProviderStatus,
   type ThreadId,
 } from "@t3tools/contracts";
-import { type ChatMessage, type Thread } from "../types";
+import { type ChatMessage, type Thread, type ThreadSession } from "../types";
 import { randomUUID } from "~/lib/utils";
 import { getAppModelOptions } from "../appSettings";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
@@ -176,13 +177,133 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
+export type VisibleProviderHealthStatus =
+  | {
+      kind: "local";
+      status: ServerProviderStatus;
+    }
+  | {
+      kind: "remote";
+      status: "info" | "warning" | "error";
+      title: string;
+      message: string;
+    }
+  | null;
+
+function buildRemoteReconnectSummary(input: {
+  reconnectState?: OrchestrationSessionReconnectState | undefined;
+  resumeAvailable?: boolean | undefined;
+  reconnectSummary?: string | undefined;
+  providerThreadId?: string | undefined;
+}): string | null {
+  if (input.reconnectSummary) {
+    return input.reconnectSummary;
+  }
+
+  switch (input.reconnectState) {
+    case "resume-thread":
+      return input.providerThreadId
+        ? `Reconnected to provider thread ${input.providerThreadId}.`
+        : "Reconnected to the persisted remote provider session.";
+    case "adopt-existing":
+      return "Reattached to an existing remote provider session.";
+    case "resume-unavailable":
+      return "Automatic reconnect is not available for this remote session.";
+    case "resume-failed":
+      return "Automatic reconnect failed for this remote session.";
+    case "fresh-start":
+      return null;
+    default:
+      return input.resumeAvailable && input.providerThreadId
+        ? `Resume is available for provider thread ${input.providerThreadId}.`
+        : input.resumeAvailable
+          ? "Automatic reconnect is available for this remote session."
+          : null;
+  }
+}
+
+function buildRemoteProviderHealthStatus(input: {
+  projectRemote: ProjectRemoteTarget;
+  session: ThreadSession | null;
+  localProviderStatus: ServerProviderStatus | null;
+}): VisibleProviderHealthStatus {
+  const hostAlias = input.projectRemote.hostAlias;
+  const session = input.session;
+
+  if (!session) {
+    if (!input.localProviderStatus || input.localProviderStatus.status === "ready") {
+      return null;
+    }
+    return {
+      kind: "remote",
+      status: input.localProviderStatus.status === "error" ? "error" : "warning",
+      title: "Remote Codex launcher status",
+      message:
+        input.localProviderStatus.message ??
+        `Local Codex is unavailable, so remote sessions on ${hostAlias} cannot start.`,
+    };
+  }
+
+  const reconnectSummary = buildRemoteReconnectSummary({
+    reconnectState: session.reconnectState,
+    reconnectSummary: session.reconnectSummary,
+    resumeAvailable: session.resumeAvailable,
+    providerThreadId: session.providerThreadId,
+  });
+
+  switch (session.orchestrationStatus) {
+    case "starting":
+      return {
+        kind: "remote",
+        status: "warning",
+        title: "Remote Codex session status",
+        message: reconnectSummary ?? `Connecting to the remote Codex session on ${hostAlias}.`,
+      };
+    case "error":
+      return {
+        kind: "remote",
+        status: "error",
+        title: "Remote Codex session status",
+        message:
+          session.lastError ??
+          reconnectSummary ??
+          `The remote Codex session on ${hostAlias} failed.`,
+      };
+    case "stopped":
+    case "idle":
+      return {
+        kind: "remote",
+        status: "warning",
+        title: "Remote Codex session status",
+        message: reconnectSummary ?? `The remote Codex session on ${hostAlias} is disconnected.`,
+      };
+    case "ready":
+    case "running":
+    case "interrupted":
+      if (!reconnectSummary || session.reconnectState === "fresh-start") {
+        return null;
+      }
+      return {
+        kind: "remote",
+        status: "info",
+        title: "Remote Codex session status",
+        message: reconnectSummary,
+      };
+  }
+}
+
 export function resolveVisibleProviderHealthStatus(input: {
   status: ServerProviderStatus | null;
   projectRemote: ProjectRemoteTarget | null;
-}): ServerProviderStatus | null {
+  session: ThreadSession | null;
+}): VisibleProviderHealthStatus {
   if (input.projectRemote) {
-    return null;
+    return buildRemoteProviderHealthStatus({
+      projectRemote: input.projectRemote,
+      session: input.session,
+      localProviderStatus: input.status,
+    });
   }
 
-  return input.status;
+  return input.status ? { kind: "local", status: input.status } : null;
 }

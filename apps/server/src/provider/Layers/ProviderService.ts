@@ -23,13 +23,22 @@ import {
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, PubSub, Queue, Schema, SchemaIssue, Stream } from "effect";
 
-import { ProviderValidationError } from "../Errors.ts";
+import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import {
+  type ProviderAdapterError,
+  type ProviderServiceError,
+  ProviderValidationError,
+} from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
   ProviderSessionDirectory,
   type ProviderRuntimeBinding,
 } from "../Services/ProviderSessionDirectory.ts";
+import {
+  buildRemoteSessionRuntimeMetadataPatch,
+  readProviderThreadIdFromResumeCursor,
+} from "../remoteSessionMetadata.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 
@@ -90,11 +99,14 @@ function toRuntimePayloadFromSession(
   session: ProviderSession,
   extra?: { readonly providerOptions?: unknown },
 ): Record<string, unknown> {
+  const providerThreadId = readProviderThreadIdFromResumeCursor(session.resumeCursor);
   return {
     cwd: session.cwd ?? null,
     model: session.model ?? null,
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
+    ...(providerThreadId ? { providerThreadId } : {}),
+    ...(session.resumeCursor !== undefined ? { resumeAvailable: true } : {}),
     ...(extra?.providerOptions !== undefined ? { providerOptions: extra.providerOptions } : {}),
   };
 }
@@ -150,7 +162,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const upsertSessionBinding = (
       session: ProviderSession,
       threadId: ThreadId,
-      extra?: { readonly providerOptions?: unknown },
+      extra?: {
+        readonly providerOptions?: unknown;
+        readonly runtimePayload?: Record<string, unknown>;
+      },
     ) =>
       directory.upsert({
         threadId,
@@ -158,7 +173,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         runtimeMode: session.runtimeMode,
         status: toRuntimeStatus(session),
         ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
-        runtimePayload: toRuntimePayloadFromSession(session, extra),
+        runtimePayload: {
+          ...toRuntimePayloadFromSession(session, extra),
+          ...extra?.runtimePayload,
+        },
       });
 
     const providers = yield* registry.listProviders();
@@ -183,7 +201,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const recoverSessionForThread = (input: {
       readonly binding: ProviderRuntimeBinding;
       readonly operation: string;
-    }) =>
+    }): Effect.Effect<
+      {
+        readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
+        readonly session: ProviderSession;
+      },
+      ProviderServiceError
+    > =>
       Effect.gen(function* () {
         const adapter = yield* registry.getByProvider(input.binding.provider);
         const hasResumeCursor =
@@ -195,7 +219,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             (session) => session.threadId === input.binding.threadId,
           );
           if (existing) {
-            yield* upsertSessionBinding(existing, input.binding.threadId);
+            const providerThreadId = readProviderThreadIdFromResumeCursor(existing.resumeCursor);
+            const reconnectSummary = providerThreadId
+              ? `Reconnected to remote provider thread ${providerThreadId}.`
+              : "Reconnected to an existing provider session.";
+            yield* upsertSessionBinding(existing, input.binding.threadId, {
+              runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
+                session: existing,
+                reconnectState: "adopt-existing",
+                reconnectSummary,
+                resumeAvailable:
+                  existing.resumeCursor !== undefined ||
+                  (input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined),
+              }),
+            });
             yield* analytics.record("provider.session.recovered", {
               provider: existing.provider,
               strategy: "adopt-existing",
@@ -206,6 +243,21 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
 
         if (!hasResumeCursor) {
+          const reconnectSummary =
+            "Cannot reconnect automatically because no persisted remote provider thread is available.";
+          yield* directory.upsert({
+            threadId: input.binding.threadId,
+            provider: input.binding.provider,
+            ...(input.binding.runtimeMode !== undefined
+              ? { runtimeMode: input.binding.runtimeMode }
+              : {}),
+            status: "error",
+            runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
+              reconnectState: "resume-unavailable",
+              reconnectSummary,
+              resumeAvailable: false,
+            }),
+          });
           return yield* toValidationError(
             input.operation,
             `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
@@ -215,14 +267,35 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
         const persistedProviderOptions = readPersistedProviderOptions(input.binding.runtimePayload);
 
-        const resumed = yield* adapter.startSession({
-          threadId: input.binding.threadId,
-          provider: input.binding.provider,
-          ...(persistedCwd ? { cwd: persistedCwd } : {}),
-          ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
-          ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
-          runtimeMode: input.binding.runtimeMode ?? "full-access",
-        });
+        const resumed = yield* adapter
+          .startSession({
+            threadId: input.binding.threadId,
+            provider: input.binding.provider,
+            ...(persistedCwd ? { cwd: persistedCwd } : {}),
+            ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
+            ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
+            runtimeMode: input.binding.runtimeMode ?? "full-access",
+          })
+          .pipe(
+            Effect.tapError(() =>
+              directory
+                .upsert({
+                  threadId: input.binding.threadId,
+                  provider: input.binding.provider,
+                  ...(input.binding.runtimeMode !== undefined
+                    ? { runtimeMode: input.binding.runtimeMode }
+                    : {}),
+                  status: "error",
+                  runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
+                    reconnectState: "resume-failed",
+                    reconnectSummary:
+                      "Automatic reconnect to the persisted remote provider session failed.",
+                    resumeAvailable: true,
+                  }),
+                })
+                .pipe(Effect.catch(() => Effect.void)),
+            ),
+          );
         if (resumed.provider !== adapter.provider) {
           return yield* toValidationError(
             input.operation,
@@ -230,7 +303,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           );
         }
 
-        yield* upsertSessionBinding(resumed, input.binding.threadId);
+        const resumedProviderThreadId = readProviderThreadIdFromResumeCursor(resumed.resumeCursor);
+        yield* upsertSessionBinding(resumed, input.binding.threadId, {
+          runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
+            session: resumed,
+            reconnectState: "resume-thread",
+            reconnectSummary: resumedProviderThreadId
+              ? `Reconnected to remote provider thread ${resumedProviderThreadId}.`
+              : "Resumed the persisted remote provider session.",
+            resumeAvailable: true,
+          }),
+        });
         yield* analytics.record("provider.session.recovered", {
           provider: resumed.provider,
           strategy: "resume-thread",
@@ -243,7 +326,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       readonly threadId: ThreadId;
       readonly operation: string;
       readonly allowRecovery: boolean;
-    }) =>
+    }): Effect.Effect<
+      {
+        readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
+        readonly threadId: ThreadId;
+        readonly isActive: boolean;
+      },
+      ProviderServiceError
+    > =>
       Effect.gen(function* () {
         const bindingOption = yield* directory.getBinding(input.threadId);
         const binding = Option.getOrUndefined(bindingOption);
@@ -293,6 +383,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
         yield* upsertSessionBinding(session, threadId, {
           providerOptions: input.providerOptions,
+          runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
+            session,
+            reconnectState: "fresh-start",
+            reconnectSummary: "Started a new provider session.",
+            resumeAvailable: session.resumeCursor !== undefined,
+          }),
         });
         yield* analytics.record("provider.session.started", {
           provider: session.provider,
@@ -510,6 +606,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   activeTurnId: null,
                   lastRuntimeEvent: "provider.stopAll",
                   lastRuntimeEventAt: new Date().toISOString(),
+                  reconnectSummary:
+                    "The provider service stopped and can reconnect on the next turn.",
+                  reconnectUpdatedAt: new Date().toISOString(),
                 },
               }),
             ),

@@ -1,5 +1,6 @@
 import type {
   OrchestrationLatestTurn,
+  OrchestrationSessionReconnectState,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -112,6 +113,11 @@ export interface ThreadSession {
   provider: ProviderKind;
   status: SessionPhase | "error" | "closed";
   activeTurnId?: TurnId | undefined;
+  providerThreadId?: string | undefined;
+  resumeAvailable?: boolean | undefined;
+  reconnectState?: OrchestrationSessionReconnectState | undefined;
+  reconnectSummary?: string | undefined;
+  reconnectUpdatedAt?: string | undefined;
   createdAt: string;
   updatedAt: string;
   lastError?: string;

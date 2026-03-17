@@ -191,6 +191,38 @@ describe("store pure functions", () => {
 });
 
 describe("store read model sync", () => {
+  it("maps remote session reconnect metadata from the read model", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "stopped",
+          providerName: "codex",
+          providerThreadId: "thread_remote_123",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          activeTurnId: null,
+          lastError: null,
+          resumeAvailable: true,
+          reconnectState: "resume-thread",
+          reconnectSummary: "Reconnected to provider thread thread_remote_123.",
+          reconnectUpdatedAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads[0]?.session).toMatchObject({
+      providerThreadId: "thread_remote_123",
+      resumeAvailable: true,
+      reconnectState: "resume-thread",
+      reconnectSummary: "Reconnected to provider thread thread_remote_123.",
+      reconnectUpdatedAt: "2026-02-27T00:00:00.000Z",
+    });
+  });
+
   it("falls back to the codex default for unsupported provider models without an active session", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
