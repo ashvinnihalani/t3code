@@ -31,6 +31,7 @@ import {
   type DesktopUpdateState,
   ProjectId,
   type ProjectRemoteTarget,
+  type RemoteProjectValidationResult,
   type SshHostSummary,
   ThreadId,
   type GitStatusResult,
@@ -224,6 +225,66 @@ function formatSshHostLabel(host: SshHostSummary): string {
     return `${host.alias} (${host.hostname})`;
   }
   return host.alias;
+}
+
+function describeRemoteProjectValidation(
+  validation: RemoteProjectValidationResult,
+  hostAlias: string,
+): {
+  readonly title: string;
+  readonly description: string;
+  readonly type: "info" | "warning";
+} {
+  const locationLabel = validation.hostname ? `${hostAlias} (${validation.hostname})` : hostAlias;
+  const parts = [`Validated ${validation.workspaceRoot} on ${locationLabel}.`];
+  const warnings: string[] = [];
+
+  if (validation.codexCliAvailable) {
+    parts.push(
+      validation.codexCliVersion
+        ? `Codex CLI ${validation.codexCliVersion} is available.`
+        : "Codex CLI is available.",
+    );
+  } else {
+    warnings.push("Codex CLI was not found on the remote host.");
+  }
+
+  if (!validation.gitAvailable) {
+    warnings.push("Git was not found on the remote host.");
+  } else if (validation.gitRepositoryRoot) {
+    parts.push("Git repository detected.");
+  }
+
+  if (warnings.length > 0) {
+    parts.push(...warnings);
+    return {
+      type: "warning",
+      title: "Remote project added with warnings",
+      description: parts.join(" "),
+    };
+  }
+
+  return {
+    type: "info",
+    title: "Remote project validated",
+    description: parts.join(" "),
+  };
+}
+
+function normalizeProjectAddErrorMessage(error: unknown, fallback: string): string {
+  const rawMessage =
+    error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
+  const trimmed = rawMessage.trim();
+  if (trimmed.length === 0) {
+    return fallback;
+  }
+
+  const withoutPrefix = trimmed.replace(/^Error:\s*/, "");
+  const stackSeparatorIndex = withoutPrefix.search(/\n\s+at\s/);
+  if (stackSeparatorIndex >= 0) {
+    return withoutPrefix.slice(0, stackSeparatorIndex).trim() || fallback;
+  }
+  return withoutPrefix;
 }
 
 function ProjectFavicon({ projectId }: { projectId: ProjectId }) {
@@ -461,7 +522,7 @@ export default function Sidebar() {
 
   const addProject = useCallback(
     async (input: { rawCwd: string; remote: ProjectRemoteTarget | null }) => {
-      const cwd = input.rawCwd.trim();
+      let cwd = input.rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
       if (!api) return;
@@ -476,6 +537,30 @@ export default function Sidebar() {
         setProjectSourceMode("local");
       };
 
+      let remoteValidation: RemoteProjectValidationResult | null = null;
+      if (input.remote !== null) {
+        try {
+          remoteValidation = await api.server.validateRemoteProject({
+            remote: input.remote,
+            workspaceRoot: cwd,
+          });
+          cwd = remoteValidation.workspaceRoot;
+        } catch (error) {
+          const description = normalizeProjectAddErrorMessage(
+            error,
+            "An error occurred while validating the remote project.",
+          );
+          setIsAddingProject(false);
+          setAddProjectError(null);
+          toastManager.add({
+            type: "error",
+            title: "Unable to add remote project",
+            description,
+          });
+          return;
+        }
+      }
+
       const existing = projects.find((project) =>
         projectMatchesLocation(project, { cwd, remote: input.remote }),
       );
@@ -487,7 +572,8 @@ export default function Sidebar() {
 
       const projectId = newProjectId();
       const createdAt = new Date().toISOString();
-      const title = cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd;
+      const title =
+        remoteValidation?.directoryName ?? cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd;
       try {
         await api.orchestration.dispatchCommand({
           type: "project.create",
@@ -502,12 +588,10 @@ export default function Sidebar() {
         await handleNewThread(projectId, {
           envMode: appSettings.defaultThreadEnvMode,
         }).catch(() => undefined);
-        if (input.remote !== null) {
-          toastManager.add({
-            type: "info",
-            title: "Remote project added",
-            description: `Saved ${cwd} on SSH host ${input.remote.hostAlias}.`,
-          });
+        if (input.remote !== null && remoteValidation !== null) {
+          toastManager.add(
+            describeRemoteProjectValidation(remoteValidation, input.remote.hostAlias),
+          );
         }
       } catch (error) {
         const description =

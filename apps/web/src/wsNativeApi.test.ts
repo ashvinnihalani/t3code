@@ -320,6 +320,30 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards remote project validation requests to the websocket server method", async () => {
+    requestMock.mockResolvedValue({
+      workspaceRoot: "/srv/app",
+      directoryName: "app",
+      hostname: "prod-host",
+      gitAvailable: true,
+      gitRepositoryRoot: "/srv/app",
+      codexCliAvailable: true,
+      codexCliVersion: "codex-cli 0.115.0",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.server.validateRemoteProject({
+      remote: { kind: "ssh", hostAlias: "prod" },
+      workspaceRoot: "~/app",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.serverValidateRemoteProject, {
+      remote: { kind: "ssh", hostAlias: "prod" },
+      workspaceRoot: "~/app",
+    });
+  });
+
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {
     requestMock.mockResolvedValue({ diff: "patch" });
     const { createWsNativeApi } = await import("./wsNativeApi");
