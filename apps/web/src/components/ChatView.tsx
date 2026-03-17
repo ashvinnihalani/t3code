@@ -171,6 +171,7 @@ import {
   SendPhase,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { resolveEffectiveThreadEnvMode } from "../threadEnvMode";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -2055,13 +2056,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [closeExpandedImage, expandedImage, navigateExpandedImage]);
 
   const activeWorktreePath = activeThread?.worktreePath;
-  const envMode: DraftThreadEnvMode = activeWorktreePath
-    ? "worktree"
-    : activeProject?.remote
-      ? "local"
-      : isLocalDraftThread
-        ? (draftThread?.envMode ?? "local")
-        : "local";
+  const envMode: DraftThreadEnvMode = resolveEffectiveThreadEnvMode({
+    worktreePath: activeWorktreePath,
+    draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
+    projectRemote: activeProject?.remote ?? null,
+  });
 
   useEffect(() => {
     if (phase !== "running") return;
@@ -4045,7 +4044,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               threadId={activeThread.id}
               onEnvModeChange={onEnvModeChange}
               envLocked={envLocked}
-              isRemoteProject={Boolean(activeProject?.remote)}
+              projectRemote={activeProject?.remote ?? null}
               onComposerFocusRequest={scheduleComposerFocus}
               {...(canCheckoutPullRequestIntoThread
                 ? { onCheckoutPullRequestRequest: openPullRequestDialog }

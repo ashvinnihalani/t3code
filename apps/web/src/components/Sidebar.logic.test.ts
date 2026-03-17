@@ -81,6 +81,18 @@ describe("resolveSidebarNewThreadEnvMode", () => {
       }),
     ).toBe("local");
   });
+
+  it("normalizes remote worktree defaults back to local", () => {
+    expect(
+      resolveSidebarNewThreadEnvMode({
+        defaultEnvMode: "worktree",
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "buildbox",
+        },
+      }),
+    ).toBe("local");
+  });
 });
 
 describe("resolveThreadStatusPill", () => {

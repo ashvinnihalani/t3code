@@ -586,7 +586,10 @@ export default function Sidebar() {
           createdAt,
         });
         await handleNewThread(projectId, {
-          envMode: appSettings.defaultThreadEnvMode,
+          envMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: appSettings.defaultThreadEnvMode,
+            projectRemote: input.remote,
+          }),
         }).catch(() => undefined);
         if (input.remote !== null && remoteValidation !== null) {
           toastManager.add(
@@ -1657,6 +1660,7 @@ export default function Sidebar() {
                                       void handleNewThread(project.id, {
                                         envMode: resolveSidebarNewThreadEnvMode({
                                           defaultEnvMode: appSettings.defaultThreadEnvMode,
+                                          projectRemote: project.remote ?? null,
                                         }),
                                       });
                                     }}

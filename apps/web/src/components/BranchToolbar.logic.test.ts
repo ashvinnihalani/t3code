@@ -5,8 +5,34 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchSelectionTarget,
   resolveDraftEnvModeAfterBranchChange,
+  resolveEffectiveEnvMode,
   resolveBranchToolbarValue,
 } from "./BranchToolbar.logic";
+
+describe("resolveEffectiveEnvMode", () => {
+  it("keeps draft worktree mode for local projects before worktree creation", () => {
+    expect(
+      resolveEffectiveEnvMode({
+        activeWorktreePath: null,
+        draftThreadEnvMode: "worktree",
+        projectRemote: null,
+      }),
+    ).toBe("worktree");
+  });
+
+  it("normalizes stale remote draft worktree mode back to local", () => {
+    expect(
+      resolveEffectiveEnvMode({
+        activeWorktreePath: null,
+        draftThreadEnvMode: "worktree",
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "buildbox",
+        },
+      }),
+    ).toBe("local");
+  });
+});
 
 describe("resolveDraftEnvModeAfterBranchChange", () => {
   it("switches to local mode when returning from an existing worktree to the main worktree", () => {

@@ -1,3 +1,4 @@
+import type { ProjectRemoteTarget } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import { cn } from "../lib/utils";
 import {
@@ -5,6 +6,7 @@ import {
   hasActionableProposedPlan,
   isLatestTurnSettled,
 } from "../session-logic";
+import { resolveRequestedThreadEnvMode } from "../threadEnvMode";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
@@ -46,8 +48,13 @@ export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null
 export function resolveSidebarNewThreadEnvMode(input: {
   requestedEnvMode?: SidebarNewThreadEnvMode;
   defaultEnvMode: SidebarNewThreadEnvMode;
+  projectRemote?: ProjectRemoteTarget | null;
 }): SidebarNewThreadEnvMode {
-  return input.requestedEnvMode ?? input.defaultEnvMode;
+  return resolveRequestedThreadEnvMode({
+    projectRemote: input.projectRemote,
+    requestedEnvMode: input.requestedEnvMode,
+    defaultEnvMode: input.defaultEnvMode,
+  });
 }
 
 export function resolveThreadRowClassName(input: {

@@ -386,8 +386,20 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
+  if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+    return { sequence: wsRequests.length };
+  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
+  }
+  if (tag === WS_METHODS.gitCreateWorktree) {
+    const branch = typeof body.newBranch === "string" ? body.newBranch : "t3code/browser-worktree";
+    return {
+      worktree: {
+        path: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
+        branch,
+      },
+    };
   }
   if (tag === WS_METHODS.gitListBranches) {
     return {
@@ -973,6 +985,112 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not prepare a worktree when a remote draft carries stale worktree env mode", async () => {
+    const baseSnapshot = createDraftOnlySnapshot();
+    const snapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      projects: baseSnapshot.projects.map((project) =>
+        Object.assign({}, project, {
+          remote: {
+            kind: "ssh" as const,
+            hostAlias: "buildbox",
+          },
+        }),
+      ),
+    };
+
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "main",
+          worktreePath: null,
+          envMode: "worktree",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "remote draft send");
+      await vi.waitFor(
+        () => {
+          const sendButton = document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          );
+          expect(sendButton?.disabled).toBe(false);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const requestCountBeforeSend = wsRequests.length;
+      const sendButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find Send message button.",
+      );
+      sendButton.click();
+
+      let requestsAfterSend: WsRequestEnvelope["body"][] = [];
+      await vi.waitFor(
+        () => {
+          requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
+          expect(
+            requestsAfterSend.some((request) => {
+              if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+                return false;
+              }
+              const command = request.command;
+              return (
+                typeof command === "object" &&
+                command !== null &&
+                "type" in command &&
+                command.type === "thread.create"
+              );
+            }),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(
+        requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
+      ).toBe(false);
+      expect(
+        requestsAfterSend.find((request) => {
+          if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+            return false;
+          }
+          const command = request.command;
+          return (
+            typeof command === "object" &&
+            command !== null &&
+            "type" in command &&
+            command.type === "thread.create"
+          );
+        }),
+      ).toMatchObject({
+        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+        command: {
+          type: "thread.create",
+          branch: "main",
+          worktreePath: null,
+        },
+      });
     } finally {
       await mounted.cleanup();
     }

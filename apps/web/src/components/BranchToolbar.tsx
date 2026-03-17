@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback } from "react";
 
@@ -6,6 +6,7 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
+import { supportsDraftWorktreeEnv } from "../threadEnvMode";
 import {
   EnvMode,
   resolveDraftEnvModeAfterBranchChange,
@@ -23,7 +24,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
-  isRemoteProject: boolean;
+  projectRemote: ProjectRemoteTarget | null;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -32,7 +33,7 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
-  isRemoteProject,
+  projectRemote,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -52,9 +53,10 @@ export default function BranchToolbar({
   const hasServerThread = serverThread !== undefined;
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
-    hasServerThread,
     draftThreadEnvMode: draftThread?.envMode,
+    projectRemote,
   });
+  const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -112,7 +114,7 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
-      {envLocked || activeWorktreePath || isRemoteProject ? (
+      {envLocked || activeWorktreePath || !supportsWorktreeEnv ? (
         <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
           {activeWorktreePath ? (
             <>
