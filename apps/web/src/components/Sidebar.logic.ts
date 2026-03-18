@@ -1,7 +1,12 @@
 import type { ProjectRemoteTarget } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import { cn } from "../lib/utils";
-import { findLatestProposedPlan, isLatestTurnSettled } from "../session-logic";
+import { resolveRequestedThreadEnvMode } from "../threadEnvMode";
+import {
+  findLatestProposedPlan,
+  hasActionableProposedPlan,
+  isLatestTurnSettled,
+} from "../session-logic";
 import { resolveRequestedThreadEnvMode } from "../threadEnvMode";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
@@ -131,7 +136,9 @@ export function resolveThreadStatusPill(input: {
     !hasPendingUserInput &&
     thread.interactionMode === "plan" &&
     isLatestTurnSettled(thread.latestTurn, thread.session) &&
-    findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null) !== null;
+    hasActionableProposedPlan(
+      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+    );
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
