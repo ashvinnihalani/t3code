@@ -77,6 +77,16 @@ function hasPendingUserInput(thread: OrchestrationThread): boolean {
   return open.size > 0;
 }
 
+function isRecoverableStartupThread(thread: OrchestrationThread): boolean {
+  const status = thread.session?.status;
+  if (status === "running") {
+    return true;
+  }
+  // Older shutdowns could persist resumable sessions as stopped after emitting
+  // session/closed during app teardown. Recover them if the turn never settled.
+  return status === "stopped" && thread.session?.resumeAvailable === true;
+}
+
 function toSessionFromThread(input: {
   readonly thread: OrchestrationThread;
   readonly status: OrchestrationSession["status"];
@@ -264,7 +274,7 @@ const make = Effect.gen(function* () {
     const readModel = yield* orchestrationEngine.getReadModel();
     const candidateIds = readModel.threads
       .filter((thread) => thread.deletedAt === null)
-      .filter((thread) => thread.session?.status === "running")
+      .filter(isRecoverableStartupThread)
       .filter((thread) => thread.latestTurn?.completedAt === null)
       .filter((thread) => !hasPendingApproval(thread))
       .filter((thread) => !hasPendingUserInput(thread))

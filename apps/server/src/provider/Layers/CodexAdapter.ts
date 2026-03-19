@@ -1280,7 +1280,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       (manager) =>
         Effect.sync(() => {
           try {
-            manager.stopAll();
+            manager.stopAll({ emitLifecycleEvent: false });
           } catch {
             // Finalizers should never fail and block shutdown.
           }
@@ -1455,7 +1455,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
 
     const stopAll: CodexAdapterShape["stopAll"] = () =>
       Effect.sync(() => {
-        manager.stopAll();
+        manager.stopAll({ emitLifecycleEvent: false });
       });
 
     const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
