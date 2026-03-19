@@ -4,6 +4,7 @@ import {
   buildEnvironmentCaptureCommand,
   extractEnvironmentFromShellOutput,
   extractPathFromShellOutput,
+  readCommandPathFromLoginShell,
   readEnvironmentFromLoginShell,
   readPathFromLoginShell,
 } from "./shell";
@@ -54,11 +55,43 @@ describe("readPathFromLoginShell", () => {
     const [shell, args, options] = firstCall;
     expect(shell).toBe("/opt/homebrew/bin/fish");
     expect(args).toHaveLength(2);
-    expect(args?.[0]).toBe("-ilc");
+    expect(args?.[0]).toBe("-lc");
     expect(args?.[1]).toContain("printenv PATH || true");
     expect(args?.[1]).toContain("__T3CODE_ENV_PATH_START__");
     expect(args?.[1]).toContain("__T3CODE_ENV_PATH_END__");
     expect(options).toEqual({ encoding: "utf8", timeout: 5000 });
+  });
+});
+
+describe("readCommandPathFromLoginShell", () => {
+  it("uses command -v in the login shell and returns the resolved executable", () => {
+    const execFile = vi.fn<
+      (
+        file: string,
+        args: ReadonlyArray<string>,
+        options: { encoding: "utf8"; timeout: number },
+      ) => string
+    >(() => "/opt/mise/bin/codex\n");
+
+    expect(readCommandPathFromLoginShell("/bin/zsh", "codex", execFile)).toBe(
+      "/opt/mise/bin/codex",
+    );
+    expect(execFile).toHaveBeenCalledWith("/bin/zsh", ["-lc", "command -v -- codex || true"], {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+  });
+
+  it("returns undefined when the command is not found", () => {
+    const execFile = vi.fn<
+      (
+        file: string,
+        args: ReadonlyArray<string>,
+        options: { encoding: "utf8"; timeout: number },
+      ) => string
+    >(() => "\n");
+
+    expect(readCommandPathFromLoginShell("/bin/zsh", "codex", execFile)).toBeUndefined();
   });
 });
 

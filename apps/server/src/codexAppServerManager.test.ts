@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@t3tools/contracts";
+import * as shellModule from "@t3tools/shared/shell";
 
 import {
   buildCodexInitializeParams,
@@ -271,6 +272,46 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("resolves the local codex binary from the login shell before version checks", async () => {
+    const manager = new CodexAppServerManager();
+    const readCommandPath = vi
+      .spyOn(shellModule, "readCommandPathFromLoginShell")
+      .mockReturnValue("/resolved/bin/codex");
+    const versionCheck = vi
+      .spyOn(
+        manager as unknown as {
+          assertSupportedCodexCliVersion: (input: {
+            binaryPath: string;
+            cwd: string;
+            homePath?: string;
+          }) => void;
+        },
+        "assertSupportedCodexCliVersion",
+      )
+      .mockImplementation(() => {
+        throw new Error("stop after version check");
+      });
+
+    try {
+      await expect(
+        manager.startSession({
+          threadId: asThreadId("thread-1"),
+          provider: "codex",
+          runtimeMode: "full-access",
+        }),
+      ).rejects.toThrow("stop after version check");
+
+      expect(readCommandPath).toHaveBeenCalledWith(expect.any(String), "codex");
+      expect(versionCheck).toHaveBeenCalledWith(
+        expect.objectContaining({ binaryPath: "/resolved/bin/codex" }),
+      );
+    } finally {
+      versionCheck.mockRestore();
+      readCommandPath.mockRestore();
+      manager.stopAll();
+    }
+  });
+
   it("uses direct codex execution for the default remote codex binary", () => {
     const command = buildRemoteCodexCommand({
       binaryPath: "codex",
@@ -386,6 +427,59 @@ describe("startSession", () => {
           kind: "error",
           message:
             "Codex CLI v0.36.0 is too old for T3 Code. Upgrade to v0.37.0 or newer and restart T3 Code.",
+        },
+      ]);
+    } finally {
+      versionCheck.mockRestore();
+      manager.stopAll();
+    }
+  });
+
+  it("fails fast with a node runtime upgrade message when codex cannot parse modern syntax", async () => {
+    const manager = new CodexAppServerManager();
+    const events: Array<{ method: string; kind: string; message?: string }> = [];
+    manager.on("event", (event) => {
+      events.push({
+        method: event.method,
+        kind: event.kind,
+        ...(event.message ? { message: event.message } : {}),
+      });
+    });
+
+    const versionCheck = vi
+      .spyOn(
+        manager as unknown as {
+          assertSupportedCodexCliVersion: (input: {
+            binaryPath: string;
+            cwd: string;
+            homePath?: string;
+          }) => void;
+        },
+        "assertSupportedCodexCliVersion",
+      )
+      .mockImplementation(() => {
+        throw new Error(
+          "Codex CLI (codex) could not start because it is running on an unsupported Node.js runtime. Upgrade Node.js to a current LTS release, reinstall Codex CLI, and restart T3 Code.",
+        );
+      });
+
+    try {
+      await expect(
+        manager.startSession({
+          threadId: asThreadId("thread-1"),
+          provider: "codex",
+          runtimeMode: "full-access",
+        }),
+      ).rejects.toThrow(
+        "Codex CLI (codex) could not start because it is running on an unsupported Node.js runtime. Upgrade Node.js to a current LTS release, reinstall Codex CLI, and restart T3 Code.",
+      );
+      expect(versionCheck).toHaveBeenCalledTimes(1);
+      expect(events).toEqual([
+        {
+          method: "session/startFailed",
+          kind: "error",
+          message:
+            "Codex CLI (codex) could not start because it is running on an unsupported Node.js runtime. Upgrade Node.js to a current LTS release, reinstall Codex CLI, and restart T3 Code.",
         },
       ]);
     } finally {

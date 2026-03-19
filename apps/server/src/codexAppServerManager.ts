@@ -24,10 +24,13 @@ import { normalizeModelSlug } from "@t3tools/shared/model";
 import {
   buildEnvironmentCaptureCommand,
   extractEnvironmentFromShellOutput,
+  readCommandPathFromLoginShell,
 } from "@t3tools/shared/shell";
 import { Effect, ServiceMap } from "effect";
 
 import {
+  detectCodexCliNodeRuntimeMismatch,
+  formatCodexCliNodeRuntimeUpgradeMessage,
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
   parseCodexCliVersion,
@@ -566,7 +569,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
 
       const codexOptions = readCodexProviderOptions(input);
-      const codexBinaryPath = codexOptions.binaryPath ?? "codex";
+      const codexBinaryPath = resolveLocalCodexBinaryPath(codexOptions.binaryPath ?? "codex");
       const codexHomePath = codexOptions.homePath;
       const codexRemote = codexOptions.remote;
       this.assertSupportedCodexCliVersion({
@@ -1609,6 +1612,9 @@ function assertSupportedCodexCliVersion(input: {
     const stdout = result.stdout ?? "";
     const stderr = result.stderr ?? "";
     if (result.status !== 0) {
+      if (detectCodexCliNodeRuntimeMismatch(`${stdout}\n${stderr}`)) {
+        throw new Error(formatCodexCliNodeRuntimeUpgradeMessage(input.binaryPath));
+      }
       const detail = stderr.trim() || stdout.trim() || `Command exited with code ${result.status}.`;
       throw new Error(
         `Remote Codex CLI version check failed on ${input.remote.hostAlias}. ${detail}`,
@@ -1652,6 +1658,9 @@ function assertSupportedCodexCliVersion(input: {
   const stdout = result.stdout ?? "";
   const stderr = result.stderr ?? "";
   if (result.status !== 0) {
+    if (detectCodexCliNodeRuntimeMismatch(`${stdout}\n${stderr}`)) {
+      throw new Error(formatCodexCliNodeRuntimeUpgradeMessage(input.binaryPath));
+    }
     const detail = stderr.trim() || stdout.trim() || `Command exited with code ${result.status}.`;
     throw new Error(`Codex CLI version check failed. ${detail}`);
   }
@@ -1659,6 +1668,19 @@ function assertSupportedCodexCliVersion(input: {
   const parsedVersion = parseCodexCliVersion(`${stdout}\n${stderr}`);
   if (parsedVersion && !isCodexCliVersionSupported(parsedVersion)) {
     throw new Error(formatCodexCliUpgradeMessage(parsedVersion));
+  }
+}
+
+function resolveLocalCodexBinaryPath(binaryPath: string): string {
+  if (binaryPath.includes("/") || binaryPath.includes("\\")) {
+    return binaryPath;
+  }
+
+  try {
+    const shell = process.env.SHELL ?? "/bin/zsh";
+    return readCommandPathFromLoginShell(shell, binaryPath) ?? binaryPath;
+  } catch {
+    return binaryPath;
   }
 }
 

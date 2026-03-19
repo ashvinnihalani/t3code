@@ -157,6 +157,36 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       ),
     );
 
+    it.effect("returns unavailable when codex runs on an unsupported node runtime", () =>
+      Effect.gen(function* () {
+        yield* withTempCodexHome();
+        const status = yield* checkCodexProviderStatus;
+        assert.strictEqual(status.provider, "codex");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.available, false);
+        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(
+          status.message,
+          "Codex CLI (codex) could not start because it is running on an unsupported Node.js runtime. Upgrade Node.js to a current LTS release, reinstall Codex CLI, and restart T3 Code.",
+        );
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayer((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") {
+              return {
+                stdout: "",
+                stderr:
+                  "file:///Users/ashvinn/.nvm/versions/node/v12.22.12/lib/node_modules/@openai/codex/bin/codex.js:213\nconst childResult = await new Promise((resolve) => {\n                    ^^^^^\nSyntaxError: Unexpected reserved word\n    at Loader.moduleStrategy (internal/modules/esm/translators.js:140:18)\n    at async link (internal/modules/esm/module_job.js:42:21)\n",
+                code: 1,
+              };
+            }
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+
     it.effect("returns unauthenticated when auth probe reports login required", () =>
       Effect.gen(function* () {
         yield* withTempCodexHome();

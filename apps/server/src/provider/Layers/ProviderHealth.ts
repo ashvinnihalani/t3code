@@ -18,6 +18,8 @@ import { Array, Effect, Fiber, FileSystem, Layer, Option, Path, Result, Stream }
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  detectCodexCliNodeRuntimeMismatch,
+  formatCodexCliNodeRuntimeUpgradeMessage,
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
   parseCodexCliVersion,
@@ -313,9 +315,11 @@ export const checkCodexProviderStatus: Effect.Effect<
       available: false,
       authStatus: "unknown" as const,
       checkedAt,
-      message: detail
-        ? `Codex CLI is installed but failed to run. ${detail}`
-        : "Codex CLI is installed but failed to run.",
+      message: detectCodexCliNodeRuntimeMismatch(`${version.stdout}\n${version.stderr}`)
+        ? formatCodexCliNodeRuntimeUpgradeMessage("codex")
+        : detail
+          ? `Codex CLI is installed but failed to run. ${detail}`
+          : "Codex CLI is installed but failed to run.",
     };
   }
 

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 const PATH_CAPTURE_START = "__T3CODE_PATH_START__";
 const PATH_CAPTURE_END = "__T3CODE_PATH_END__";
 const SHELL_ENV_NAME_PATTERN = /^[A-Z0-9_]+$/;
+const SHELL_COMMAND_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 type ExecFileSyncLike = (
   file: string,
@@ -27,6 +28,23 @@ export function readPathFromLoginShell(
   execFile: ExecFileSyncLike = execFileSync,
 ): string | undefined {
   return readEnvironmentFromLoginShell(shell, ["PATH"], execFile).PATH;
+}
+
+export function readCommandPathFromLoginShell(
+  shell: string,
+  command: string,
+  execFile: ExecFileSyncLike = execFileSync,
+): string | undefined {
+  if (!SHELL_COMMAND_NAME_PATTERN.test(command)) {
+    throw new Error(`Unsupported command name: ${command}`);
+  }
+
+  const output = execFile(shell, ["-lc", `command -v -- ${command} || true`], {
+    encoding: "utf8",
+    timeout: 5000,
+  }).trim();
+
+  return output.length > 0 ? output.split(/\r?\n/).at(-1)?.trim() || undefined : undefined;
 }
 
 function envCaptureStart(name: string): string {
@@ -103,7 +121,7 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
     return {};
   }
 
-  const output = execFile(shell, ["-ilc", buildEnvironmentCaptureCommand(names)], {
+  const output = execFile(shell, ["-lc", buildEnvironmentCaptureCommand(names)], {
     encoding: "utf8",
     timeout: 5000,
   });
