@@ -1,4 +1,10 @@
-import type { GitBranch, ProjectId } from "@t3tools/contracts";
+import type {
+  GitBranch,
+  GitProjectRepositorySummary,
+  ProjectId,
+  ThreadGitRepoState,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";
@@ -17,6 +23,7 @@ import {
 import {
   gitBranchesQueryOptions,
   gitQueryKeys,
+  gitRepositoriesQueryOptions,
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "../lib/gitReactQuery";
@@ -42,14 +49,22 @@ import {
 import { toastManager } from "./ui/toast";
 
 interface BranchToolbarBranchSelectorProps {
+  activeThreadId: ThreadId;
   activeProjectId: ProjectId;
   activeProjectCwd: string;
   activeThreadBranch: string | null;
+  threadRepoStates: ThreadGitRepoState[];
   activeWorktreePath: string | null;
   branchCwd: string | null;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
+  onSetThreadRepoState?: (
+    repoId: string,
+    branch: string | null,
+    worktreePath: string | null,
+    baseBranch?: string | null,
+  ) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -73,25 +88,110 @@ function getBranchTriggerLabel(input: {
   return resolvedActiveBranch;
 }
 
+function getAggregateBranchTriggerLabel(
+  repositories: ReadonlyArray<GitProjectRepositorySummary>,
+  threadRepoStates: ReadonlyArray<ThreadGitRepoState>,
+): string {
+  if (repositories.length === 0) {
+    return "Select branch";
+  }
+
+  const branches = repositories
+    .map(
+      (repository) =>
+        threadRepoStates.find((repoState) => repoState.repoId === repository.repoId)?.branch,
+    )
+    .filter((branch): branch is string => !!branch);
+  const uniqueBranches = [...new Set(branches)];
+
+  if (uniqueBranches.length === 0) {
+    return "Select branches";
+  }
+  if (uniqueBranches.length === 1) {
+    return uniqueBranches[0] ?? "Select branches";
+  }
+  return "Multiple branches";
+}
+
 export function BranchToolbarBranchSelector({
+  activeThreadId,
   activeProjectId,
   activeProjectCwd,
   activeThreadBranch,
+  threadRepoStates,
   activeWorktreePath,
   branchCwd,
   effectiveEnvMode,
   envLocked,
   onSetThreadBranch,
+  onSetThreadRepoState,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
   const queryClient = useQueryClient();
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const deferredBranchQuery = useDeferredValue(branchQuery);
+  const repositoriesQuery = useQuery(
+    gitRepositoriesQueryOptions({
+      projectId: activeProjectId,
+      threadId: activeThreadId,
+    }),
+  );
+  const repositories = useMemo(
+    () => repositoriesQuery.data?.repositories ?? [],
+    [repositoriesQuery.data?.repositories],
+  );
+  const isMultiRepo = repositories.length > 1;
+  const selectedRepo = useMemo(() => {
+    if (!isMultiRepo) {
+      return null;
+    }
+    return (
+      repositories.find((repository) => repository.repoId === selectedRepoId) ??
+      repositories.find((repository) => repository.root === branchCwd) ??
+      repositories[0] ??
+      null
+    );
+  }, [branchCwd, isMultiRepo, repositories, selectedRepoId]);
+  const selectedRepoState = useMemo(
+    () =>
+      selectedRepo
+        ? (threadRepoStates.find((repoState) => repoState.repoId === selectedRepo.repoId) ?? null)
+        : null,
+    [selectedRepo, threadRepoStates],
+  );
+
+  useEffect(() => {
+    if (!isMultiRepo) {
+      setSelectedRepoId(null);
+      return;
+    }
+    if (!selectedRepoId && selectedRepo) {
+      setSelectedRepoId(selectedRepo.repoId);
+      return;
+    }
+    if (
+      selectedRepoId &&
+      !repositories.some((repository) => repository.repoId === selectedRepoId)
+    ) {
+      setSelectedRepoId(repositories[0]?.repoId ?? null);
+    }
+  }, [isMultiRepo, repositories, selectedRepo, selectedRepoId]);
+
+  const resolvedActiveWorktreePath = isMultiRepo
+    ? (selectedRepoState?.worktreePath ?? null)
+    : activeWorktreePath;
+  const resolvedThreadBranch = isMultiRepo
+    ? (selectedRepoState?.branch ?? null)
+    : activeThreadBranch;
+  const resolvedBranchCwd = isMultiRepo
+    ? (selectedRepoState?.worktreePath ?? selectedRepo?.root ?? null)
+    : branchCwd;
   const gitTarget = useMemo(
-    () => ({ cwd: branchCwd, projectId: activeProjectId }),
-    [activeProjectId, branchCwd],
+    () => ({ cwd: resolvedBranchCwd, projectId: activeProjectId }),
+    [activeProjectId, resolvedBranchCwd],
   );
 
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
@@ -104,8 +204,8 @@ export function BranchToolbarBranchSelector({
     branchStatusQuery.data?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
   const canonicalActiveBranch = resolveBranchToolbarValue({
     envMode: effectiveEnvMode,
-    activeWorktreePath,
-    activeThreadBranch,
+    activeWorktreePath: resolvedActiveWorktreePath,
+    activeThreadBranch: resolvedThreadBranch,
     currentGitBranch,
   });
   const branchNames = useMemo(() => branches.map((branch) => branch.name), [branches]);
@@ -118,7 +218,7 @@ export function BranchToolbarBranchSelector({
   const normalizedDeferredBranchQuery = deferredTrimmedBranchQuery.toLowerCase();
   const prReference = parsePullRequestReference(trimmedBranchQuery);
   const isSelectingWorktreeBase =
-    effectiveEnvMode === "worktree" && !envLocked && !activeWorktreePath;
+    effectiveEnvMode === "worktree" && !envLocked && !resolvedActiveWorktreePath;
   const checkoutPullRequestItemValue =
     prReference && onCheckoutPullRequestRequest ? `__checkout_pull_request__:${prReference}` : null;
   const canCreateBranch = !isSelectingWorktreeBase && trimmedBranchQuery.length > 0;
@@ -162,25 +262,38 @@ export function BranchToolbarBranchSelector({
 
   const selectBranch = (branch: GitBranch) => {
     const api = readNativeApi();
-    if (!api || !branchCwd || isBranchActionPending) return;
+    if (!api || !resolvedBranchCwd || isBranchActionPending) return;
 
     // In new-worktree mode, selecting a branch sets the base branch.
     if (isSelectingWorktreeBase) {
-      onSetThreadBranch(branch.name, null);
+      if (isMultiRepo && selectedRepo && onSetThreadRepoState) {
+        onSetThreadRepoState(selectedRepo.repoId, branch.name, null, branch.name);
+      } else {
+        onSetThreadBranch(branch.name, null);
+      }
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();
       return;
     }
 
     const selectionTarget = resolveBranchSelectionTarget({
-      activeProjectCwd,
-      activeWorktreePath,
+      activeProjectCwd: isMultiRepo ? (selectedRepo?.root ?? activeProjectCwd) : activeProjectCwd,
+      activeWorktreePath: resolvedActiveWorktreePath,
       branch,
     });
 
     // If the branch already lives in a worktree, point the thread there.
     if (selectionTarget.reuseExistingWorktree) {
-      onSetThreadBranch(branch.name, selectionTarget.nextWorktreePath);
+      if (isMultiRepo && selectedRepo && onSetThreadRepoState) {
+        onSetThreadRepoState(
+          selectedRepo.repoId,
+          branch.name,
+          selectionTarget.nextWorktreePath,
+          selectedRepoState?.baseBranch ?? branch.name,
+        );
+      } else {
+        onSetThreadBranch(branch.name, selectionTarget.nextWorktreePath);
+      }
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();
       return;
@@ -214,7 +327,7 @@ export function BranchToolbarBranchSelector({
       let nextBranchName = selectedBranchName;
       if (branch.isRemote) {
         const status = await api.git
-          .status({ cwd: branchCwd, projectId: activeProjectId })
+          .status({ cwd: selectionTarget.checkoutCwd, projectId: activeProjectId })
           .catch(() => null);
         if (status?.branch) {
           nextBranchName = status.branch;
@@ -222,14 +335,23 @@ export function BranchToolbarBranchSelector({
       }
 
       setOptimisticBranch(nextBranchName);
-      onSetThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
+      if (isMultiRepo && selectedRepo && onSetThreadRepoState) {
+        onSetThreadRepoState(
+          selectedRepo.repoId,
+          nextBranchName,
+          selectionTarget.nextWorktreePath,
+          selectedRepoState?.baseBranch ?? nextBranchName,
+        );
+      } else {
+        onSetThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
+      }
     });
   };
 
   const createBranch = (rawName: string) => {
     const name = rawName.trim();
     const api = readNativeApi();
-    if (!api || !branchCwd || !name || isBranchActionPending) return;
+    if (!api || !resolvedBranchCwd || !name || isBranchActionPending) return;
 
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
@@ -238,9 +360,17 @@ export function BranchToolbarBranchSelector({
       setOptimisticBranch(name);
 
       try {
-        await api.git.createBranch({ cwd: branchCwd, projectId: activeProjectId, branch: name });
+        await api.git.createBranch({
+          cwd: resolvedBranchCwd,
+          projectId: activeProjectId,
+          branch: name,
+        });
         try {
-          await api.git.checkout({ cwd: branchCwd, projectId: activeProjectId, branch: name });
+          await api.git.checkout({
+            cwd: resolvedBranchCwd,
+            projectId: activeProjectId,
+            branch: name,
+          });
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -259,7 +389,16 @@ export function BranchToolbarBranchSelector({
       }
 
       setOptimisticBranch(name);
-      onSetThreadBranch(name, activeWorktreePath);
+      if (isMultiRepo && selectedRepo && onSetThreadRepoState) {
+        onSetThreadRepoState(
+          selectedRepo.repoId,
+          name,
+          resolvedActiveWorktreePath,
+          selectedRepoState?.baseBranch ?? currentGitBranch ?? name,
+        );
+      } else {
+        onSetThreadBranch(name, activeWorktreePath);
+      }
       setBranchQuery("");
     });
   };
@@ -267,19 +406,26 @@ export function BranchToolbarBranchSelector({
   useEffect(() => {
     if (
       effectiveEnvMode !== "worktree" ||
-      activeWorktreePath ||
-      activeThreadBranch ||
+      resolvedActiveWorktreePath ||
+      resolvedThreadBranch ||
       !currentGitBranch
     ) {
       return;
     }
+    if (isMultiRepo && selectedRepo && onSetThreadRepoState) {
+      onSetThreadRepoState(selectedRepo.repoId, currentGitBranch, null, currentGitBranch);
+      return;
+    }
     onSetThreadBranch(currentGitBranch, null);
   }, [
-    activeThreadBranch,
-    activeWorktreePath,
     currentGitBranch,
     effectiveEnvMode,
     onSetThreadBranch,
+    onSetThreadRepoState,
+    isMultiRepo,
+    resolvedActiveWorktreePath,
+    resolvedThreadBranch,
+    selectedRepo,
   ]);
 
   const handleOpenChange = useCallback(
@@ -334,10 +480,14 @@ export function BranchToolbarBranchSelector({
   ]);
 
   const triggerLabel = getBranchTriggerLabel({
-    activeWorktreePath,
+    activeWorktreePath: resolvedActiveWorktreePath,
     effectiveEnvMode,
     resolvedActiveBranch,
   });
+  const aggregateTriggerLabel = useMemo(
+    () => getAggregateBranchTriggerLabel(repositories, threadRepoStates),
+    [repositories, threadRepoStates],
+  );
 
   function renderPickerItem(itemValue: string, index: number, style?: CSSProperties) {
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
@@ -430,10 +580,48 @@ export function BranchToolbarBranchSelector({
         className="text-muted-foreground/70 hover:text-foreground/80"
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
       >
-        <span className="max-w-[240px] truncate">{triggerLabel}</span>
+        <span className="max-w-[240px] truncate">
+          {isMultiRepo ? aggregateTriggerLabel : triggerLabel}
+        </span>
         <ChevronDownIcon />
       </ComboboxTrigger>
       <ComboboxPopup align="end" side="top" className="w-80">
+        {isMultiRepo && selectedRepo && (
+          <div className="border-b p-1">
+            <div className="max-h-32 space-y-1 overflow-y-auto">
+              {repositories.map((repository) => {
+                const repoState =
+                  threadRepoStates.find((repoState) => repoState.repoId === repository.repoId) ??
+                  null;
+                const isSelectedRepo = repository.repoId === selectedRepo.repoId;
+                const branchLabel = repoState?.branch ?? repository.branch ?? "No branch";
+                return (
+                  <button
+                    key={repository.repoId}
+                    type="button"
+                    className={[
+                      "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                      isSelectedRepo
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                    ].join(" ")}
+                    onClick={() => setSelectedRepoId(repository.repoId)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{repository.displayName}</span>
+                      <span className="block truncate text-[10px] opacity-75">
+                        {repository.relativePath}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[10px] opacity-75">
+                      {repoState?.worktreePath ? "worktree" : branchLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="border-b p-1">
           <ComboboxInput
             className="[&_input]:font-sans rounded-md"

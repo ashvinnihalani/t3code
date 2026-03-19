@@ -1,6 +1,9 @@
 import type {
+  GitProjectRepositorySummary,
+  GitRepoControlMode,
   GitStackedAction,
   GitStatusResult,
+  ProjectId,
   ProjectRemoteTarget,
   ThreadId,
 } from "@t3tools/contracts";
@@ -12,15 +15,16 @@ import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  type DefaultBranchConfirmableAction,
   type GitActionIconName,
   type GitActionMenuItem,
   type GitQuickAction,
-  type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
   resolveQuickAction,
   summarizeGitResult,
 } from "./GitActionsControl.logic";
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -45,14 +49,24 @@ import {
   gitInitMutationOptions,
   gitMutationKeys,
   gitPullMutationOptions,
+  gitRepositoriesQueryOptions,
+  gitRunAggregateActionMutationOptions,
   gitRunStackedActionMutationOptions,
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
 import { readNativeApi } from "~/nativeApi";
 import { resolveProjectEditorTargetFromRawPath } from "~/projectEditorTargets";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 
 interface GitActionsControlProps {
+  activeProjectId: ProjectId | null;
   gitTarget: GitQueryTarget;
   activeThreadId: ThreadId | null;
   projectRemote: ProjectRemoteTarget | null;
@@ -66,6 +80,10 @@ interface PendingDefaultBranchAction {
   forcePushOnlyProgress: boolean;
   onConfirmed?: () => void;
   filePaths?: string[];
+}
+
+interface PendingAggregateAction {
+  action: "commit" | "push";
 }
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -138,6 +156,41 @@ function getMenuActionDisabledReason({
   return "Create PR is currently unavailable.";
 }
 
+function getAggregateRepositoryPlan(
+  repository: GitProjectRepositorySummary,
+  action: "commit" | "push",
+): {
+  status: "eligible" | "skipped" | "blocked" | "warning";
+  message: string;
+} {
+  if (action === "commit") {
+    if (!repository.hasWorkingTreeChanges) {
+      return { status: "skipped", message: "Working tree is clean." };
+    }
+    return { status: "eligible", message: "Will generate a commit message and commit." };
+  }
+
+  if (!repository.branch) {
+    return { status: "blocked", message: "Detached HEAD." };
+  }
+  if (repository.hasWorkingTreeChanges) {
+    return { status: "blocked", message: "Working tree has uncommitted changes." };
+  }
+  if (repository.behindCount > 0) {
+    return { status: "blocked", message: "Branch is behind upstream." };
+  }
+  if (!repository.hasUpstream && !repository.hasOriginRemote) {
+    return { status: "blocked", message: 'No upstream and no "origin" remote.' };
+  }
+  if (repository.aheadCount === 0) {
+    return { status: "skipped", message: "No local commits to push." };
+  }
+  if (repository.isDefaultBranch) {
+    return { status: "warning", message: `Will push default branch ${repository.branch}.` };
+  }
+  return { status: "eligible", message: `Will push ${repository.branch}.` };
+}
+
 const COMMIT_DIALOG_TITLE = "Commit changes";
 const COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
@@ -162,6 +215,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 }
 
 export default function GitActionsControl({
+  activeProjectId,
   gitTarget,
   activeThreadId,
   projectRemote,
@@ -171,20 +225,67 @@ export default function GitActionsControl({
     [activeThreadId],
   );
   const queryClient = useQueryClient();
+  const { settings } = useAppSettings();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
-  const { settings } = useAppSettings();
+  const [repoControlMode, setRepoControlMode] = useState<GitRepoControlMode>(
+    settings.gitRepoControlModeDefault,
+  );
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [pendingAggregateAction, setPendingAggregateAction] =
+    useState<PendingAggregateAction | null>(null);
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(
-    gitStatusQueryOptions(gitTarget, gitRequestSettings),
+  useEffect(() => {
+    setRepoControlMode(settings.gitRepoControlModeDefault);
+  }, [settings.gitRepoControlModeDefault]);
+
+  const { data: repositoriesResult = null } = useQuery(
+    gitRepositoriesQueryOptions({
+      projectId: activeProjectId,
+      ...(activeThreadId ? { threadId: activeThreadId } : {}),
+    }),
+  );
+  const repositories = useMemo(() => repositoriesResult?.repositories ?? [], [repositoriesResult]);
+  const selectedRepo = useMemo(
+    () =>
+      repositories.find((repository) => repository.repoId === selectedRepoId) ??
+      repositories.find((repository) => repository.root === gitTarget.cwd) ??
+      repositories[0] ??
+      null,
+    [gitTarget.cwd, repositories, selectedRepoId],
   );
 
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitTarget));
+  useEffect(() => {
+    if (!selectedRepoId && selectedRepo) {
+      setSelectedRepoId(selectedRepo.repoId);
+      return;
+    }
+    if (
+      selectedRepoId &&
+      !repositories.some((repository) => repository.repoId === selectedRepoId)
+    ) {
+      setSelectedRepoId(repositories[0]?.repoId ?? null);
+    }
+  }, [repositories, selectedRepo, selectedRepoId]);
+
+  const effectiveGitTarget = useMemo(
+    () =>
+      repoControlMode === "selected" && selectedRepo
+        ? { cwd: selectedRepo.root, projectId: activeProjectId }
+        : gitTarget,
+    [activeProjectId, gitTarget, repoControlMode, selectedRepo],
+  );
+
+  const { data: gitStatus = null, error: gitStatusError } = useQuery(
+    gitStatusQueryOptions(effectiveGitTarget, gitRequestSettings),
+  );
+
+  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(effectiveGitTarget));
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const hasOriginRemote = branchList?.hasOriginRemote ?? false;
@@ -204,21 +305,42 @@ export default function GitActionsControl({
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
 
-  const initMutation = useMutation(gitInitMutationOptions({ target: gitTarget, queryClient }));
+  const initMutation = useMutation(
+    gitInitMutationOptions({ target: effectiveGitTarget, queryClient }),
+  );
 
   const runImmediateGitActionMutation = useMutation(
     gitRunStackedActionMutationOptions({
-      target: gitTarget,
+      target: effectiveGitTarget,
       queryClient,
       ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
     }),
   );
-  const pullMutation = useMutation(gitPullMutationOptions({ target: gitTarget, queryClient }));
+  const runAggregateGitActionMutation = useMutation(
+    gitRunAggregateActionMutationOptions({
+      projectId: activeProjectId,
+      ...(activeThreadId ? { threadId: activeThreadId } : {}),
+      queryClient,
+      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+    }),
+  );
+  const pullMutation = useMutation(
+    gitPullMutationOptions({ target: effectiveGitTarget, queryClient }),
+  );
 
   const isRunStackedActionRunning =
-    useIsMutating({ mutationKey: gitMutationKeys.runStackedAction(gitTarget) }) > 0;
-  const isPullRunning = useIsMutating({ mutationKey: gitMutationKeys.pull(gitTarget) }) > 0;
-  const isGitActionRunning = isRunStackedActionRunning || isPullRunning;
+    useIsMutating({ mutationKey: gitMutationKeys.runStackedAction(effectiveGitTarget) }) > 0;
+  const isRunAggregateActionRunning =
+    useIsMutating({
+      mutationKey: gitMutationKeys.runAggregateAction({
+        projectId: activeProjectId,
+        ...(activeThreadId ? { threadId: activeThreadId } : {}),
+      }),
+    }) > 0;
+  const isPullRunning =
+    useIsMutating({ mutationKey: gitMutationKeys.pull(effectiveGitTarget) }) > 0;
+  const isGitActionRunning =
+    isRunStackedActionRunning || isRunAggregateActionRunning || isPullRunning;
   const isDefaultBranch = useMemo(() => {
     const branchName = gitStatusForActions?.branch;
     if (!branchName) return false;
@@ -257,6 +379,46 @@ export default function GitActionsControl({
         includesCommit: pendingDefaultBranchAction.includesCommit,
       })
     : null;
+  const aggregatePlan = useMemo(
+    () =>
+      pendingAggregateAction
+        ? repositories.map((repository) => ({
+            repository,
+            plan: getAggregateRepositoryPlan(repository, pendingAggregateAction.action),
+          }))
+        : [],
+    [pendingAggregateAction, repositories],
+  );
+  const aggregateDirtyCount = useMemo(
+    () => repositories.filter((repository) => repository.hasWorkingTreeChanges).length,
+    [repositories],
+  );
+  const aggregatePushEligibleCount = useMemo(
+    () =>
+      repositories.filter(
+        (repository) =>
+          getAggregateRepositoryPlan(repository, "push").status === "eligible" ||
+          getAggregateRepositoryPlan(repository, "push").status === "warning",
+      ).length,
+    [repositories],
+  );
+  const aggregateQuickAction = useMemo(() => {
+    if (aggregateDirtyCount > 0) {
+      return {
+        action: "commit" as const,
+        label: `Commit ${aggregateDirtyCount}`,
+        disabled: false,
+      };
+    }
+    if (aggregatePushEligibleCount > 0) {
+      return {
+        action: "push" as const,
+        label: `Push ${aggregatePushEligibleCount}`,
+        disabled: false,
+      };
+    }
+    return { action: "commit" as const, label: "Commit all", disabled: true };
+  }, [aggregateDirtyCount, aggregatePushEligibleCount]);
 
   const openExistingPr = useCallback(async () => {
     const api = readNativeApi();
@@ -637,7 +799,7 @@ export default function GitActionsControl({
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
-      if (!api || !gitTarget.cwd) {
+      if (!api || !effectiveGitTarget.cwd) {
         toastManager.add({
           type: "error",
           title: "Editor opening is unavailable.",
@@ -646,9 +808,9 @@ export default function GitActionsControl({
         return;
       }
       const target = resolveProjectEditorTargetFromRawPath(filePath, {
-        projectId: gitTarget.projectId ?? undefined,
+        projectId: effectiveGitTarget.projectId ?? undefined,
         threadId: activeThreadId ?? undefined,
-        referenceRoot: gitTarget.cwd,
+        referenceRoot: effectiveGitTarget.cwd,
         remote: projectRemote,
       });
       if (!target) {
@@ -668,14 +830,145 @@ export default function GitActionsControl({
         });
       });
     },
-    [activeThreadId, gitTarget.cwd, gitTarget.projectId, projectRemote, threadToastData],
+    [
+      activeThreadId,
+      effectiveGitTarget.cwd,
+      effectiveGitTarget.projectId,
+      projectRemote,
+      threadToastData,
+    ],
   );
 
-  if (!gitTarget.cwd) return null;
+  const confirmAggregateAction = useCallback(async () => {
+    if (!pendingAggregateAction) return;
+    const action = pendingAggregateAction.action;
+    setPendingAggregateAction(null);
+    const progressToastId = toastManager.add({
+      type: "loading",
+      title: action === "commit" ? "Committing across repositories..." : "Pushing repositories...",
+      timeout: 0,
+      data: threadToastData,
+    });
+    try {
+      const result = await runAggregateGitActionMutation.mutateAsync({ action });
+      const byStatus = result.results.reduce<Record<string, number>>((acc, entry) => {
+        acc[entry.status] = (acc[entry.status] ?? 0) + 1;
+        return acc;
+      }, {});
+      const summary = [
+        byStatus.eligible ? `${byStatus.eligible} completed` : null,
+        byStatus.warning ? `${byStatus.warning} warning` : null,
+        byStatus.skipped ? `${byStatus.skipped} skipped` : null,
+        byStatus.blocked ? `${byStatus.blocked} blocked` : null,
+        byStatus.failed ? `${byStatus.failed} failed` : null,
+      ]
+        .filter((entry) => entry !== null)
+        .join(", ");
+      toastManager.update(progressToastId, {
+        type: byStatus.failed ? "error" : "success",
+        title: action === "commit" ? "Aggregate commit finished" : "Aggregate push finished",
+        ...(summary ? { description: summary } : {}),
+        data: threadToastData,
+      });
+    } catch (error) {
+      toastManager.update(progressToastId, {
+        type: "error",
+        title: action === "commit" ? "Aggregate commit failed" : "Aggregate push failed",
+        description: error instanceof Error ? error.message : "An error occurred.",
+        data: threadToastData,
+      });
+    }
+  }, [pendingAggregateAction, runAggregateGitActionMutation, threadToastData]);
+
+  if (!effectiveGitTarget.cwd && repositories.length === 0) return null;
 
   return (
     <>
-      {!isRepo ? (
+      {repositories.length > 0 ? (
+        <div className="flex items-center gap-2">
+          <Select
+            value={repoControlMode}
+            onValueChange={(value) => setRepoControlMode(value as GitRepoControlMode)}
+          >
+            <SelectTrigger variant="outline" size="xs" className="min-w-[7rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="aggregate">All repos</SelectItem>
+              <SelectItem value="selected">One repo</SelectItem>
+            </SelectPopup>
+          </Select>
+          {repoControlMode === "selected" ? (
+            <Select
+              value={selectedRepo?.repoId ?? ""}
+              onValueChange={(value) => setSelectedRepoId(value)}
+            >
+              <SelectTrigger variant="outline" size="xs" className="min-w-[9rem] max-w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {repositories.map((repository) => (
+                  <SelectItem key={repository.repoId} value={repository.repoId}>
+                    {repository.displayName}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          ) : (
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              {repositories.length} repos
+            </Badge>
+          )}
+        </div>
+      ) : null}
+
+      {repoControlMode === "aggregate" && repositories.length > 0 ? (
+        <Group aria-label="Aggregate git actions">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={isGitActionRunning || aggregateQuickAction.disabled}
+            onClick={() => setPendingAggregateAction({ action: aggregateQuickAction.action })}
+          >
+            {aggregateQuickAction.action === "commit" ? (
+              <GitCommitIcon className="size-3.5" />
+            ) : (
+              <CloudUploadIcon className="size-3.5" />
+            )}
+            <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
+              {aggregateQuickAction.label}
+            </span>
+          </Button>
+          <GroupSeparator className="hidden @sm/header-actions:block" />
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  aria-label="Aggregate git action options"
+                  size="icon-xs"
+                  variant="outline"
+                />
+              }
+              disabled={isGitActionRunning}
+            >
+              <ChevronDownIcon aria-hidden="true" className="size-4" />
+            </MenuTrigger>
+            <MenuPopup align="end" className="w-full">
+              <MenuItem onClick={() => setPendingAggregateAction({ action: "commit" })}>
+                <GitCommitIcon />
+                Commit all dirty repos
+              </MenuItem>
+              <MenuItem onClick={() => setPendingAggregateAction({ action: "push" })}>
+                <CloudUploadIcon />
+                Push all eligible repos
+              </MenuItem>
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                PR creation is only available in one-repo mode.
+              </p>
+            </MenuPopup>
+          </Menu>
+        </Group>
+      ) : !isRepo ? (
         <Button
           variant="outline"
           size="xs"
@@ -963,6 +1256,67 @@ export default function GitActionsControl({
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
               Commit
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={pendingAggregateAction !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingAggregateAction(null);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAggregateAction?.action === "commit"
+                ? "Commit across repositories"
+                : "Push repositories"}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingAggregateAction?.action === "commit"
+                ? "Each dirty repository will get its own generated commit message."
+                : "Review the per-repository push plan before continuing."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-2">
+            <ScrollArea className="h-56 rounded-md border border-input bg-background">
+              <div className="space-y-1 p-2 text-xs">
+                {aggregatePlan.map(({ repository, plan }) => (
+                  <div
+                    key={repository.repoId}
+                    className="flex items-start justify-between gap-3 rounded-md px-2 py-1.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{repository.displayName}</p>
+                      <p className="truncate text-muted-foreground">{plan.message}</p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        plan.status === "blocked"
+                          ? "text-destructive"
+                          : plan.status === "warning"
+                            ? "text-warning"
+                            : undefined
+                      }
+                    >
+                      {plan.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPendingAggregateAction(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => void confirmAggregateAction()}>
+              Continue
             </Button>
           </DialogFooter>
         </DialogPopup>

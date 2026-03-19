@@ -1,4 +1,4 @@
-import type { GitRequestSettings, GitStackedAction, ProjectId } from "@t3tools/contracts";
+import type { GitRequestSettings, GitStackedAction, ProjectId, ThreadId } from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -24,6 +24,8 @@ function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: Proj
 
 export const gitQueryKeys = {
   all: ["git"] as const,
+  repositories: (input: { projectId: ProjectId | null; threadId?: ThreadId | null }) =>
+    ["git", "repositories", input.projectId, input.threadId ?? null] as const,
   status: (target: GitQueryTarget, settings?: GitRequestSettings) =>
     ["git", "status", target.projectId, target.cwd, settings?.githubBinaryPath ?? null] as const,
   branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
@@ -36,6 +38,8 @@ export const gitMutationKeys = {
     ["git", "mutation", "checkout", target.projectId, target.cwd] as const,
   runStackedAction: (target: GitQueryTarget) =>
     ["git", "mutation", "run-stacked-action", target.projectId, target.cwd] as const,
+  runAggregateAction: (input: { projectId: ProjectId | null; threadId?: ThreadId | null }) =>
+    ["git", "mutation", "run-aggregate-action", input.projectId, input.threadId ?? null] as const,
   pull: (target: GitQueryTarget) =>
     ["git", "mutation", "pull", target.projectId, target.cwd] as const,
   preparePullRequestThread: (target: GitQueryTarget) =>
@@ -44,6 +48,30 @@ export const gitMutationKeys = {
 
 export function invalidateGitQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
+}
+
+export function gitRepositoriesQueryOptions(input: {
+  projectId: ProjectId | null;
+  threadId?: ThreadId | null;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.repositories(input),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.projectId) {
+        throw new Error("Git repositories are unavailable.");
+      }
+      return api.git.listRepositories({
+        projectId: input.projectId,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+      });
+    },
+    enabled: input.projectId !== null,
+    staleTime: GIT_BRANCHES_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+  });
 }
 
 export function gitStatusQueryOptions(target: GitQueryTarget, settings?: GitRequestSettings) {
@@ -168,6 +196,33 @@ export function gitRunStackedActionMutationOptions(input: {
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(input.settings ? { settings: input.settings } : {}),
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+export function gitRunAggregateActionMutationOptions(input: {
+  projectId: ProjectId | null;
+  threadId?: ThreadId | null;
+  queryClient: QueryClient;
+  settings?: GitRequestSettings;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.runAggregateAction(input),
+    mutationFn: async ({ action, repoIds }: { action: "commit" | "push"; repoIds?: string[] }) => {
+      const api = ensureNativeApi();
+      if (!input.projectId) {
+        throw new Error("Git aggregate actions are unavailable.");
+      }
+      return api.git.runAggregateAction({
+        projectId: input.projectId,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        action,
+        ...(repoIds ? { repoIds } : {}),
         ...(input.settings ? { settings: input.settings } : {}),
       });
     },

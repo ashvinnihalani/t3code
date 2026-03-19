@@ -427,6 +427,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            workspacePath: event.payload.workspacePath,
+            repoStates: event.payload.repoStates,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -448,6 +450,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.workspacePath !== undefined
+              ? { workspacePath: event.payload.workspacePath }
+              : {}),
+            ...(event.payload.repoStates !== undefined
+              ? { repoStates: event.payload.repoStates }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

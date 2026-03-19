@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
+import { ThreadId } from "./baseSchemas";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 
@@ -7,6 +8,18 @@ const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 
 export const GitStackedAction = Schema.Literals(["commit", "commit_push", "commit_push_pr"]);
 export type GitStackedAction = typeof GitStackedAction.Type;
+export const GitRepoControlMode = Schema.Literals(["aggregate", "selected"]);
+export type GitRepoControlMode = typeof GitRepoControlMode.Type;
+export const GitRepositoryId = TrimmedNonEmptyStringSchema;
+export type GitRepositoryId = typeof GitRepositoryId.Type;
+const GitAggregateAction = Schema.Literals(["commit", "push"]);
+const GitAggregateExecutionStatus = Schema.Literals([
+  "eligible",
+  "skipped",
+  "blocked",
+  "failed",
+  "warning",
+]);
 const GitCommitStepStatus = Schema.Literals(["created", "skipped_no_changes"]);
 const GitPushStepStatus = Schema.Literals([
   "pushed",
@@ -34,6 +47,32 @@ export const GitBranch = Schema.Struct({
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitBranch = typeof GitBranch.Type;
+
+export const GitProjectRepositorySummary = Schema.Struct({
+  repoId: GitRepositoryId,
+  root: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  isProjectRoot: Schema.Boolean,
+  isWorktree: Schema.Boolean,
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  hasWorkingTreeChanges: Schema.Boolean,
+  aheadCount: NonNegativeInt,
+  behindCount: NonNegativeInt,
+  hasUpstream: Schema.Boolean,
+  isDefaultBranch: Schema.Boolean,
+  hasOriginRemote: Schema.Boolean,
+});
+export type GitProjectRepositorySummary = typeof GitProjectRepositorySummary.Type;
+
+export const ThreadGitRepoState = Schema.Struct({
+  repoId: GitRepositoryId,
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  baseBranch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  isTouched: Schema.Boolean,
+});
+export type ThreadGitRepoState = typeof ThreadGitRepoState.Type;
 
 const GitWorktree = Schema.Struct({
   path: TrimmedNonEmptyStringSchema,
@@ -82,6 +121,12 @@ export const GitListBranchesInput = Schema.Struct({
   projectId: Schema.optional(ProjectId),
 });
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
+
+export const GitListRepositoriesInput = Schema.Struct({
+  projectId: ProjectId,
+  threadId: Schema.optional(ThreadId),
+});
+export type GitListRepositoriesInput = typeof GitListRepositoriesInput.Type;
 
 export const GitCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -137,6 +182,15 @@ export const GitInitInput = Schema.Struct({
 });
 export type GitInitInput = typeof GitInitInput.Type;
 
+export const GitRunAggregateActionInput = Schema.Struct({
+  projectId: ProjectId,
+  threadId: Schema.optional(ThreadId),
+  action: GitAggregateAction,
+  repoIds: Schema.optional(Schema.Array(GitRepositoryId)),
+  settings: Schema.optional(GitRequestSettings),
+});
+export type GitRunAggregateActionInput = typeof GitRunAggregateActionInput.Type;
+
 // RPC Results
 
 const GitStatusPr = Schema.Struct({
@@ -175,6 +229,11 @@ export const GitListBranchesResult = Schema.Struct({
   hasOriginRemote: Schema.Boolean,
 });
 export type GitListBranchesResult = typeof GitListBranchesResult.Type;
+
+export const GitListRepositoriesResult = Schema.Struct({
+  repositories: Schema.Array(GitProjectRepositorySummary),
+});
+export type GitListRepositoriesResult = typeof GitListRepositoriesResult.Type;
 
 export const GitCreateWorktreeResult = Schema.Struct({
   worktree: GitWorktree,
@@ -227,3 +286,19 @@ export const GitPullResult = Schema.Struct({
   upstreamBranch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitPullResult = typeof GitPullResult.Type;
+
+export const GitAggregateActionRepositoryResult = Schema.Struct({
+  repoId: GitRepositoryId,
+  root: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  status: GitAggregateExecutionStatus,
+  message: TrimmedNonEmptyStringSchema,
+});
+export type GitAggregateActionRepositoryResult = typeof GitAggregateActionRepositoryResult.Type;
+
+export const GitRunAggregateActionResult = Schema.Struct({
+  action: GitAggregateAction,
+  results: Schema.Array(GitAggregateActionRepositoryResult),
+});
+export type GitRunAggregateActionResult = typeof GitRunAggregateActionResult.Type;

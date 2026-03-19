@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 import { openResolvedEditorTargetInPreferredEditor } from "../editorPreferences";
-import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
+import { gitBranchesQueryOptions, gitRepositoriesQueryOptions } from "~/lib/gitReactQuery";
 import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -31,6 +31,7 @@ import { ToggleGroup, Toggle } from "./ui/toggle-group";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
+const ALL_REPOS_FILTER = "__all__";
 
 const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header],
@@ -151,6 +152,64 @@ function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
+function normalizeRepoPath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/");
+}
+
+function resolveDiffFileRepository(input: {
+  filePath: string;
+  repositories: ReadonlyArray<{
+    repoId: string;
+    relativePath: string;
+    root: string;
+  }>;
+  repoId?: string;
+  repoRelativePath?: string;
+}) {
+  if (input.repositories.length === 0) {
+    return { repoId: null, repoRelativePath: null };
+  }
+
+  if (input.repoId) {
+    const repository = input.repositories.find((entry) => entry.repoId === input.repoId) ?? null;
+    return {
+      repoId: repository?.repoId ?? input.repoId,
+      repoRelativePath: input.repoRelativePath ?? normalizeRepoPath(input.filePath),
+    };
+  }
+
+  const normalizedFilePath = normalizeRepoPath(input.filePath);
+  const sortedRepositories = [...input.repositories].toSorted((left, right) => {
+    const leftPath = normalizeRepoPath(left.relativePath);
+    const rightPath = normalizeRepoPath(right.relativePath);
+    return rightPath.length - leftPath.length;
+  });
+
+  for (const repository of sortedRepositories) {
+    const normalizedRelativePath = normalizeRepoPath(repository.relativePath);
+    if (
+      normalizedRelativePath === "." ||
+      normalizedRelativePath.length === 0 ||
+      normalizedFilePath === normalizedRelativePath ||
+      normalizedFilePath.startsWith(`${normalizedRelativePath}/`)
+    ) {
+      return {
+        repoId: repository.repoId,
+        repoRelativePath:
+          normalizedRelativePath === "." || normalizedRelativePath.length === 0
+            ? normalizedFilePath
+            : normalizedFilePath.slice(normalizedRelativePath.length).replace(/^\/+/, ""),
+      };
+    }
+  }
+
+  return { repoId: null, repoRelativePath: null };
+}
+
 interface DiffPanelProps {
   mode?: DiffPanelMode;
 }
@@ -162,6 +221,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const { settings } = useAppSettings();
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
+  const [selectedRepoFilter, setSelectedRepoFilter] = useState<string>(ALL_REPOS_FILTER);
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const turnStripRef = useRef<HTMLDivElement>(null);
   const [canScrollTurnStripLeft, setCanScrollTurnStripLeft] = useState(false);
@@ -179,13 +239,25 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const activeCwd =
+    activeThread?.workspacePath ?? activeThread?.worktreePath ?? activeProject?.cwd ?? null;
   const gitTarget = useMemo(
     () => ({ cwd: activeCwd, projectId: activeProject?.id ?? null }),
     [activeCwd, activeProject?.id],
   );
+  const repositoriesQuery = useQuery(
+    gitRepositoriesQueryOptions({
+      projectId: activeProjectId,
+      threadId: activeThreadId,
+    }),
+  );
+  const repositories = useMemo(
+    () => repositoriesQuery.data?.repositories ?? [],
+    [repositoriesQuery.data?.repositories],
+  );
   const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
   const isGitRepo = gitBranchesQuery.data?.isRepo ?? true;
+  const hasRepositoryDiffs = repositories.length > 0 || isGitRepo;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
@@ -261,7 +333,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       fromTurnCount: activeCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: activeCheckpointRange?.toTurnCount ?? null,
       cacheScope: selectedTurn ? `turn:${selectedTurn.turnId}` : conversationCacheScope,
-      enabled: isGitRepo,
+      enabled: hasRepositoryDiffs,
     }),
   );
   const selectedTurnCheckpointDiff = selectedTurn
@@ -297,6 +369,59 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     );
   }, [renderablePatch]);
 
+  const relevantTurnDiffSummaries = useMemo(
+    () => (selectedTurn ? [selectedTurn] : orderedTurnDiffSummaries),
+    [orderedTurnDiffSummaries, selectedTurn],
+  );
+  const diffFileMetadataByPath = useMemo(() => {
+    const fileMetadataByPath = new Map<
+      string,
+      { repoId?: string | undefined; repoRelativePath?: string | undefined }
+    >();
+    for (const summary of relevantTurnDiffSummaries) {
+      for (const file of summary.files) {
+        if (!fileMetadataByPath.has(file.path)) {
+          fileMetadataByPath.set(file.path, {
+            repoId: file.repoId,
+            repoRelativePath: file.repoRelativePath,
+          });
+        }
+      }
+    }
+    return fileMetadataByPath;
+  }, [relevantTurnDiffSummaries]);
+  const resolvedRenderableFiles = useMemo(
+    () =>
+      renderableFiles.map((fileDiff) => {
+        const filePath = resolveFileDiffPath(fileDiff);
+        const fileMetadata = diffFileMetadataByPath.get(filePath);
+        const resolution = resolveDiffFileRepository({
+          filePath,
+          repositories,
+          repoId: fileMetadata?.repoId,
+          repoRelativePath: fileMetadata?.repoRelativePath,
+        });
+        return { fileDiff, filePath, resolution };
+      }),
+    [diffFileMetadataByPath, renderableFiles, repositories],
+  );
+  const visibleRenderableFiles = useMemo(
+    () =>
+      selectedRepoFilter === ALL_REPOS_FILTER
+        ? resolvedRenderableFiles
+        : resolvedRenderableFiles.filter((entry) => entry.resolution.repoId === selectedRepoFilter),
+    [resolvedRenderableFiles, selectedRepoFilter],
+  );
+
+  useEffect(() => {
+    if (selectedRepoFilter === ALL_REPOS_FILTER) {
+      return;
+    }
+    if (!repositories.some((repository) => repository.repoId === selectedRepoFilter)) {
+      setSelectedRepoFilter(ALL_REPOS_FILTER);
+    }
+  }, [repositories, selectedRepoFilter]);
+
   useEffect(() => {
     if (!selectedFilePath || !patchViewportRef.current) {
       return;
@@ -305,16 +430,37 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       patchViewportRef.current.querySelectorAll<HTMLElement>("[data-diff-file-path]"),
     ).find((element) => element.dataset.diffFilePath === selectedFilePath);
     target?.scrollIntoView({ block: "nearest" });
-  }, [selectedFilePath, renderableFiles]);
+  }, [selectedFilePath, visibleRenderableFiles]);
 
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
       if (!api || !activeCwd) return;
-      const target = resolveProjectEditorTargetFromRawPath(filePath, {
+      const fileMetadata = diffFileMetadataByPath.get(filePath);
+      const resolution = resolveDiffFileRepository({
+        filePath,
+        repositories,
+        repoId: fileMetadata?.repoId,
+        repoRelativePath: fileMetadata?.repoRelativePath,
+      });
+      const repoState =
+        resolution.repoId !== null
+          ? (activeThread?.repoStates.find((repoState) => repoState.repoId === resolution.repoId) ??
+            null)
+          : null;
+      const repository =
+        resolution.repoId !== null
+          ? (repositories.find((entry) => entry.repoId === resolution.repoId) ?? null)
+          : null;
+      const referenceRoot = repoState?.worktreePath ?? repository?.root ?? activeCwd;
+      const editorPath =
+        resolution.repoId !== null && resolution.repoRelativePath
+          ? resolution.repoRelativePath
+          : filePath;
+      const target = resolveProjectEditorTargetFromRawPath(editorPath, {
         projectId: activeProject?.id ?? undefined,
         threadId: activeThreadId ?? undefined,
-        referenceRoot: activeCwd,
+        referenceRoot,
         remote: activeProject?.remote ?? null,
       });
       if (!target) return;
@@ -322,7 +468,15 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         console.warn("Failed to open diff file in editor.", error);
       });
     },
-    [activeCwd, activeProject?.id, activeProject?.remote, activeThreadId],
+    [
+      activeCwd,
+      activeProject?.id,
+      activeProject?.remote,
+      activeThread,
+      activeThreadId,
+      diffFileMetadataByPath,
+      repositories,
+    ],
   );
 
   const selectTurn = (turnId: TurnId) => {
@@ -499,6 +653,37 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
             </button>
           ))}
         </div>
+        {repositories.length > 0 && (
+          <div className="flex gap-1 overflow-x-auto px-8 pb-0.5 pt-1">
+            <button
+              type="button"
+              className={cn(
+                "shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors",
+                selectedRepoFilter === ALL_REPOS_FILTER
+                  ? "border-border bg-accent text-accent-foreground"
+                  : "border-border/70 bg-background/70 text-muted-foreground/80 hover:border-border hover:text-foreground/80",
+              )}
+              onClick={() => setSelectedRepoFilter(ALL_REPOS_FILTER)}
+            >
+              All repos
+            </button>
+            {repositories.map((repository) => (
+              <button
+                key={repository.repoId}
+                type="button"
+                className={cn(
+                  "shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors",
+                  selectedRepoFilter === repository.repoId
+                    ? "border-border bg-accent text-accent-foreground"
+                    : "border-border/70 bg-background/70 text-muted-foreground/80 hover:border-border hover:text-foreground/80",
+                )}
+                onClick={() => setSelectedRepoFilter(repository.repoId)}
+              >
+                {repository.displayName}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <ToggleGroup
         className="shrink-0 [-webkit-app-region:no-drag]"
@@ -528,7 +713,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
-      ) : !isGitRepo ? (
+      ) : !hasRepositoryDiffs ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
@@ -560,47 +745,65 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 </div>
               )
             ) : renderablePatch.kind === "files" ? (
-              <Virtualizer
-                className="diff-render-surface h-full min-h-0 overflow-auto px-2 pb-2"
-                config={{
-                  overscrollSize: 600,
-                  intersectionObserverMargin: 1200,
-                }}
-              >
-                {renderableFiles.map((fileDiff) => {
-                  const filePath = resolveFileDiffPath(fileDiff);
-                  const fileKey = buildFileDiffRenderKey(fileDiff);
-                  const themedFileKey = `${fileKey}:${resolvedTheme}`;
-                  return (
-                    <div
-                      key={themedFileKey}
-                      data-diff-file-path={filePath}
-                      className="diff-render-file mb-2 rounded-md first:mt-2 last:mb-0"
-                      onClickCapture={(event) => {
-                        const nativeEvent = event.nativeEvent as MouseEvent;
-                        const composedPath = nativeEvent.composedPath?.() ?? [];
-                        const clickedHeader = composedPath.some((node) => {
-                          if (!(node instanceof Element)) return false;
-                          return node.hasAttribute("data-title");
-                        });
-                        if (!clickedHeader) return;
-                        openDiffFileInEditor(filePath);
-                      }}
-                    >
-                      <FileDiff
-                        fileDiff={fileDiff}
-                        options={{
-                          diffStyle: diffRenderMode === "split" ? "split" : "unified",
-                          lineDiffType: "none",
-                          theme: resolveDiffThemeName(resolvedTheme),
-                          themeType: resolvedTheme as DiffThemeType,
-                          unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
+              visibleRenderableFiles.length === 0 ? (
+                <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
+                  <p>No changed files match the selected repository filter.</p>
+                </div>
+              ) : (
+                <Virtualizer
+                  className="diff-render-surface h-full min-h-0 overflow-auto px-2 pb-2"
+                  config={{
+                    overscrollSize: 600,
+                    intersectionObserverMargin: 1200,
+                  }}
+                >
+                  {visibleRenderableFiles.map((entry, index) => {
+                    const { fileDiff, filePath, resolution } = entry;
+                    const fileKey = buildFileDiffRenderKey(fileDiff);
+                    const themedFileKey = `${fileKey}:${resolvedTheme}`;
+                    const repository =
+                      resolution.repoId !== null
+                        ? (repositories.find((repo) => repo.repoId === resolution.repoId) ?? null)
+                        : null;
+                    const previousEntry = index > 0 ? visibleRenderableFiles[index - 1] : null;
+                    const showRepositoryHeading =
+                      index === 0 || previousEntry?.resolution.repoId !== resolution.repoId;
+                    return (
+                      <div
+                        key={themedFileKey}
+                        data-diff-file-path={filePath}
+                        className="diff-render-file mb-2 rounded-md first:mt-2 last:mb-0"
+                        onClickCapture={(event) => {
+                          const nativeEvent = event.nativeEvent as MouseEvent;
+                          const composedPath = nativeEvent.composedPath?.() ?? [];
+                          const clickedHeader = composedPath.some((node) => {
+                            if (!(node instanceof Element)) return false;
+                            return node.hasAttribute("data-title");
+                          });
+                          if (!clickedHeader) return;
+                          openDiffFileInEditor(filePath);
                         }}
-                      />
-                    </div>
-                  );
-                })}
-              </Virtualizer>
+                      >
+                        {showRepositoryHeading && (
+                          <div className="mb-1 rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/75">
+                            {repository?.displayName ?? "Project root"}
+                          </div>
+                        )}
+                        <FileDiff
+                          fileDiff={fileDiff}
+                          options={{
+                            diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                            lineDiffType: "none",
+                            theme: resolveDiffThemeName(resolvedTheme),
+                            themeType: resolvedTheme as DiffThemeType,
+                            unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </Virtualizer>
+              )
             ) : (
               <div className="h-full overflow-auto p-2">
                 <div className="space-y-2">

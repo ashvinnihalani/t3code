@@ -411,7 +411,11 @@ export default function Sidebar() {
         threadId: thread.id,
         branch: thread.branch,
         projectId: thread.projectId,
-        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
+        cwd:
+          thread.workspacePath ??
+          thread.worktreePath ??
+          projectCwdById.get(thread.projectId) ??
+          null,
       })),
     [projectCwdById, threads],
   );
@@ -870,7 +874,7 @@ export default function Sidebar() {
       const thread = threads.find((t) => t.id === threadId);
       if (!thread) return;
       const threadWorkspacePath =
-        thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
+        thread.workspacePath ?? thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },

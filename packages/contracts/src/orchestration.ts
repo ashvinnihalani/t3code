@@ -1,4 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
+import { GitRepositoryId, ThreadGitRepoState } from "./git";
 import { ProviderModelOptions } from "./model";
 import { ProjectRemoteTarget } from "./remote";
 import {
@@ -212,6 +213,8 @@ export const OrchestrationCheckpointFile = Schema.Struct({
   kind: TrimmedNonEmptyString,
   additions: NonNegativeInt,
   deletions: NonNegativeInt,
+  repoId: Schema.optional(GitRepositoryId),
+  repoRelativePath: Schema.optional(TrimmedNonEmptyString),
 });
 export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Type;
 
@@ -278,6 +281,8 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspacePath: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  repoStates: Schema.Array(ThreadGitRepoState).pipe(Schema.withDecodingDefault(() => [])),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -339,6 +344,8 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspacePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  repoStates: Schema.optional(Schema.Array(ThreadGitRepoState)),
   createdAt: IsoDateTime,
 });
 
@@ -356,6 +363,8 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  workspacePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  repoStates: Schema.optional(Schema.Array(ThreadGitRepoState)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -642,6 +651,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspacePath: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  repoStates: Schema.Array(ThreadGitRepoState).pipe(Schema.withDecodingDefault(() => [])),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -657,6 +668,8 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  workspacePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  repoStates: Schema.optional(Schema.Array(ThreadGitRepoState)),
   updatedAt: IsoDateTime,
 });
 

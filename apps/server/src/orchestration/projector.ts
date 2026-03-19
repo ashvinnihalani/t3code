@@ -259,6 +259,8 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            workspacePath: payload.workspacePath,
+            repoStates: payload.repoStates,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -300,6 +302,10 @@ export function projectEvent(
             ...(payload.model !== undefined ? { model: payload.model } : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.workspacePath !== undefined
+              ? { workspacePath: payload.workspacePath }
+              : {}),
+            ...(payload.repoStates !== undefined ? { repoStates: payload.repoStates } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

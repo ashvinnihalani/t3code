@@ -57,11 +57,22 @@ export class GitManagerError extends Schema.TaggedErrorClass<GitManagerError>()(
   }
 }
 
+export class GitProjectError extends Schema.TaggedErrorClass<GitProjectError>()("GitProjectError", {
+  operation: Schema.String,
+  detail: Schema.String,
+  cause: Schema.optional(Schema.Defect),
+}) {
+  override get message(): string {
+    return `Git project failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 /**
  * GitManagerServiceError - Errors emitted by stacked Git workflow orchestration.
  */
 export type GitManagerServiceError =
   | GitManagerError
+  | GitProjectError
   | GitCommandError
   | GitHubCliError
   | TextGenerationError;

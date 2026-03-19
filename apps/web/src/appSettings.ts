@@ -1,6 +1,10 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
-import { type GitRequestSettings, type ProviderKind } from "@t3tools/contracts";
+import {
+  type GitRepoControlMode,
+  type GitRequestSettings,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
@@ -18,6 +22,7 @@ export const GIT_DEFAULT_ACTION_OPTIONS = [
 ] as const;
 export type GitDefaultAction = (typeof GIT_DEFAULT_ACTION_OPTIONS)[number];
 export const DEFAULT_GIT_DEFAULT_ACTION: GitDefaultAction = "auto";
+export const DEFAULT_GIT_REPO_CONTROL_MODE: GitRepoControlMode = "aggregate";
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
 };
@@ -48,6 +53,9 @@ const AppSettingsSchema = Schema.Struct({
   ),
   gitDefaultAction: Schema.Literals(GIT_DEFAULT_ACTION_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_DEFAULT_ACTION)),
+  ),
+  gitRepoControlModeDefault: Schema.Literals(["aggregate", "selected"]).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_REPO_CONTROL_MODE)),
   ),
   gitCommitPrompt: GitCommitPromptSchema,
   gitHubBinaryPath: CodexSettingsPathSchema,

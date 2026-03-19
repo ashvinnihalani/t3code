@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  type ThreadGitRepoState,
   type ProviderKind,
   type ProjectRemoteTarget,
   ThreadId,
@@ -367,6 +368,8 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        workspacePath: thread.workspacePath,
+        repoStates: thread.repoStates.map((repoState) => ({ ...repoState })),
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
           turnId: checkpoint.turnId,
           completedAt: checkpoint.completedAt,
@@ -505,8 +508,23 @@ export function setThreadBranch(
       ...t,
       branch,
       worktreePath,
+      workspacePath: worktreePath,
       ...(cwdChanged ? { session: null } : {}),
     };
+  });
+  return threads === state.threads ? state : { ...state, threads };
+}
+
+export function setThreadRepoStates(
+  state: AppState,
+  threadId: ThreadId,
+  repoStates: ThreadGitRepoState[],
+): AppState {
+  const threads = updateThread(state.threads, threadId, (thread) => {
+    const nextRepoStates = repoStates.map((repoState) => ({ ...repoState }));
+    return thread.repoStates === nextRepoStates
+      ? thread
+      : { ...thread, repoStates: nextRepoStates };
   });
   return threads === state.threads ? state : { ...state, threads };
 }
@@ -523,6 +541,7 @@ interface AppStore extends AppState {
   setError: (threadId: ThreadId, error: string | null) => void;
   dismissLocalCodexErrors: (dismissedAt: string) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  setThreadRepoStates: (threadId: ThreadId, repoStates: ThreadGitRepoState[]) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -541,6 +560,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => dismissLocalCodexErrors(state, dismissedAt)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  setThreadRepoStates: (threadId, repoStates) =>
+    set((state) => setThreadRepoStates(state, threadId, repoStates)),
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

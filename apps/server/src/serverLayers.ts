@@ -30,6 +30,7 @@ import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { KeybindingsLive } from "./keybindings";
 import { GitManagerLive } from "./git/Layers/GitManager";
+import { GitProjectServiceLive } from "./git/Layers/GitProjectService";
 import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
 import { CodexTextGenerationLive } from "./git/Layers/CodexTextGeneration";
@@ -122,11 +123,17 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provideMerge(GitHubCliLive),
     Layer.provideMerge(textGenerationLayer),
   );
+  const gitProjectServiceLayer = GitProjectServiceLive.pipe(
+    Layer.provideMerge(gitCoreLayer),
+    Layer.provideMerge(gitManagerLayer),
+    Layer.provideMerge(GitServiceLive),
+  );
 
   return Layer.mergeAll(
     orchestrationReactorLayer,
     gitCoreLayer,
     gitManagerLayer,
+    gitProjectServiceLayer,
     terminalLayer,
     KeybindingsLive,
   ).pipe(Layer.provideMerge(NodeServices.layer));

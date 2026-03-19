@@ -15,11 +15,6 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
-const envModeItems = [
-  { value: "local", label: "Local" },
-  { value: "worktree", label: "New worktree" },
-] as const;
-
 interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
@@ -40,6 +35,7 @@ export default function BranchToolbar({
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
+  const setThreadRepoStatesAction = useStore((store) => store.setThreadRepoStates);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
@@ -110,6 +106,47 @@ export default function BranchToolbar({
     ],
   );
 
+  const setThreadRepoState = useCallback(
+    (
+      repoId: string,
+      branch: string | null,
+      worktreePath: string | null,
+      baseBranch?: string | null,
+    ) => {
+      if (!activeThreadId || !serverThread) return;
+      const api = readNativeApi();
+      const currentRepoStates = serverThread.repoStates ?? [];
+      const repoStateIndex = currentRepoStates.findIndex(
+        (repoState) => repoState.repoId === repoId,
+      );
+      const existingRepoState = repoStateIndex >= 0 ? currentRepoStates[repoStateIndex] : null;
+      const nextRepoState = {
+        repoId,
+        branch,
+        worktreePath,
+        baseBranch: baseBranch ?? existingRepoState?.baseBranch ?? null,
+        isTouched: true,
+      };
+      const nextRepoStates =
+        repoStateIndex >= 0
+          ? currentRepoStates.map((repoState, index) =>
+              index === repoStateIndex ? nextRepoState : repoState,
+            )
+          : [...currentRepoStates, nextRepoState];
+
+      if (api) {
+        void api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          repoStates: nextRepoStates,
+        });
+      }
+      setThreadRepoStatesAction(activeThreadId, nextRepoStates);
+    },
+    [activeThreadId, serverThread, setThreadRepoStatesAction],
+  );
+
   if (!activeThreadId || !activeProject) return null;
 
   return (
@@ -132,7 +169,6 @@ export default function BranchToolbar({
         <Select
           value={effectiveEnvMode}
           onValueChange={(value) => onEnvModeChange(value as EnvMode)}
-          items={envModeItems}
         >
           <SelectTrigger variant="ghost" size="xs" className="font-medium">
             {effectiveEnvMode === "worktree" ? (
@@ -160,14 +196,17 @@ export default function BranchToolbar({
       )}
 
       <BranchToolbarBranchSelector
+        activeThreadId={activeThreadId}
         activeProjectId={activeProject.id}
         activeProjectCwd={activeProject.cwd}
         activeThreadBranch={activeThreadBranch}
+        threadRepoStates={serverThread?.repoStates ?? []}
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}
         effectiveEnvMode={effectiveEnvMode}
         envLocked={envLocked}
         onSetThreadBranch={setThreadBranch}
+        onSetThreadRepoState={setThreadRepoState}
         {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
         {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
       />

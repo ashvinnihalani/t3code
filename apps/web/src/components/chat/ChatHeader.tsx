@@ -110,6 +110,7 @@ export const ChatHeader = memo(function ChatHeader({
         )}
         {activeProjectName && (
           <GitActionsControl
+            activeProjectId={activeProjectId}
             gitTarget={gitTarget}
             activeThreadId={activeThreadId}
             projectRemote={activeProjectRemote}

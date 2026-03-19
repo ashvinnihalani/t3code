@@ -1,6 +1,8 @@
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
+  GitListRepositoriesInput,
+  GitListRepositoriesResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -13,6 +15,8 @@ import type {
   GitPullResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
+  GitRunAggregateActionInput,
+  GitRunAggregateActionResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
   GitStatusInput,
@@ -144,6 +148,7 @@ export interface NativeApi {
   };
   git: {
     // Existing branch/worktree API
+    listRepositories: (input: GitListRepositoriesInput) => Promise<GitListRepositoriesResult>;
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
@@ -158,6 +163,7 @@ export interface NativeApi {
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
     runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
+    runAggregateAction: (input: GitRunAggregateActionInput) => Promise<GitRunAggregateActionResult>;
   };
   contextMenu: {
     show: <T extends string>(

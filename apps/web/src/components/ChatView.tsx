@@ -916,7 +916,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     latestTurnSettled,
     timelineEntries,
   ]);
-  const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const gitCwd =
+    activeThread?.workspacePath ?? activeThread?.worktreePath ?? activeProject?.cwd ?? null;
   const activeProjectLinkContext = useMemo(
     () => ({
       projectId: activeProject?.id,

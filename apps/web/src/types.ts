@@ -8,6 +8,7 @@ import type {
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
+  ThreadGitRepoState,
   TurnId,
   MessageId,
   CheckpointRef,
@@ -64,6 +65,8 @@ export interface TurnDiffFileChange {
   kind?: string | undefined;
   additions?: number | undefined;
   deletions?: number | undefined;
+  repoId?: string | undefined;
+  repoRelativePath?: string | undefined;
 }
 
 export interface TurnDiffSummary {
@@ -103,6 +106,8 @@ export interface Thread {
   lastVisitedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  workspacePath: string | null;
+  repoStates: ThreadGitRepoState[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

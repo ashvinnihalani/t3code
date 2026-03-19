@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type ProviderKind } from "@t3tools/contracts";
+import { type GitRepoControlMode, type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
   DEFAULT_GIT_DEFAULT_ACTION,
+  DEFAULT_GIT_REPO_CONTROL_MODE,
   GIT_DEFAULT_ACTION_OPTIONS,
   type GitDefaultAction,
   MAX_CUSTOM_MODEL_LENGTH,
@@ -76,6 +77,10 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit: "Commit",
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
+};
+const GIT_REPO_CONTROL_MODE_LABELS: Record<GitRepoControlMode, string> = {
+  aggregate: "Aggregate",
+  selected: "Selected repo",
 };
 const LOCAL_CODEX_SETTINGS_SCOPE = "local";
 const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
@@ -425,6 +430,40 @@ function SettingsRouteView() {
                   </Select>
                 </div>
 
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">Default repo scope</p>
+                    <p className="text-xs text-muted-foreground">
+                      Aggregate operates across repos. Selected repo targets one repo at a time.
+                    </p>
+                  </div>
+                  <Select
+                    value={settings.gitRepoControlModeDefault}
+                    onValueChange={(value) => {
+                      if (value !== "aggregate" && value !== "selected") {
+                        return;
+                      }
+                      updateSettings({
+                        gitRepoControlModeDefault: value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-48" aria-label="Default git repo scope">
+                      <SelectValue>
+                        {GIT_REPO_CONTROL_MODE_LABELS[settings.gitRepoControlModeDefault]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end">
+                      <SelectItem value="aggregate">
+                        {GIT_REPO_CONTROL_MODE_LABELS.aggregate}
+                      </SelectItem>
+                      <SelectItem value="selected">
+                        {GIT_REPO_CONTROL_MODE_LABELS.selected}
+                      </SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+
                 <label htmlFor="git-commit-prompt" className="block space-y-1">
                   <span className="text-xs font-medium text-foreground">Commit prompt</span>
                   <Textarea
@@ -464,6 +503,7 @@ function SettingsRouteView() {
               </div>
 
               {settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
+              settings.gitRepoControlModeDefault !== DEFAULT_GIT_REPO_CONTROL_MODE ||
               settings.gitCommitPrompt !== "" ||
               settings.gitHubBinaryPath !== "" ? (
                 <div className="mt-3 flex justify-end">
@@ -473,6 +513,7 @@ function SettingsRouteView() {
                     onClick={() =>
                       updateSettings({
                         gitDefaultAction: defaults.gitDefaultAction,
+                        gitRepoControlModeDefault: defaults.gitRepoControlModeDefault,
                         gitCommitPrompt: defaults.gitCommitPrompt,
                         gitHubBinaryPath: defaults.gitHubBinaryPath,
                       })

@@ -48,6 +48,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { createLogger } from "./logger";
 import { GitManager } from "./git/Services/GitManager.ts";
+import { GitProjectService } from "./git/Services/GitProjectService.ts";
 import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { Keybindings } from "./keybindings";
 import { searchWorkspaceEntries } from "./workspaceEntries";
@@ -287,6 +288,7 @@ export type ServerCoreRuntimeServices =
 export type ServerRuntimeServices =
   | ServerCoreRuntimeServices
   | GitManager
+  | GitProjectService
   | GitCore
   | TerminalManager
   | Keybindings
@@ -340,6 +342,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const keybindingsManager = yield* Keybindings;
   const providerHealth = yield* ProviderHealth;
   const git = yield* GitCore;
+  const gitProjectService = yield* GitProjectService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -782,7 +785,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
     return {
       project,
-      baseRoot: thread.worktreePath ?? project.workspaceRoot,
+      baseRoot: thread.workspacePath ?? thread.worktreePath ?? project.workspaceRoot,
     };
   });
 
@@ -1125,12 +1128,37 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* git.pullCurrentBranch(body.cwd, remote);
       }
 
+      case WS_METHODS.gitListRepositories: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProject(body.projectId);
+        return yield* gitProjectService.listRepositories({
+          projectId: project.id,
+          workspaceRoot: project.workspaceRoot,
+          ...(project.remote ? { remote: project.remote } : {}),
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+        });
+      }
+
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.runStackedAction({
           ...body,
           ...(remote ? { remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitRunAggregateAction: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProject(body.projectId);
+        return yield* gitProjectService.runAggregateAction({
+          projectId: project.id,
+          workspaceRoot: project.workspaceRoot,
+          action: body.action,
+          ...(project.remote ? { remote: project.remote } : {}),
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.repoIds ? { repoIds: body.repoIds } : {}),
+          ...(body.settings ? { settings: body.settings } : {}),
         });
       }
 
