@@ -49,6 +49,8 @@ interface FakeGitTextGeneration {
     stagedSummary: string;
     stagedPatch: string;
     includeBranch?: boolean;
+    systemPrompt?: string | null;
+    model?: string;
   }) => Effect.Effect<
     { subject: string; body: string; branch?: string | undefined },
     TextGenerationError
@@ -61,11 +63,15 @@ interface FakeGitTextGeneration {
     commitSummary: string;
     diffSummary: string;
     diffPatch: string;
+    systemPrompt?: string | null;
+    model?: string;
   }) => Effect.Effect<{ title: string; body: string }, TextGenerationError>;
   generateBranchName: (input: {
     cwd: string;
     remote?: ProjectRemoteTarget | null;
     message: string;
+    systemPrompt?: string | null;
+    model?: string;
   }) => Effect.Effect<{ branch: string }, TextGenerationError>;
 }
 
@@ -456,6 +462,11 @@ function runStackedAction(
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
+    settings?: {
+      githubBinaryPath?: string;
+      commitPrompt?: string;
+      textGenerationModel?: string;
+    };
   },
 ) {
   return manager.runStackedAction(input);
@@ -1328,6 +1339,63 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           call.includes("pr create --base statemachine --head octocat:statemachine"),
         ),
       ).toBe(false);
+    }),
+  );
+
+  it.effect("applies shared text-generation settings to PR content generation", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature-shared-git-prompt"]);
+      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nshared prompt\n");
+      yield* runGit(repoDir, ["add", "README.md"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature-shared-git-prompt"]);
+
+      let receivedSystemPrompt: string | null | undefined;
+      let receivedModel: string | undefined;
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              {
+                number: 89,
+                title: "Add stacked git actions",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/89",
+                baseRefName: "main",
+                headRefName: "feature-shared-git-prompt",
+              },
+            ]),
+          ],
+        },
+        textGeneration: {
+          generatePrContent: (input) =>
+            Effect.sync(() => {
+              receivedSystemPrompt = input.systemPrompt;
+              receivedModel = input.model;
+              return {
+                title: "Add stacked git actions",
+                body: "## Summary\n- Add stacked git workflow\n\n## Testing\n- Not run",
+              };
+            }),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit_push_pr",
+        settings: {
+          commitPrompt: "Prefer concise infra-focused wording.",
+          textGenerationModel: "gpt-5.4-mini",
+        },
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(receivedSystemPrompt).toBe("Prefer concise infra-focused wording.");
+      expect(receivedModel).toBe("gpt-5.4-mini");
     }),
   );
 

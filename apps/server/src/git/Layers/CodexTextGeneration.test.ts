@@ -546,6 +546,33 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
     ),
   );
 
+  it.effect("includes a custom system prompt for PR generation", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          title: "Respect custom instructions",
+          body: "## Summary\n- follow instructions\n\n## Testing\n- Not run",
+        }),
+        stdinMustContain: "Always emphasize migration sequencing.",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generatePrContent({
+          cwd: process.cwd(),
+          baseBranch: "main",
+          headBranch: "feature/custom-pr-prompt",
+          commitSummary: "feat: improve orchestration flow",
+          diffSummary: "2 files changed",
+          diffPatch: "diff --git a/a.ts b/a.ts",
+          systemPrompt: "Always emphasize migration sequencing.",
+        });
+
+        expect(generated.title).toBe("Respect custom instructions");
+      }),
+    ),
+  );
+
   it.effect("generates branch names and normalizes branch fragments", () =>
     withFakeCodexEnv(
       {
@@ -560,6 +587,28 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const generated = yield* textGeneration.generateBranchName({
           cwd: process.cwd(),
           message: "Please update session handling.",
+        });
+
+        expect(generated.branch).toBe("feat/session");
+      }),
+    ),
+  );
+
+  it.effect("includes a custom system prompt for branch generation", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          branch: "feat/session",
+        }),
+        stdinMustContain: "Prefer product-facing language over internal codenames.",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateBranchName({
+          cwd: process.cwd(),
+          message: "Please update session handling.",
+          systemPrompt: "Prefer product-facing language over internal codenames.",
         });
 
         expect(generated.branch).toBe("feat/session");

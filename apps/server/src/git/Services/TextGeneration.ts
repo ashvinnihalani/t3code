@@ -40,6 +40,7 @@ export interface PrContentGenerationInput {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
+  systemPrompt?: string | null;
   /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
   model?: string;
 }
@@ -54,6 +55,7 @@ export interface BranchNameGenerationInput {
   remote?: ProjectRemoteTarget | null;
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  systemPrompt?: string | null;
   /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
   model?: string;
 }
