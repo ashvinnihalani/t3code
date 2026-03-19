@@ -308,6 +308,7 @@ describe("Keybindings update toast", () => {
       projects: [],
       threads: [],
       threadsHydrated: false,
+      localCodexErrorsDismissedAfter: null,
     });
   });
 

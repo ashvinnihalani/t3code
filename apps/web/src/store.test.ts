@@ -7,7 +7,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { markThreadUnread, reorderProjects, syncServerReadModel, type AppState } from "./store";
+import {
+  dismissLocalCodexErrors,
+  markThreadUnread,
+  reorderProjects,
+  syncServerReadModel,
+  type AppState,
+} from "./store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -47,6 +53,7 @@ function makeState(thread: Thread): AppState {
     ],
     threads: [thread],
     threadsHydrated: true,
+    localCodexErrorsDismissedAfter: null,
   };
 }
 
@@ -182,11 +189,84 @@ describe("store pure functions", () => {
       ],
       threads: [],
       threadsHydrated: true,
+      localCodexErrorsDismissedAfter: null,
     };
 
     const next = reorderProjects(state, project1, project3);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project3, project1]);
+  });
+
+  it("dismissLocalCodexErrors clears only local Codex session errors and records the timestamp", () => {
+    const localProjectId = ProjectId.makeUnsafe("project-local");
+    const remoteProjectId = ProjectId.makeUnsafe("project-remote");
+    const state: AppState = {
+      projects: [
+        {
+          id: localProjectId,
+          name: "Local",
+          cwd: "/tmp/local",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          expanded: true,
+          scripts: [],
+        },
+        {
+          id: remoteProjectId,
+          name: "Remote",
+          cwd: "/tmp/remote",
+          remote: {
+            kind: "ssh",
+            hostAlias: "buildbox",
+          },
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          expanded: true,
+          scripts: [],
+        },
+      ],
+      threads: [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-local"),
+          projectId: localProjectId,
+          error: "Codex CLI is missing.",
+          session: {
+            provider: "codex",
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Codex CLI is missing.",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-local-ui"),
+          projectId: localProjectId,
+          error: "You can attach up to 20 images per message.",
+          session: null,
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-remote"),
+          projectId: remoteProjectId,
+          error: "Remote Codex session failed.",
+          session: {
+            provider: "codex",
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Remote Codex session failed.",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+      ],
+      threadsHydrated: true,
+      localCodexErrorsDismissedAfter: null,
+    };
+
+    const next = dismissLocalCodexErrors(state, "2026-03-17T00:00:00.000Z");
+
+    expect(next.localCodexErrorsDismissedAfter).toBe("2026-03-17T00:00:00.000Z");
+    expect(next.threads[0]?.error).toBeNull();
+    expect(next.threads[1]?.error).toBe("You can attach up to 20 images per message.");
+    expect(next.threads[2]?.error).toBe("Remote Codex session failed.");
   });
 });
 
@@ -261,6 +341,7 @@ describe("store read model sync", () => {
       ],
       threads: [],
       threadsHydrated: true,
+      localCodexErrorsDismissedAfter: null,
     };
     const readModel: OrchestrationReadModel = {
       snapshotSequence: 2,

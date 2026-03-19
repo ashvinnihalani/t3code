@@ -23,6 +23,7 @@ export interface AppState {
   projects: Project[];
   threads: Thread[];
   threadsHydrated: boolean;
+  localCodexErrorsDismissedAfter: string | null;
 }
 
 const PERSISTED_STATE_KEY = "t3code:renderer-state:v9";
@@ -43,6 +44,7 @@ const initialState: AppState = {
   projects: [],
   threads: [],
   threadsHydrated: false,
+  localCodexErrorsDismissedAfter: null,
 };
 const persistedExpandedProjectKeys = new Set<string>();
 const persistedProjectOrderKeys: string[] = [];
@@ -465,6 +467,33 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
   return threads === state.threads ? state : { ...state, threads };
 }
 
+export function dismissLocalCodexErrors(state: AppState, dismissedAt: string): AppState {
+  const localProjectIds = new Set(
+    state.projects.filter((project) => !project.remote).map((project) => project.id),
+  );
+  let changed = state.localCodexErrorsDismissedAfter !== dismissedAt;
+  const threads = state.threads.map((thread) => {
+    if (!localProjectIds.has(thread.projectId)) {
+      return thread;
+    }
+    if (thread.session?.provider !== "codex" || thread.error === null) {
+      return thread;
+    }
+    changed = true;
+    return { ...thread, error: null };
+  });
+
+  if (!changed) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threads,
+    localCodexErrorsDismissedAfter: dismissedAt,
+  };
+}
+
 export function setThreadBranch(
   state: AppState,
   threadId: ThreadId,
@@ -494,6 +523,7 @@ interface AppStore extends AppState {
   setProjectExpanded: (projectId: Project["id"], expanded: boolean) => void;
   reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
+  dismissLocalCodexErrors: (dismissedAt: string) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
 }
 
@@ -509,6 +539,8 @@ export const useStore = create<AppStore>((set) => ({
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
+  dismissLocalCodexErrors: (dismissedAt) =>
+    set((state) => dismissLocalCodexErrors(state, dismissedAt)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
 }));
