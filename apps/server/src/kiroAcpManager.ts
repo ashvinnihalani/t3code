@@ -112,6 +112,42 @@ function normalizeNonEmpty(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
+export function readKiroTextChunk(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value.trim().length > 0 ? value : undefined;
+}
+
+function truncateProcessDetail(detail: string, maxLength = 1_024): string {
+  if (detail.length <= maxLength) {
+    return detail;
+  }
+  return `${detail.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+export function formatKiroProcessExitMessage(input: {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stderr: string;
+  readonly command: string;
+}): string {
+  const baseMessage = input.signal
+    ? `Kiro ACP process exited with signal ${input.signal} while running '${input.command}'.`
+    : `Kiro ACP process exited with code ${input.code ?? -1} while running '${input.command}'.`;
+  const stderr = input.stderr.trim();
+  const lowerStderr = stderr.toLowerCase();
+  const commandMissing =
+    input.code === 127 ||
+    lowerStderr.includes("command not found") ||
+    lowerStderr.includes("not recognized as an internal or external command");
+  const detail = stderr.length > 0 ? ` stderr: ${truncateProcessDetail(stderr)}` : "";
+  const hint = commandMissing
+    ? " Set the Kiro binary path to the full `kiro-cli` executable path if it is not on PATH."
+    : "";
+  return `${baseMessage}${detail}${hint}`;
+}
+
 function resumeCursorFromSessionId(sessionId: string | undefined): unknown {
   return sessionId ? { sessionId } : undefined;
 }
@@ -316,26 +352,35 @@ class JsonRpcConnection {
     }
   >();
   private buffer = "";
+  private stderrBuffer = "";
 
   constructor(
     private readonly process: ChildProcessWithoutNullStreams,
+    private readonly command: string,
     private readonly onRequest: (message: JsonRpcRequestMessage) => void,
     private readonly onNotification: (method: string, params: unknown) => void,
     private readonly onClosed: (error?: Error) => void,
   ) {
     this.process.stdout.setEncoding("utf8");
+    this.process.stderr.setEncoding("utf8");
     this.process.stdout.on("data", (chunk: string) => {
       this.buffer += chunk;
       this.drainBuffer();
+    });
+    this.process.stderr.on("data", (chunk: string) => {
+      this.stderrBuffer += chunk;
     });
     this.process.on("exit", (code, signal) => {
       const error =
         code === 0 && signal === null
           ? undefined
           : new Error(
-              signal
-                ? `Kiro ACP process exited with signal ${signal}.`
-                : `Kiro ACP process exited with code ${code ?? -1}.`,
+              formatKiroProcessExitMessage({
+                code,
+                signal,
+                stderr: this.stderrBuffer,
+                command: this.command,
+              }),
             );
       this.closePending(error);
       this.onClosed(error);
@@ -478,7 +523,7 @@ export class KiroAcpManager extends EventEmitter {
 
   async startSession(input: KiroAcpStartSessionInput): Promise<ProviderSession> {
     this.stopSession(input.threadId);
-    const process = this.spawnProcess({
+    const { process, command } = this.spawnProcess({
       binaryPath: input.binaryPath ?? DEFAULT_BINARY_PATH,
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.remote ? { remote: input.remote } : {}),
@@ -487,6 +532,7 @@ export class KiroAcpManager extends EventEmitter {
     let session = undefined as KiroSessionState | undefined;
     const rpc = new JsonRpcConnection(
       process,
+      command,
       (message) => {
         if (session) {
           void this.handleRequest(session, message);
@@ -672,36 +718,20 @@ export class KiroAcpManager extends EventEmitter {
       .then(
         (result) => {
           const payload = asRecord(result);
-          session.activeTurnId = undefined;
-          session.updatedAt = nowIso();
-          this.emit(
-            "event",
-            this.runtimeEvent(session, {
-              type: "turn.completed",
-              turnId,
-              payload: {
-                state: "completed",
-                ...(normalizeNonEmpty(asString(payload?.stopReason))
-                  ? { stopReason: normalizeNonEmpty(asString(payload?.stopReason)) }
-                  : {}),
-              },
-            }),
-          );
+          const stopReason = normalizeNonEmpty(asString(payload?.stopReason));
+          this.completeTurn(session, turnId, {
+            state: "completed",
+            ...(stopReason ? { stopReason } : {}),
+          });
         },
         (error) => {
-          session.activeTurnId = undefined;
-          session.updatedAt = nowIso();
-          this.emit(
-            "event",
-            this.runtimeEvent(session, {
-              type: "turn.completed",
-              turnId,
-              payload: {
-                state: "failed",
-                errorMessage: error instanceof Error ? error.message : String(error),
-              },
-            }),
-          );
+          if (session.activeTurnId !== turnId) {
+            return;
+          }
+          this.completeTurn(session, turnId, {
+            state: "failed",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
           throw error;
         },
       );
@@ -786,32 +816,106 @@ export class KiroAcpManager extends EventEmitter {
     readonly binaryPath: string;
     readonly cwd?: string;
     readonly remote?: ProjectRemoteTarget;
-  }): ChildProcessWithoutNullStreams {
+  }): { readonly process: ChildProcessWithoutNullStreams; readonly command: string } {
     if (input.remote?.kind === "ssh") {
-      return spawn(
-        "ssh",
-        buildSshExecArgs({
-          hostAlias: input.remote.hostAlias,
-          command: input.binaryPath,
-          args: ["acp"],
-          ...(input.cwd ? { cwd: input.cwd } : {}),
-          localCwd: process.cwd(),
-        }),
-        {
-          cwd: process.cwd(),
-          env: process.env,
-          stdio: ["pipe", "pipe", "pipe"],
-          shell: process.platform === "win32",
-        },
-      );
+      return {
+        process: spawn(
+          "ssh",
+          buildSshExecArgs({
+            hostAlias: input.remote.hostAlias,
+            command: input.binaryPath,
+            args: ["acp"],
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            localCwd: process.cwd(),
+          }),
+          {
+            cwd: process.cwd(),
+            env: process.env,
+            stdio: ["pipe", "pipe", "pipe"],
+            shell: process.platform === "win32",
+          },
+        ),
+        command: `ssh ${input.remote.hostAlias} ${input.binaryPath} acp`,
+      };
     }
 
-    return spawn(input.binaryPath, ["acp"], {
-      cwd: input.cwd ?? process.cwd(),
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: process.platform === "win32",
-    });
+    return {
+      process: spawn(input.binaryPath, ["acp"], {
+        cwd: input.cwd ?? process.cwd(),
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: process.platform === "win32",
+      }),
+      command: `${input.binaryPath} acp`,
+    };
+  }
+
+  private completeTurn(
+    session: KiroSessionState,
+    turnId: TurnId,
+    payload: {
+      readonly state: "completed" | "failed" | "cancelled";
+      readonly stopReason?: string;
+      readonly errorMessage?: string;
+    },
+  ): boolean {
+    if (session.activeTurnId !== turnId) {
+      return false;
+    }
+
+    session.activeTurnId = undefined;
+    session.updatedAt = nowIso();
+    this.emit(
+      "event",
+      this.runtimeEvent(session, {
+        type: "turn.completed",
+        turnId,
+        payload: {
+          state: payload.state,
+          ...(payload.stopReason ? { stopReason: payload.stopReason } : {}),
+          ...(payload.errorMessage ? { errorMessage: payload.errorMessage } : {}),
+        },
+      }),
+    );
+    return true;
+  }
+
+  private turnCompletionFromUpdate(update: Record<string, unknown>): {
+    readonly state: "completed" | "failed" | "cancelled";
+    readonly stopReason?: string;
+    readonly errorMessage?: string;
+  } {
+    const status = normalizeNonEmpty(asString(update.status))?.toLowerCase();
+    const errorRecord = asRecord(update.error);
+    const errorMessage =
+      normalizeNonEmpty(asString(errorRecord?.message)) ??
+      normalizeNonEmpty(asString(update.message));
+    const stopReason = normalizeNonEmpty(asString(update.stopReason));
+
+    if (status === "failed" || status === "error" || errorMessage) {
+      return {
+        state: "failed",
+        ...(errorMessage ? { errorMessage } : {}),
+        ...(stopReason ? { stopReason } : {}),
+      };
+    }
+
+    if (
+      status === "cancelled" ||
+      status === "canceled" ||
+      status === "aborted" ||
+      status === "interrupted"
+    ) {
+      return {
+        state: "cancelled",
+        ...(stopReason ? { stopReason } : {}),
+      };
+    }
+
+    return {
+      state: "completed",
+      ...(stopReason ? { stopReason } : {}),
+    };
   }
 
   private requireSession(threadId: ThreadId): KiroSessionState {
@@ -922,6 +1026,9 @@ export class KiroAcpManager extends EventEmitter {
     if (!updateType) {
       return;
     }
+    if (!update) {
+      return;
+    }
 
     if (updateType === "current_mode_update") {
       const modeId = normalizeNonEmpty(asString(update?.modeId));
@@ -944,7 +1051,7 @@ export class KiroAcpManager extends EventEmitter {
     switch (updateType) {
       case "agent_message_chunk": {
         const content = asRecord(update?.content);
-        const text = normalizeNonEmpty(asString(content?.text));
+        const text = readKiroTextChunk(content?.text);
         if (!text) return;
         this.emit(
           "event",
@@ -957,6 +1064,14 @@ export class KiroAcpManager extends EventEmitter {
             },
           }),
         );
+        return;
+      }
+      case "turn_end": {
+        const turnId = session.activeTurnId;
+        if (!turnId) {
+          return;
+        }
+        this.completeTurn(session, turnId, this.turnCompletionFromUpdate(update));
         return;
       }
       case "plan": {
