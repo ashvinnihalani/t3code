@@ -431,7 +431,8 @@ function SettingsRouteView() {
                 <h2 className="text-sm font-medium text-foreground">Git</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Configure the default stacked git action and overrides used for auto-generated
-                  commits, PR workflows, and generated git content.
+                  commits, PR workflows, and generated git content. These settings apply to both
+                  local and SSH projects; only the Codex App Server overrides below are host-scoped.
                 </p>
               </div>
 
