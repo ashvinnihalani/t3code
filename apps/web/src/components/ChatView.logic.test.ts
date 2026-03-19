@@ -149,6 +149,33 @@ describe("resolveVisibleProviderHealthStatus", () => {
       },
     });
   });
+
+  it("suppresses remote stop-and-reconnect summaries even if they arrive on the error path", () => {
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "codex",
+          status: "ready",
+          available: true,
+          authStatus: "authenticated",
+          checkedAt: "2026-03-16T00:00:00.000Z",
+        },
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "g7e_axe",
+        },
+        session: {
+          provider: "codex",
+          status: "error",
+          orchestrationStatus: "error",
+          lastError: "The provider service stopped and can reconnect on the next turn.",
+          createdAt: "2026-03-16T00:00:00.000Z",
+          updatedAt: "2026-03-16T00:00:00.000Z",
+        },
+        localCodexErrorsDismissedAfter: null,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("resolveVisibleProviderThreadId", () => {
@@ -247,6 +274,28 @@ describe("resolveVisibleThreadError", () => {
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
     ).toBe("Remote Codex session failed.");
+  });
+
+  it("suppresses remote thread-management summaries in the thread error channel", () => {
+    expect(
+      resolveVisibleThreadError({
+        thread: makeThread({
+          error: "The provider service stopped and can reconnect on the next turn.",
+          session: {
+            provider: "codex",
+            status: "closed",
+            orchestrationStatus: "stopped",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "g7e_axe",
+        },
+        localCodexErrorsDismissedAfter: null,
+      }),
+    ).toBeNull();
   });
 
   it("does not hide unrelated local UI errors", () => {
