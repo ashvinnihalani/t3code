@@ -470,56 +470,66 @@ function SettingsRouteView() {
                   </Select>
                 </div>
 
-                <div className="flex flex-col gap-4 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">Text generation model</p>
+                <div className="space-y-4 rounded-lg border border-border bg-background px-3 py-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Text generation</p>
                     <p className="text-xs text-muted-foreground">
-                      Model used for auto-generated git content.
+                      Configure the model used for generating commit messages, PR titles, and branch
+                      names.
                     </p>
                   </div>
-                  <Select
-                    value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
-                    onValueChange={(value) => {
-                      if (value) {
-                        updateSettings({
-                          textGenerationModel: value,
-                        });
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      className="w-full shrink-0 sm:w-48"
-                      aria-label="Git text generation model"
-                    >
-                      <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end">
-                      {gitTextGenerationModelOptions.map((option) => (
-                        <SelectItem key={option.slug} value={option.slug}>
-                          {option.name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </div>
 
-                <label htmlFor="git-commit-prompt" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">System prompt</span>
-                  <Textarea
-                    id="git-commit-prompt"
-                    value={settings.gitCommitPrompt}
-                    onChange={(event) =>
-                      updateSettings({
-                        gitCommitPrompt: event.target.value,
-                      })
-                    }
-                    placeholder="Optional system prompt for auto-generated git content"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Leave blank to use the built-in git prompts only.
-                  </span>
-                </label>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-foreground">Model</p>
+                      <p className="text-xs text-muted-foreground">
+                        Select which model the Git prompter uses.
+                      </p>
+                    </div>
+                    <Select
+                      value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
+                      onValueChange={(value) => {
+                        if (value) {
+                          updateSettings({
+                            textGenerationModel: value,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-full shrink-0 sm:w-48"
+                        aria-label="Git text generation model"
+                      >
+                        <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end">
+                        {gitTextGenerationModelOptions.map((option) => (
+                          <SelectItem key={option.slug} value={option.slug}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+
+                  <label htmlFor="git-commit-prompt" className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">Prompt</span>
+                    <Textarea
+                      id="git-commit-prompt"
+                      value={settings.gitCommitPrompt}
+                      onChange={(event) =>
+                        updateSettings({
+                          gitCommitPrompt: event.target.value,
+                        })
+                      }
+                      placeholder="Optional instructions for the Git prompter"
+                      spellCheck={false}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Leave blank to use the built-in prompting behavior only.
+                    </span>
+                  </label>
+                </div>
 
                 <label htmlFor="github-binary-path" className="block space-y-1">
                   <span className="text-xs font-medium text-foreground">GitHub binary path</span>

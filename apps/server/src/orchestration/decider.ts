@@ -331,6 +331,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.providerOptions !== undefined
             ? { providerOptions: command.providerOptions }
             : {}),
+          ...(command.gitSettings !== undefined ? { gitSettings: command.gitSettings } : {}),
           assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,

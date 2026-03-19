@@ -175,7 +175,7 @@ describe("ProviderCommandReactor", () => {
             : "renamed-branch",
       }),
     );
-    const generateBranchName = vi.fn(() =>
+    const generateBranchName = vi.fn<TextGenerationShape["generateBranchName"]>((_: unknown) =>
       Effect.fail(
         new TextGenerationError({
           operation: "generateBranchName",
@@ -302,6 +302,66 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("uses git text-generation settings when renaming a first-turn worktree branch", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.generateBranchName.mockImplementation((input: unknown) =>
+      Effect.succeed({
+        branch:
+          typeof input === "object" && input !== null && "message" in input
+            ? "feature/settings-aware-branch"
+            : "feature/fallback-branch",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-worktree"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        branch: "t3code/abc12345",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-git-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-git-settings"),
+          role: "user",
+          text: "rename this worktree branch",
+          attachments: [],
+        },
+        gitSettings: {
+          commitPrompt: "Prefer concise branch names.",
+          textGenerationModel: "gpt-5.4-mini",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+
+    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      message: "rename this worktree branch",
+      systemPrompt: "Prefer concise branch names.",
+      model: "gpt-5.4-mini",
+    });
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/abc12345",
+      newBranch: "t3code/feature/settings-aware-branch",
+    });
   });
 
   it("forwards codex model options through session start and turn send", async () => {

@@ -119,7 +119,12 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { getCodexHostOverride, resolveAppModelSelection, useAppSettings } from "../appSettings";
+import {
+  buildGitRequestSettings,
+  getCodexHostOverride,
+  resolveAppModelSelection,
+  useAppSettings,
+} from "../appSettings";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
@@ -230,6 +235,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const localCodexErrorsDismissedAfter = useStore((store) => store.localCodexErrorsDismissedAfter);
   const { settings } = useAppSettings();
+  const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
   const rawSearch = useSearch({
@@ -2667,6 +2673,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           ? { modelOptions: selectedModelOptionsForDispatch }
           : {}),
         ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
+        ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
         provider: selectedProvider,
         assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
         runtimeMode,
@@ -2948,6 +2955,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
           ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
+          ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: nextInteractionMode,
@@ -2989,6 +2997,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       isConnecting,
       isSendBusy,
       isServerThread,
+      gitRequestSettings,
       persistThreadSettingsForNextTurn,
       resetSendPhase,
       runtimeMode,
@@ -3066,6 +3075,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
           ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
+          ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: "default",
@@ -3109,6 +3119,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProposedPlan,
     activeThread,
     beginSendPhase,
+    gitRequestSettings,
     isConnecting,
     isSendBusy,
     isServerThread,
