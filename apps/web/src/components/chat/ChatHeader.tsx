@@ -11,6 +11,7 @@ import GitActionsControl from "../GitActionsControl";
 import type { GitQueryTarget } from "~/lib/gitReactQuery";
 import { DiffIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -20,6 +21,7 @@ import { OpenInPicker } from "./OpenInPicker";
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  draftThreadTitleOverride: string | null;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   activeProjectRemote: ProjectRemoteTarget | null;
@@ -39,11 +41,13 @@ interface ChatHeaderProps {
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleDiff: () => void;
+  onDraftThreadTitleOverrideChange: ((value: string) => void) | null;
 }
 
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
+  draftThreadTitleOverride,
   activeProjectId,
   activeProjectName,
   activeProjectRemote,
@@ -63,17 +67,31 @@ export const ChatHeader = memo(function ChatHeader({
   onUpdateProjectScript,
   onDeleteProjectScript,
   onToggleDiff,
+  onDraftThreadTitleOverrideChange,
 }: ChatHeaderProps) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        <h2
-          className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-          title={activeThreadTitle}
-        >
-          {activeThreadTitle}
-        </h2>
+        {onDraftThreadTitleOverrideChange ? (
+          <Input
+            nativeInput
+            size="sm"
+            value={draftThreadTitleOverride ?? ""}
+            onChange={(event) => onDraftThreadTitleOverrideChange(event.currentTarget.value)}
+            placeholder={activeThreadTitle}
+            aria-label="New thread title"
+            data-testid="draft-thread-title-input"
+            className="min-w-0 max-w-md flex-1"
+          />
+        ) : (
+          <h2
+            className="min-w-0 shrink truncate text-sm font-medium text-foreground"
+            title={activeThreadTitle}
+          >
+            {activeThreadTitle}
+          </h2>
+        )}
         {activeProjectName && (
           <Badge variant="outline" className="min-w-0 shrink truncate">
             {activeProjectName}
