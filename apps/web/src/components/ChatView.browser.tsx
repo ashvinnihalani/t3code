@@ -279,6 +279,8 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     codexBinaryPath: "",
     codexHomePath: "",
     codexRemoteOverrides: {},
+    kiroBinaryPath: "",
+    kiroRemoteOverrides: {},
     defaultThreadEnvMode: "local",
     gitDefaultAction: "auto",
     gitCommitPrompt: "",
@@ -289,6 +291,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
     customCodexModels: [],
+    customKiroModels: [],
     ...overrides,
   };
 }

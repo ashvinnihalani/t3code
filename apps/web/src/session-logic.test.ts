@@ -143,6 +143,16 @@ describe("derivePendingApprovals", () => {
   });
 });
 
+describe("PROVIDER_OPTIONS", () => {
+  it("includes Kiro as an available provider", () => {
+    expect(PROVIDER_OPTIONS).toContainEqual({
+      value: "kiro",
+      label: "Kiro CLI",
+      available: true,
+    });
+  });
+});
+
 describe("derivePendingUserInputs", () => {
   it("tracks open structured prompts and removes resolved ones", () => {
     const activities: OrchestrationThreadActivity[] = [
@@ -731,6 +741,7 @@ describe("PROVIDER_OPTIONS", () => {
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
+      { value: "kiro", label: "Kiro CLI", available: true },
       { value: "claudeCode", label: "Claude Code", available: false },
       { value: "cursor", label: "Cursor", available: false },
     ]);

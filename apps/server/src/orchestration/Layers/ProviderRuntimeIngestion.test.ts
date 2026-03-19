@@ -49,7 +49,7 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
   readonly eventId: EventId;
-  readonly provider: "codex";
+  readonly provider: "codex" | "kiro";
   readonly createdAt: string;
   readonly threadId: ThreadId;
   readonly turnId?: string | undefined;
@@ -1728,12 +1728,12 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "thread.metadata.updated",
       eventId: asEventId("evt-thread-metadata-updated"),
-      provider: "codex",
+      provider: "kiro",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
         name: "Renamed by provider",
-        metadata: { source: "provider" },
+        metadata: { source: "provider", interactionMode: "help" },
       },
     });
 
@@ -1752,6 +1752,13 @@ describe("ProviderRuntimeIngestion", () => {
         ],
       },
     });
+
+    const metadataThread = await waitForThread(
+      harness.engine,
+      (entry) => entry.title === "Renamed by provider" && entry.interactionMode === "help",
+    );
+    expect(metadataThread.title).toBe("Renamed by provider");
+    expect(metadataThread.interactionMode).toBe("help");
 
     harness.emit({
       type: "item.updated",

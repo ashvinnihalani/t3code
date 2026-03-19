@@ -22,6 +22,7 @@ import {
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   activePlan: boolean;
   interactionMode: ProviderInteractionMode;
+  supportedInteractionModes: ReadonlyArray<ProviderInteractionMode>;
   planSidebarOpen: boolean;
   runtimeMode: RuntimeMode;
   selectedEffort: CodexReasoningEffort | null;
@@ -30,7 +31,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   reasoningOptions: ReadonlyArray<CodexReasoningEffort>;
   onEffortSelect: (effort: CodexReasoningEffort) => void;
   onCodexFastModeChange: (enabled: boolean) => void;
-  onToggleInteractionMode: () => void;
+  onInteractionModeSelect: (mode: ProviderInteractionMode) => void;
   onTogglePlanSidebar: () => void;
   onToggleRuntimeMode: () => void;
 }) {
@@ -40,6 +41,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
     medium: "Medium",
     high: "High",
     xhigh: "Extra High",
+  };
+  const interactionModeLabelByOption: Record<ProviderInteractionMode, string> = {
+    default: "Chat",
+    plan: "Plan",
+    help: "Help",
   };
 
   return (
@@ -100,11 +106,15 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             value={props.interactionMode}
             onValueChange={(value) => {
               if (!value || value === props.interactionMode) return;
-              props.onToggleInteractionMode();
+              if (value !== "default" && value !== "plan" && value !== "help") return;
+              props.onInteractionModeSelect(value);
             }}
           >
-            <MenuRadioItem value="default">Chat</MenuRadioItem>
-            <MenuRadioItem value="plan">Plan</MenuRadioItem>
+            {props.supportedInteractionModes.map((mode) => (
+              <MenuRadioItem key={mode} value={mode}>
+                {interactionModeLabelByOption[mode]}
+              </MenuRadioItem>
+            ))}
           </MenuRadioGroup>
         </MenuGroup>
         <MenuDivider />

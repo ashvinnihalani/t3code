@@ -101,6 +101,17 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function asProviderInteractionMode(value: unknown): "default" | "plan" | "help" | undefined {
+  switch (value) {
+    case "default":
+    case "plan":
+    case "help":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 function runtimePayloadRecord(event: ProviderRuntimeEvent): Record<string, unknown> | undefined {
   const payload = (event as { payload?: unknown }).payload;
   if (!payload || typeof payload !== "object") {
@@ -1191,6 +1202,24 @@ const make = Effect.gen(function* () {
           threadId: thread.id,
           title: event.payload.name,
         });
+      }
+
+      if (event.type === "thread.metadata.updated") {
+        const providerInteractionMode = asProviderInteractionMode(
+          event.payload.metadata?.interactionMode,
+        );
+        if (
+          providerInteractionMode !== undefined &&
+          providerInteractionMode !== thread.interactionMode
+        ) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.interaction-mode.set",
+            commandId: providerCommandId(event, "thread-interaction-mode-sync"),
+            threadId: thread.id,
+            interactionMode: providerInteractionMode,
+            createdAt: now,
+          });
+        }
       }
 
       if (event.type === "turn.diff.updated") {

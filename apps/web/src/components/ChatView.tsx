@@ -1,6 +1,8 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  ROLLBACK_SUPPORTED_BY_PROVIDER,
+  SUPPORTED_INTERACTION_MODES_BY_PROVIDER,
   type EditorId,
   type KeybindingCommand,
   type CodexReasoningEffort,
@@ -122,6 +124,7 @@ import { readNativeApi } from "~/nativeApi";
 import {
   buildGitRequestSettings,
   getCodexHostOverride,
+  getKiroHostOverride,
   resolveAppModelSelection,
   useAppSettings,
 } from "../appSettings";
@@ -466,7 +469,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
-  const interactionMode =
+  const requestedInteractionMode =
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
@@ -592,11 +595,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? (sessionProvider ?? selectedProviderByThreadId ?? null)
     : null;
   const selectedProvider: ProviderKind = lockedProvider ?? selectedProviderByThreadId ?? "codex";
+  const supportedInteractionModes = SUPPORTED_INTERACTION_MODES_BY_PROVIDER[
+    selectedProvider
+  ] as ReadonlyArray<ProviderInteractionMode>;
+  const interactionMode = supportedInteractionModes.includes(requestedInteractionMode)
+    ? requestedInteractionMode
+    : DEFAULT_INTERACTION_MODE;
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
-  const customModelsForSelectedProvider = settings.customCodexModels;
+  const customModelsForSelectedProvider =
+    selectedProvider === "kiro" ? settings.customKiroModels : settings.customCodexModels;
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -625,11 +635,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const activeProjectCodexHostAlias =
     activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
+  const activeProjectKiroHostAlias = activeProjectCodexHostAlias;
   const activeProjectCodexOverride = useMemo(
     () => getCodexHostOverride(settings, activeProjectCodexHostAlias),
     [activeProjectCodexHostAlias, settings],
   );
+  const activeProjectKiroOverride = useMemo(
+    () => getKiroHostOverride(settings, activeProjectKiroHostAlias),
+    [activeProjectKiroHostAlias, settings],
+  );
   const providerOptionsForDispatch = useMemo(() => {
+    if (selectedProvider === "kiro") {
+      if (!activeProjectKiroOverride.binaryPath) {
+        return undefined;
+      }
+      return {
+        kiro: {
+          binaryPath: activeProjectKiroOverride.binaryPath,
+        },
+      };
+    }
     if (!activeProjectCodexOverride.binaryPath && !activeProjectCodexOverride.homePath) {
       return undefined;
     }
@@ -643,7 +668,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
           : {}),
       },
     };
-  }, [activeProjectCodexOverride.binaryPath, activeProjectCodexOverride.homePath]);
+  }, [
+    activeProjectCodexOverride.binaryPath,
+    activeProjectCodexOverride.homePath,
+    activeProjectKiroOverride.binaryPath,
+    selectedProvider,
+  ]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -1056,7 +1086,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     if (composerTrigger.kind === "slash-command") {
-      const slashCommandItems = [
+      const allSlashCommandItems: Array<Extract<ComposerCommandItem, { type: "slash-command" }>> = [
         {
           id: "slash:model",
           type: "slash-command",
@@ -1072,13 +1102,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
           description: "Switch this thread into plan mode",
         },
         {
+          id: "slash:help",
+          type: "slash-command",
+          command: "help",
+          label: "/help",
+          description: "Switch this thread into help mode",
+        },
+        {
           id: "slash:default",
           type: "slash-command",
           command: "default",
           label: "/default",
           description: "Switch this thread back to normal chat mode",
         },
-      ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
+      ];
+      const slashCommandItems = allSlashCommandItems.filter((item) => {
+        if (item.command === "model") return true;
+        return supportedInteractionModes.includes(item.command);
+      });
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) {
         return [...slashCommandItems];
@@ -1104,7 +1145,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+  }, [composerTrigger, searchableModelOptions, supportedInteractionModes, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -1601,6 +1642,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const handleInteractionModeChange = useCallback(
     (mode: ProviderInteractionMode) => {
+      if (!supportedInteractionModes.includes(mode)) return;
       if (mode === interactionMode) return;
       setComposerDraftInteractionMode(threadId, mode);
       if (isLocalDraftThread) {
@@ -1614,12 +1656,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       scheduleComposerFocus,
       setComposerDraftInteractionMode,
       setDraftThreadContext,
+      supportedInteractionModes,
       threadId,
     ],
   );
   const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-  }, [handleInteractionModeChange, interactionMode]);
+    const currentIndex = supportedInteractionModes.indexOf(interactionMode);
+    const nextMode =
+      supportedInteractionModes[
+        currentIndex >= 0 ? (currentIndex + 1) % supportedInteractionModes.length : 0
+      ] ?? DEFAULT_INTERACTION_MODE;
+    handleInteractionModeChange(nextMode);
+  }, [handleInteractionModeChange, interactionMode, supportedInteractionModes]);
   const toggleRuntimeMode = useCallback(() => {
     void handleRuntimeModeChange(
       runtimeMode === "full-access" ? "approval-required" : "full-access",
@@ -2363,6 +2411,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
       }
+      if (!ROLLBACK_SUPPORTED_BY_PROVIDER[selectedProvider]) {
+        setThreadError(activeThread.id, "Checkpoint revert is not supported yet for Kiro threads.");
+        return;
+      }
       const confirmed = await api.dialogs.confirm(
         [
           `Revert this thread to checkpoint ${turnCount}?`,
@@ -2392,7 +2444,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setIsRevertingCheckpoint(false);
     },
-    [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
+    [
+      activeThread,
+      isConnecting,
+      isRevertingCheckpoint,
+      isSendBusy,
+      phase,
+      selectedProvider,
+      setThreadError,
+    ],
   );
 
   const onSend = async (e?: { preventDefault: () => void }) => {
@@ -2434,7 +2494,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
-    if (standaloneSlashCommand) {
+    if (standaloneSlashCommand && supportedInteractionModes.includes(standaloneSlashCommand)) {
       await handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
       clearComposerDraftContent(activeThread.id);
@@ -3141,20 +3201,31 @@ export default function ChatView({ threadId }: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
+      const customModels =
+        provider === "kiro" ? settings.customKiroModels : settings.customCodexModels;
       setComposerDraftProvider(activeThread.id, provider);
       setComposerDraftModel(
         activeThread.id,
-        resolveAppModelSelection(provider, settings.customCodexModels, model),
+        resolveAppModelSelection(provider, customModels, model),
       );
+      const providerInteractionModes = SUPPORTED_INTERACTION_MODES_BY_PROVIDER[
+        provider
+      ] as ReadonlyArray<ProviderInteractionMode>;
+      if (!providerInteractionModes.includes(interactionMode)) {
+        setComposerDraftInteractionMode(activeThread.id, DEFAULT_INTERACTION_MODE);
+      }
       scheduleComposerFocus();
     },
     [
       activeThread,
+      interactionMode,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModel,
+      setComposerDraftInteractionMode,
       setComposerDraftProvider,
       settings.customCodexModels,
+      settings.customKiroModels,
     ],
   );
   const onEffortSelect = useCallback(
@@ -3302,7 +3373,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           return;
         }
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        void handleInteractionModeChange(item.command);
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
@@ -3813,6 +3884,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         <CompactComposerControlsMenu
                           activePlan={Boolean(activePlan || activeProposedPlan || planSidebarOpen)}
                           interactionMode={interactionMode}
+                          supportedInteractionModes={supportedInteractionModes}
                           planSidebarOpen={planSidebarOpen}
                           runtimeMode={runtimeMode}
                           selectedEffort={selectedEffort}
@@ -3821,7 +3893,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           reasoningOptions={reasoningOptions}
                           onEffortSelect={onEffortSelect}
                           onCodexFastModeChange={onCodexFastModeChange}
-                          onToggleInteractionMode={toggleInteractionMode}
+                          onInteractionModeSelect={handleInteractionModeChange}
                           onTogglePlanSidebar={togglePlanSidebar}
                           onToggleRuntimeMode={toggleRuntimeMode}
                         />
@@ -3848,23 +3920,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             className="mx-0.5 hidden h-4 sm:block"
                           />
 
-                          <Button
-                            variant="ghost"
-                            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                            size="sm"
-                            type="button"
-                            onClick={toggleInteractionMode}
-                            title={
-                              interactionMode === "plan"
-                                ? "Plan mode — click to return to normal chat mode"
-                                : "Default mode — click to enter plan mode"
-                            }
-                          >
-                            <BotIcon />
-                            <span className="sr-only sm:not-sr-only">
-                              {interactionMode === "plan" ? "Plan" : "Chat"}
-                            </span>
-                          </Button>
+                          {supportedInteractionModes.map((mode) => {
+                            const isSelected = interactionMode === mode;
+                            const label =
+                              mode === "default" ? "Chat" : mode === "plan" ? "Plan" : "Help";
+                            const Icon =
+                              mode === "default"
+                                ? BotIcon
+                                : mode === "plan"
+                                  ? ListTodoIcon
+                                  : CircleAlertIcon;
+                            return (
+                              <Button
+                                key={mode}
+                                variant="ghost"
+                                className={cn(
+                                  "shrink-0 whitespace-nowrap px-2 sm:px-3",
+                                  isSelected
+                                    ? "text-foreground"
+                                    : "text-muted-foreground/70 hover:text-foreground/80",
+                                )}
+                                size="sm"
+                                type="button"
+                                onClick={() => handleInteractionModeChange(mode)}
+                                title={`${label} mode`}
+                              >
+                                <Icon />
+                                <span className="sr-only sm:not-sr-only">{label}</span>
+                              </Button>
+                            );
+                          })}
 
                           <Separator
                             orientation="vertical"

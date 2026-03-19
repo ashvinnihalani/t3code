@@ -122,8 +122,19 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
 function resolveProjectScopedProviderOptions(input: {
   readonly providerOptions?: ProviderStartOptions;
+  readonly provider?: ProviderKind;
   readonly projectRemote?: ProjectRemoteTarget | null;
 }): ProviderStartOptions | undefined {
+  if (input.provider === "kiro") {
+    const kiro = input.providerOptions?.kiro;
+    const kiroOptions = {
+      ...(kiro?.binaryPath ? { binaryPath: kiro.binaryPath } : {}),
+      ...(input.projectRemote ? { remote: input.projectRemote } : {}),
+    };
+
+    return Object.keys(kiroOptions).length > 0 ? { kiro: kiroOptions } : undefined;
+  }
+
   const codex = input.providerOptions?.codex;
   const codexOptions = {
     ...(codex?.binaryPath ? { binaryPath: codex.binaryPath } : {}),
@@ -135,11 +146,16 @@ function resolveProjectScopedProviderOptions(input: {
 }
 
 function providerOptionsRestartKey(input?: ProviderStartOptions): string {
+  const kiro = input?.kiro;
+  const kiroRemote =
+    kiro?.remote?.kind === "ssh" ? `${kiro.remote.kind}:${kiro.remote.hostAlias}` : null;
   const codex = input?.codex;
   const remote =
     codex?.remote?.kind === "ssh" ? `${codex.remote.kind}:${codex.remote.hostAlias}` : null;
 
   return JSON.stringify({
+    kiroBinaryPath: kiro?.binaryPath ?? null,
+    kiroRemote,
     binaryPath: codex?.binaryPath ?? null,
     homePath: codex?.homePath ?? null,
     remote,
@@ -244,7 +260,9 @@ const make = Effect.gen(function* () {
 
     const desiredRuntimeMode = thread.runtimeMode;
     const currentProvider: ProviderKind | undefined =
-      thread.session?.providerName === "codex" ? thread.session.providerName : undefined;
+      thread.session?.providerName === "codex" || thread.session?.providerName === "kiro"
+        ? thread.session.providerName
+        : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
     const desiredModel = options?.model ?? thread.model;
     const effectiveCwd = resolveThreadWorkspaceCwd({
@@ -254,6 +272,7 @@ const make = Effect.gen(function* () {
     const projectRemote =
       readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
     const effectiveProviderOptions = resolveProjectScopedProviderOptions({
+      ...(preferredProvider !== undefined ? { provider: preferredProvider } : {}),
       ...(options?.providerOptions !== undefined
         ? { providerOptions: options.providerOptions }
         : {}),
@@ -382,7 +401,7 @@ const make = Effect.gen(function* () {
     readonly model?: string;
     readonly modelOptions?: ProviderModelOptions;
     readonly providerOptions?: ProviderStartOptions;
-    readonly interactionMode?: "default" | "plan";
+    readonly interactionMode?: "default" | "plan" | "help";
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);

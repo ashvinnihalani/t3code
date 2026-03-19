@@ -15,12 +15,7 @@ import { ProviderKind } from "./orchestration";
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 
-const RuntimeEventRawSource = Schema.Literals([
-  "codex.app-server.notification",
-  "codex.app-server.request",
-  "codex.eventmsg",
-  "codex.sdk.thread-event",
-]);
+const RuntimeEventRawSource = TrimmedNonEmptyStringSchema;
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 
 export const RuntimeEventRaw = Schema.Struct({
