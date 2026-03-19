@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_GIT_DEFAULT_ACTION,
+  DEFAULT_THREAD_ID_DISPLAY_MODE,
   DEFAULT_TIMESTAMP_FORMAT,
   buildCodexHostOverridePatch,
   buildGitRequestSettings,
@@ -73,6 +74,12 @@ describe("timestamp format defaults", () => {
 describe("git settings defaults", () => {
   it("defaults the primary git action to auto", () => {
     expect(DEFAULT_GIT_DEFAULT_ACTION).toBe("auto");
+  });
+});
+
+describe("thread id display defaults", () => {
+  it("hides thread ids by default", () => {
+    expect(DEFAULT_THREAD_ID_DISPLAY_MODE).toBe("hidden");
   });
 });
 

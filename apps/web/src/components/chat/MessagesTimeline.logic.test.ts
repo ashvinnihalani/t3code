@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeMessageDurationStart, normalizeCompactToolLabel } from "./MessagesTimeline.logic";
+import {
+  appendThreadIdToMeta,
+  computeMessageDurationStart,
+  normalizeCompactToolLabel,
+} from "./MessagesTimeline.logic";
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {
@@ -141,5 +145,17 @@ describe("normalizeCompactToolLabel", () => {
 
   it("removes trailing completion wording from other labels", () => {
     expect(normalizeCompactToolLabel("Read file completed")).toBe("Read file");
+  });
+});
+
+describe("appendThreadIdToMeta", () => {
+  it("appends the provider thread id when present", () => {
+    expect(appendThreadIdToMeta("10:45 AM", "thread_remote_123")).toBe(
+      "10:45 AM • Thread ID thread_remote_123",
+    );
+  });
+
+  it("leaves the meta string unchanged when no thread id is present", () => {
+    expect(appendThreadIdToMeta("10:45 AM", null)).toBe("10:45 AM");
   });
 });

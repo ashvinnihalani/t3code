@@ -285,6 +285,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     gitHubBinaryPath: "",
     confirmThreadDelete: true,
     enableAssistantStreaming: false,
+    threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
     customCodexModels: [],
     ...overrides,
