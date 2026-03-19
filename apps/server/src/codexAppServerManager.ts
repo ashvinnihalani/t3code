@@ -569,9 +569,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
 
       const codexOptions = readCodexProviderOptions(input);
-      const codexBinaryPath = resolveLocalCodexBinaryPath(codexOptions.binaryPath ?? "codex");
       const codexHomePath = codexOptions.homePath;
       const codexRemote = codexOptions.remote;
+      const codexBinaryPath =
+        codexRemote?.kind === "ssh"
+          ? (codexOptions.binaryPath ?? "codex")
+          : resolveLocalCodexBinaryPath(codexOptions.binaryPath ?? "codex");
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         localCwd: localProcessCwd,

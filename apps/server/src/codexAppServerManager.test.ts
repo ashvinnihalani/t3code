@@ -312,6 +312,62 @@ describe("startSession", () => {
     }
   });
 
+  it("keeps the remote codex binary unresolved for ssh-backed sessions", async () => {
+    const manager = new CodexAppServerManager();
+    const readCommandPath = vi
+      .spyOn(shellModule, "readCommandPathFromLoginShell")
+      .mockReturnValue("/resolved/bin/codex");
+    const versionCheck = vi
+      .spyOn(
+        manager as unknown as {
+          assertSupportedCodexCliVersion: (input: {
+            binaryPath: string;
+            cwd: string;
+            homePath?: string;
+            remote?: { kind: "ssh"; hostAlias: string };
+          }) => void;
+        },
+        "assertSupportedCodexCliVersion",
+      )
+      .mockImplementation(() => {
+        throw new Error("stop after version check");
+      });
+
+    try {
+      await expect(
+        manager.startSession({
+          threadId: asThreadId("thread-1"),
+          provider: "codex",
+          runtimeMode: "full-access",
+          cwd: "/srv/app",
+          providerOptions: {
+            codex: {
+              remote: {
+                kind: "ssh",
+                hostAlias: "g7e_axe",
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow("stop after version check");
+
+      expect(readCommandPath).not.toHaveBeenCalled();
+      expect(versionCheck).toHaveBeenCalledWith(
+        expect.objectContaining({
+          binaryPath: "codex",
+          remote: {
+            kind: "ssh",
+            hostAlias: "g7e_axe",
+          },
+        }),
+      );
+    } finally {
+      versionCheck.mockRestore();
+      readCommandPath.mockRestore();
+      manager.stopAll();
+    }
+  });
+
   it("uses direct codex execution for the default remote codex binary", () => {
     const command = buildRemoteCodexCommand({
       binaryPath: "codex",
