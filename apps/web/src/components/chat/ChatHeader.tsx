@@ -6,10 +6,10 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import GitActionsControl from "../GitActionsControl";
 import type { GitQueryTarget } from "~/lib/gitReactQuery";
-import { DiffIcon } from "lucide-react";
+import { DiffIcon, SquarePenIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -69,21 +69,62 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onDraftThreadTitleOverrideChange,
 }: ChatHeaderProps) {
+  const [isEditingDraftThreadTitle, setIsEditingDraftThreadTitle] = useState(false);
+  const draftThreadTitleInputRef = useRef<HTMLInputElement | null>(null);
+  const isDraftThreadTitleEditable = onDraftThreadTitleOverrideChange !== null;
+  const visibleDraftThreadTitle = draftThreadTitleOverride?.trim() || activeThreadTitle;
+
+  useEffect(() => {
+    setIsEditingDraftThreadTitle(false);
+  }, [activeThreadId, isDraftThreadTitleEditable]);
+
+  useEffect(() => {
+    if (!isEditingDraftThreadTitle) {
+      return;
+    }
+    draftThreadTitleInputRef.current?.focus();
+    draftThreadTitleInputRef.current?.select();
+  }, [isEditingDraftThreadTitle]);
+
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        {onDraftThreadTitleOverrideChange ? (
+        {isDraftThreadTitleEditable && isEditingDraftThreadTitle ? (
           <Input
+            ref={draftThreadTitleInputRef}
             nativeInput
             size="sm"
             value={draftThreadTitleOverride ?? ""}
             onChange={(event) => onDraftThreadTitleOverrideChange(event.currentTarget.value)}
+            onBlur={() => setIsEditingDraftThreadTitle(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "Escape") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
             placeholder={activeThreadTitle}
             aria-label="New thread title"
             data-testid="draft-thread-title-input"
             className="min-w-0 max-w-md flex-1"
           />
+        ) : isDraftThreadTitleEditable ? (
+          <button
+            type="button"
+            className="group -mx-1 flex min-w-0 shrink items-center gap-1 rounded-md px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={() => setIsEditingDraftThreadTitle(true)}
+            title="Click to edit draft thread title"
+            data-testid="draft-thread-title-trigger"
+          >
+            <h2 className="min-w-0 shrink truncate text-sm font-medium text-foreground">
+              {visibleDraftThreadTitle}
+            </h2>
+            <SquarePenIcon
+              className="size-3 shrink-0 text-muted-foreground/45 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+              aria-hidden="true"
+            />
+          </button>
         ) : (
           <h2
             className="min-w-0 shrink truncate text-sm font-medium text-foreground"

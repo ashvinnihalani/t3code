@@ -643,6 +643,13 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
+async function waitForDraftThreadTitleTrigger(): Promise<HTMLButtonElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[data-testid="draft-thread-title-trigger"]'),
+    "Unable to find draft thread title trigger.",
+  );
+}
+
 async function waitForInteractionModeButton(
   expectedLabel: "Chat" | "Plan",
 ): Promise<HTMLButtonElement> {
@@ -1577,6 +1584,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
+      const titleTrigger = await waitForDraftThreadTitleTrigger();
+      titleTrigger.click();
       const titleInput = await waitForDraftThreadTitleInput();
       titleInput.value = "Release planning";
       titleInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1660,6 +1669,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Route should have changed to a new draft thread UUID.",
       );
 
+      const titleTrigger = await waitForDraftThreadTitleTrigger();
+      titleTrigger.click();
       const titleInput = await waitForDraftThreadTitleInput();
       titleInput.value = "Temporary title";
       titleInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1681,6 +1692,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "New thread button should reopen the existing draft thread.",
       );
 
+      expect(document.querySelector('[data-testid="draft-thread-title-input"]')).toBeNull();
+      const resetTitleTrigger = await waitForDraftThreadTitleTrigger();
+      resetTitleTrigger.click();
       const resetTitleInput = await waitForDraftThreadTitleInput();
       expect(resetTitleInput.value).toBe("");
       expect(resetTitleInput.placeholder).toBe("New thread");
