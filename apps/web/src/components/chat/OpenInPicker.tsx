@@ -1,4 +1,5 @@
 import {
+  EDITORS,
   EditorId,
   type ProjectId,
   type ResolvedKeybindingsConfig,
@@ -14,6 +15,7 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu
 import { AntigravityIcon, CursorIcon, Icon, VisualStudioCode, Zed } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { toastManager } from "../ui/toast";
 
 const resolveOptions = (
   platform: string,
@@ -58,6 +60,10 @@ const resolveOptions = (
   );
 };
 
+function describeEditor(editorId: EditorId): string {
+  return EDITORS.find((editor) => editor.id === editorId)?.label ?? "editor";
+}
+
 export const OpenInPicker = memo(function OpenInPicker({
   keybindings,
   availableEditors,
@@ -83,26 +89,35 @@ export const OpenInPicker = memo(function OpenInPicker({
   const primaryOption = options.find(({ value }) => value === preferredEditor) ?? null;
 
   const openInEditor = useCallback(
-    (editorId: EditorId | null) => {
+    async (editorId: EditorId | null) => {
       const api = readNativeApi();
       if (!api) return;
       const editor = editorId ?? preferredEditor;
       if (!editor) return;
-      if (openInProjectRoot && projectId) {
-        void api.projects.openInEditor({ projectId, editor });
-      } else if (projectId && openInCwd) {
-        void api.projects.openPathInEditor({
-          projectId,
-          ...(threadId ? { threadId } : {}),
-          relativePath: ".",
-          editor,
+      try {
+        if (openInProjectRoot && projectId) {
+          await api.projects.openInEditor({ projectId, editor });
+        } else if (projectId && openInCwd) {
+          await api.projects.openPathInEditor({
+            projectId,
+            ...(threadId ? { threadId } : {}),
+            relativePath: ".",
+            editor,
+          });
+        } else if (openInCwd) {
+          await api.shell.openInEditor(openInCwd, editor);
+        } else {
+          return;
+        }
+        setPreferredEditor(editor);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Unable to open in ${describeEditor(editor)}`,
+          description: error instanceof Error ? error.message : "Unknown error opening editor.",
+          ...(threadId ? { data: { threadId } } : {}),
         });
-      } else if (openInCwd) {
-        void api.shell.openInEditor(openInCwd, editor);
-      } else {
-        return;
       }
-      setPreferredEditor(editor);
     },
     [openInCwd, openInProjectRoot, preferredEditor, projectId, setPreferredEditor, threadId],
   );
@@ -122,26 +137,11 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!openInProjectRoot && !openInCwd) return;
 
       e.preventDefault();
-      if (openInProjectRoot && projectId) {
-        void api.projects.openInEditor({ projectId, editor: primaryOption.value });
-        return;
-      }
-      if (projectId && openInCwd) {
-        void api.projects.openPathInEditor({
-          projectId,
-          ...(threadId ? { threadId } : {}),
-          relativePath: ".",
-          editor: primaryOption.value,
-        });
-        return;
-      }
-      if (openInCwd) {
-        void api.shell.openInEditor(openInCwd, primaryOption.value);
-      }
+      void openInEditor(primaryOption.value);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [keybindings, openInCwd, openInProjectRoot, primaryOption, projectId, threadId]);
+  }, [keybindings, openInCwd, openInEditor, openInProjectRoot, primaryOption, projectId]);
 
   const canOpen = primaryOption !== null && ((openInProjectRoot && projectId) || openInCwd);
 
@@ -151,7 +151,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         size="xs"
         variant="outline"
         disabled={!canOpen}
-        onClick={() => openInEditor(preferredEditor)}
+        onClick={() => void openInEditor(preferredEditor)}
       >
         {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}
         <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
@@ -166,7 +166,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         <MenuPopup align="end">
           {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
           {options.map(({ label, Icon, value }) => (
-            <MenuItem key={value} onClick={() => openInEditor(value)}>
+            <MenuItem key={value} onClick={() => void openInEditor(value)}>
               <Icon aria-hidden="true" className="text-muted-foreground" />
               {label}
               {value === preferredEditor && openFavoriteEditorShortcutLabel && (

@@ -38,6 +38,7 @@ interface CommandAvailabilityOptions {
 }
 
 const LINE_COLUMN_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
+const REMOTE_SSH_URI_PREFIX = "ssh://";
 
 function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
   return (
@@ -46,7 +47,49 @@ function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
 }
 
 function isRemoteUriTarget(target: string): boolean {
-  return target.startsWith("ssh://");
+  return target.startsWith(REMOTE_SSH_URI_PREFIX);
+}
+
+interface RemoteSshLaunchTarget {
+  readonly authority: string;
+  readonly path: string;
+  readonly targetUri: string;
+  readonly line?: number;
+  readonly column?: number;
+}
+
+function toOptionalPositiveInt(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function formatPathWithPosition(pathValue: string, line?: number, column?: number): string {
+  if (typeof line !== "number") {
+    return pathValue;
+  }
+  return `${pathValue}:${line}${typeof column === "number" ? `:${column}` : ""}`;
+}
+
+function parseRemoteSshLaunchTarget(target: string): RemoteSshLaunchTarget | null {
+  if (!isRemoteUriTarget(target)) {
+    return null;
+  }
+
+  const url = new URL(target);
+  const line = toOptionalPositiveInt(url.searchParams.get("line"));
+  const column = toOptionalPositiveInt(url.searchParams.get("column"));
+  url.search = "";
+
+  return {
+    authority: `ssh-remote+${url.host}`,
+    path: decodeURIComponent(url.pathname),
+    targetUri: url.toString(),
+    ...(typeof line === "number" ? { line } : {}),
+    ...(typeof column === "number" ? { column } : {}),
+  };
 }
 
 function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
@@ -216,7 +259,36 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
     return yield* new OpenError({ message: `Unknown editor: ${input.editor}` });
   }
 
+  const remoteTarget = parseRemoteSshLaunchTarget(input.target);
   if (editorDef.command) {
+    if (remoteTarget) {
+      if (editorDef.id === "vscode" || editorDef.id === "cursor") {
+        const pathTarget = formatPathWithPosition(
+          remoteTarget.path,
+          remoteTarget.line,
+          remoteTarget.column,
+        );
+        return typeof remoteTarget.line === "number"
+          ? {
+              command: editorDef.command,
+              args: ["--remote", remoteTarget.authority, "--goto", pathTarget],
+            }
+          : {
+              command: editorDef.command,
+              args: ["--remote", remoteTarget.authority, pathTarget],
+            };
+      }
+
+      if (editorDef.id === "zed") {
+        return {
+          command: editorDef.command,
+          args: [
+            formatPathWithPosition(remoteTarget.targetUri, remoteTarget.line, remoteTarget.column),
+          ],
+        };
+      }
+    }
+
     return shouldUseGotoFlag(editorDef.id, input.target)
       ? { command: editorDef.command, args: ["--goto", input.target] }
       : { command: editorDef.command, args: [input.target] };

@@ -59,6 +59,7 @@ interface TestFixture {
   serverConfig: ServerConfig;
   welcome: WsWelcomePayload;
   gitReposByCwd?: Record<string, TestGitRepoFixture>;
+  wsErrorsByMethod?: Partial<Record<string, string>>;
 }
 
 let fixture: TestFixture;
@@ -280,6 +281,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
       bootstrapProjectId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
+    wsErrorsByMethod: {},
   };
 }
 
@@ -627,6 +629,19 @@ const worker = setupWorker(
       const method = request.body?._tag;
       if (typeof method !== "string") return;
       wsRequests.push(request.body);
+      const errorMessage = fixture.wsErrorsByMethod?.[method];
+      if (typeof errorMessage === "string") {
+        client.send(
+          JSON.stringify({
+            id: request.id,
+            error: {
+              code: 400,
+              message: errorMessage,
+            },
+          }),
+        );
+        return;
+      }
       client.send(
         JSON.stringify({
           id: request.id,
@@ -725,6 +740,16 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   return waitForElement(
     () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
     "Unable to find send button.",
+  );
+}
+
+async function waitForToast(title: string): Promise<HTMLElement> {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[data-slot="toast-title"]')).find(
+        (element) => element.textContent?.trim() === title,
+      ) ?? null,
+    `Unable to find toast titled "${title}".`,
   );
 }
 
@@ -1316,6 +1341,66 @@ describe("ChatView timeline estimator parity (full app)", () => {
             projectId: PROJECT_ID,
             editor: "vscode",
           });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows a toast when opening the preferred editor fails", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          availableEditors: ["vscode"],
+        };
+        nextFixture.wsErrorsByMethod = {
+          ...nextFixture.wsErrorsByMethod,
+          [WS_METHODS.projectsOpenInEditor]: "Remote editor launch failed.",
+        };
+      },
+    });
+
+    try {
+      const openButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "Open",
+          ) as HTMLButtonElement | null,
+        "Unable to find Open button.",
+      );
+      openButton.click();
+
+      const toastTitle = await waitForToast("Unable to open in VS Code");
+      expect(toastTitle.textContent).toBe("Unable to open in VS Code");
+      await vi.waitFor(
+        () => {
+          expect(
+            Array.from(document.querySelectorAll('[data-slot="toast-description"]')).some(
+              (element) => element.textContent?.includes("Remote editor launch failed."),
+            ),
+          ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
       );

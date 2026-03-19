@@ -1267,11 +1267,11 @@ describe("WebSocket Server", () => {
       expect(fileResponse.error).toBeUndefined();
       expect(openCalls).toEqual([
         {
-          target: "ssh://alice@prod.example.com/srv/app",
+          target: "ssh://prod/srv/app",
           editor: "cursor",
         },
         {
-          target: "ssh://alice@prod.example.com/srv/app/src/main.ts",
+          target: "ssh://prod/srv/app/src/main.ts?line=12&column=3",
           editor: "cursor",
         },
       ]);
@@ -1284,7 +1284,7 @@ describe("WebSocket Server", () => {
     }
   });
 
-  it("returns a clear error when remote ssh metadata is incomplete", async () => {
+  it("builds alias-based ssh editor targets even when ssh config omits user", async () => {
     const homeDir = makeTempDir("t3code-ssh-home-missing-");
     fs.mkdirSync(path.join(homeDir, ".ssh"), { recursive: true });
     fs.writeFileSync(
@@ -1294,9 +1294,17 @@ describe("WebSocket Server", () => {
     );
     const previousHome = process.env.HOME;
     process.env.HOME = homeDir;
+    const openCalls: Array<{ target: string; editor: string }> = [];
+    const openService: OpenShape = {
+      openBrowser: () => Effect.void,
+      openInEditor: (input) => {
+        openCalls.push({ target: input.target, editor: input.editor });
+        return Effect.void;
+      },
+    };
 
     try {
-      server = await createTestServer({ cwd: "/my/workspace" });
+      server = await createTestServer({ cwd: "/my/workspace", open: openService });
       const addr = server.address();
       const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1316,10 +1324,13 @@ describe("WebSocket Server", () => {
         relativePath: "src/main.ts",
         editor: "cursor",
       });
-      expect(response.error).toEqual({
-        code: 400,
-        message: "SSH host 'prod' is missing a concrete user or hostname.",
-      });
+      expect(response.error).toBeUndefined();
+      expect(openCalls).toEqual([
+        {
+          target: "ssh://prod/srv/app/src/main.ts",
+          editor: "cursor",
+        },
+      ]);
     } finally {
       if (previousHome === undefined) {
         delete process.env.HOME;

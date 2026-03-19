@@ -91,6 +91,46 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
     }),
   );
 
+  it.effect("translates remote ssh targets for vscode and zed", () =>
+    Effect.gen(function* () {
+      const vscodeRemoteFolder = yield* resolveEditorLaunch(
+        { target: "ssh://prod/srv/app", editor: "vscode" },
+        "darwin",
+      );
+      assert.deepEqual(vscodeRemoteFolder, {
+        command: "code",
+        args: ["--remote", "ssh-remote+prod", "/srv/app"],
+      });
+
+      const vscodeRemoteFile = yield* resolveEditorLaunch(
+        { target: "ssh://prod/srv/app/src/main.ts?line=12&column=3", editor: "vscode" },
+        "darwin",
+      );
+      assert.deepEqual(vscodeRemoteFile, {
+        command: "code",
+        args: ["--remote", "ssh-remote+prod", "--goto", "/srv/app/src/main.ts:12:3"],
+      });
+
+      const zedRemoteFolder = yield* resolveEditorLaunch(
+        { target: "ssh://prod/srv/app", editor: "zed" },
+        "darwin",
+      );
+      assert.deepEqual(zedRemoteFolder, {
+        command: "zed",
+        args: ["ssh://prod/srv/app"],
+      });
+
+      const zedRemoteFile = yield* resolveEditorLaunch(
+        { target: "ssh://prod/srv/app/src/main.ts?line=12&column=3", editor: "zed" },
+        "darwin",
+      );
+      assert.deepEqual(zedRemoteFile, {
+        command: "zed",
+        args: ["ssh://prod/srv/app/src/main.ts:12:3"],
+      });
+    }),
+  );
+
   it.effect("maps file-manager editor to OS open commands", () =>
     Effect.gen(function* () {
       const launch1 = yield* resolveEditorLaunch(
@@ -125,7 +165,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   it.effect("rejects remote SSH targets for file-manager", () =>
     Effect.gen(function* () {
       const result = yield* resolveEditorLaunch(
-        { target: "ssh://alice@example.com/workspace", editor: "file-manager" },
+        { target: "ssh://prod/workspace", editor: "file-manager" },
         "darwin",
       ).pipe(Effect.result);
       assert.equal(result._tag, "Failure");

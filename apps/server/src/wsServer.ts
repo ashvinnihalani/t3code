@@ -786,7 +786,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     };
   });
 
-  const resolveRemoteSshHost = Effect.fnUntraced(function* (hostAlias: string) {
+  const assertRemoteSshHostAliasExists = Effect.fnUntraced(function* (hostAlias: string) {
     const sshHosts = yield* Effect.tryPromise({
       try: () => listSshHosts(),
       catch: (cause) =>
@@ -796,38 +796,27 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     });
     const sshHost = sshHosts.find((host) => host.alias === hostAlias);
     if (!sshHost) {
-      return yield* new RouteRequestError({
+      yield* new RouteRequestError({
         message: `SSH host '${hostAlias}' was not found in ~/.ssh/config.`,
       });
     }
-    const user = sshHost.user;
-    const hostname = sshHost.hostname;
-    if (!user || !hostname) {
-      return yield* new RouteRequestError({
-        message: `SSH host '${hostAlias}' is missing a concrete user or hostname.`,
-      });
-    }
-    return {
-      user,
-      hostname,
-      port: sshHost.port,
-    };
   });
 
   const buildRemoteSshEditorTarget = Effect.fnUntraced(function* (input: {
     readonly hostAlias: string;
     readonly absolutePath: string;
+    readonly line?: number;
+    readonly column?: number;
   }) {
-    const sshHost = yield* resolveRemoteSshHost(input.hostAlias);
-    const username = sshHost.user;
-    const hostname = sshHost.hostname;
-    const targetUrl = new URL("ssh://placeholder");
-    targetUrl.username = username;
-    targetUrl.hostname = hostname;
-    if (sshHost.port !== null) {
-      targetUrl.port = String(sshHost.port);
-    }
+    yield* assertRemoteSshHostAliasExists(input.hostAlias);
+    const targetUrl = new URL(`ssh://${input.hostAlias}`);
     targetUrl.pathname = input.absolutePath;
+    if (typeof input.line === "number") {
+      targetUrl.searchParams.set("line", String(input.line));
+    }
+    if (typeof input.column === "number") {
+      targetUrl.searchParams.set("column", String(input.column));
+    }
     return targetUrl.toString();
   });
 
@@ -853,6 +842,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       return yield* buildRemoteSshEditorTarget({
         hostAlias: project.remote.hostAlias,
         absolutePath: resolvedTarget.absolutePath,
+        ...(typeof input.line === "number" ? { line: input.line } : {}),
+        ...(typeof input.column === "number" ? { column: input.column } : {}),
       });
     }
 
