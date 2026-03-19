@@ -39,7 +39,7 @@ import {
 } from "@t3tools/contracts";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { useAppSettings } from "../appSettings";
+import { buildGitRequestSettings, useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
@@ -434,9 +434,10 @@ export default function Sidebar() {
     ],
     [gitTargetKey, threadGitTargets],
   );
+  const gitRequestSettings = useMemo(() => buildGitRequestSettings(appSettings), [appSettings]);
   const threadGitStatusQueries = useQueries({
     queries: threadGitStatusTargets.map((target) => ({
-      ...gitStatusQueryOptions(target),
+      ...gitStatusQueryOptions(target, gitRequestSettings),
       staleTime: 30_000,
       refetchInterval: 60_000,
     })),

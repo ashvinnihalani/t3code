@@ -41,6 +41,7 @@ export interface GitHubCliShape {
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;
     readonly timeoutMs?: number;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<ProcessRunResult, GitHubCliError>;
 
@@ -51,6 +52,7 @@ export interface GitHubCliShape {
     readonly cwd: string;
     readonly headSelector: string;
     readonly limit?: number;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
@@ -60,6 +62,7 @@ export interface GitHubCliShape {
   readonly getPullRequest: (input: {
     readonly cwd: string;
     readonly reference: string;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
 
@@ -69,6 +72,7 @@ export interface GitHubCliShape {
   readonly getRepositoryCloneUrls: (input: {
     readonly cwd: string;
     readonly repository: string;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<GitHubRepositoryCloneUrls, GitHubCliError>;
 
@@ -81,6 +85,7 @@ export interface GitHubCliShape {
     readonly headSelector: string;
     readonly title: string;
     readonly body: string;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<void, GitHubCliError>;
 
@@ -89,6 +94,7 @@ export interface GitHubCliShape {
    */
   readonly getDefaultBranch: (input: {
     readonly cwd: string;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<string | null, GitHubCliError>;
 
@@ -99,6 +105,7 @@ export interface GitHubCliShape {
     readonly cwd: string;
     readonly reference: string;
     readonly force?: boolean;
+    readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;
   }) => Effect.Effect<void, GitHubCliError>;
 }

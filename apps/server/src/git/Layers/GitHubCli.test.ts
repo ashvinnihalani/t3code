@@ -15,6 +15,7 @@ const layer = it.layer(GitHubCliLive);
 
 afterEach(() => {
   mockedRunProcess.mockReset();
+  delete process.env.T3_GH_BIN;
 });
 
 layer("GitHubCliLive", (it) => {
@@ -123,6 +124,42 @@ layer("GitHubCliLive", (it) => {
       }).pipe(Effect.flip);
 
       assert.equal(error.message.includes("Pull request not found"), true);
+    }),
+  );
+
+  it.effect("uses T3_GH_BIN when configured", () =>
+    Effect.gen(function* () {
+      process.env.T3_GH_BIN = "/tmp/custom-gh";
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: JSON.stringify([]),
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const gh = yield* GitHubCli;
+      yield* gh.listOpenPullRequests({
+        cwd: "/repo",
+        headSelector: "feature/test",
+      });
+
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "/tmp/custom-gh",
+        [
+          "pr",
+          "list",
+          "--head",
+          "feature/test",
+          "--state",
+          "open",
+          "--limit",
+          "1",
+          "--json",
+          "number,title,url,baseRefName,headRefName",
+        ],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
     }),
   );
 });

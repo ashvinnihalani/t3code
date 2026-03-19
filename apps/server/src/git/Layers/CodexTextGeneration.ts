@@ -567,9 +567,13 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 
   const generateCommitMessage: TextGenerationShape["generateCommitMessage"] = (input) => {
     const wantsBranch = input.includeBranch === true;
+    const customSystemPrompt = input.systemPrompt?.trim() ?? "";
 
     const prompt = [
       "You write concise git commit messages.",
+      ...(customSystemPrompt.length > 0
+        ? ["Follow these additional system instructions exactly:", customSystemPrompt, ""]
+        : []),
       wantsBranch
         ? "Return a JSON object with keys: subject, body, branch."
         : "Return a JSON object with keys: subject, body.",
