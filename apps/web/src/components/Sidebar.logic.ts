@@ -1,7 +1,6 @@
 import type { ProjectRemoteTarget } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import { cn } from "../lib/utils";
-import { resolveRequestedThreadEnvMode } from "../threadEnvMode";
 import {
   findLatestProposedPlan,
   hasActionableProposedPlan,
