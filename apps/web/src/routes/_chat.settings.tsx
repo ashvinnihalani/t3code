@@ -196,6 +196,11 @@ function SettingsRouteView() {
       (option) =>
         option.slug === (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
     )?.name ?? settings.textGenerationModel;
+  const hasGitOverrides =
+    settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
+    settings.gitCommitPrompt !== "" ||
+    settings.gitHubBinaryPath !== "" ||
+    settings.textGenerationModel !== defaults.textGenerationModel;
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
@@ -398,7 +403,7 @@ function SettingsRouteView() {
                 <h2 className="text-sm font-medium text-foreground">Git</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Configure the default stacked git action and overrides used for auto-generated
-                  commits and PR workflows.
+                  commits, PR workflows, and generated git content.
                 </p>
               </div>
 
@@ -437,8 +442,41 @@ function SettingsRouteView() {
                   </Select>
                 </div>
 
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">Text generation model</p>
+                    <p className="text-xs text-muted-foreground">
+                      Model used for auto-generated git content.
+                    </p>
+                  </div>
+                  <Select
+                    value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
+                    onValueChange={(value) => {
+                      if (value) {
+                        updateSettings({
+                          textGenerationModel: value,
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full shrink-0 sm:w-48"
+                      aria-label="Git text generation model"
+                    >
+                      <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end">
+                      {gitTextGenerationModelOptions.map((option) => (
+                        <SelectItem key={option.slug} value={option.slug}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+
                 <label htmlFor="git-commit-prompt" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Commit prompt</span>
+                  <span className="text-xs font-medium text-foreground">System prompt</span>
                   <Textarea
                     id="git-commit-prompt"
                     value={settings.gitCommitPrompt}
@@ -447,11 +485,11 @@ function SettingsRouteView() {
                         gitCommitPrompt: event.target.value,
                       })
                     }
-                    placeholder="Optional system prompt for auto-generated commit messages"
+                    placeholder="Optional system prompt for auto-generated git content"
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">
-                    Leave blank to use the built-in commit prompt only.
+                    Leave blank to use the built-in git prompts only.
                   </span>
                 </label>
 
@@ -475,9 +513,7 @@ function SettingsRouteView() {
                 </label>
               </div>
 
-              {settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
-              settings.gitCommitPrompt !== "" ||
-              settings.gitHubBinaryPath !== "" ? (
+              {hasGitOverrides ? (
                 <div className="mt-3 flex justify-end">
                   <Button
                     size="xs"
@@ -487,6 +523,7 @@ function SettingsRouteView() {
                         gitDefaultAction: defaults.gitDefaultAction,
                         gitCommitPrompt: defaults.gitCommitPrompt,
                         gitHubBinaryPath: defaults.gitHubBinaryPath,
+                        textGenerationModel: defaults.textGenerationModel,
                       })
                     }
                   >
@@ -752,65 +789,6 @@ function SettingsRouteView() {
                   );
                 })}
               </div>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Git</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Configure the model used for generating commit messages, PR titles, and branch
-                  names.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-4 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">Text generation model</p>
-                  <p className="text-xs text-muted-foreground">
-                    Model used for auto-generated git content.
-                  </p>
-                </div>
-                <Select
-                  value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
-                  onValueChange={(value) => {
-                    if (value) {
-                      updateSettings({
-                        textGenerationModel: value,
-                      });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className="w-full shrink-0 sm:w-48"
-                    aria-label="Git text generation model"
-                  >
-                    <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end">
-                    {gitTextGenerationModelOptions.map((option) => (
-                      <SelectItem key={option.slug} value={option.slug}>
-                        {option.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </div>
-
-              {settings.textGenerationModel !== defaults.textGenerationModel ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        textGenerationModel: defaults.textGenerationModel,
-                      })
-                    }
-                  >
-                    Restore default
-                  </Button>
-                </div>
-              ) : null}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">

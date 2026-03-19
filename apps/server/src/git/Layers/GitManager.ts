@@ -297,18 +297,21 @@ function toCommitGenerationOptions(settings: GitOperationSettings): {
   systemPrompt: string | null;
   model?: string;
 } {
-  const systemPrompt = settings?.commitPrompt?.trim();
   return {
-    systemPrompt: systemPrompt || null,
-    ...toTextGenerationModelOptions(settings),
+    ...toTextGenerationOptions(settings),
   };
 }
 
-function toTextGenerationModelOptions(settings: GitOperationSettings): {
+function toTextGenerationOptions(settings: GitOperationSettings): {
+  systemPrompt: string | null;
   model?: string;
 } {
+  const systemPrompt = settings?.commitPrompt?.trim();
   const model = settings?.textGenerationModel?.trim();
-  return model ? { model } : {};
+  return {
+    systemPrompt: systemPrompt || null,
+    ...(model ? { model } : {}),
+  };
 }
 
 function normalizePullRequestReference(reference: string): string {
@@ -867,7 +870,7 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-        ...toTextGenerationModelOptions(settings),
+        ...toTextGenerationOptions(settings),
       });
 
       yield* gitHubCli
