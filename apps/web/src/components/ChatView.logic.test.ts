@@ -83,7 +83,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
     });
   });
 
-  it("shows reconnect metadata for disconnected remote sessions", () => {
+  it("suppresses background reconnect and disconnected remote status banners", () => {
     expect(
       resolveVisibleProviderHealthStatus({
         status: {
@@ -99,8 +99,8 @@ describe("resolveVisibleProviderHealthStatus", () => {
         },
         session: {
           provider: "codex",
-          status: "closed",
-          orchestrationStatus: "stopped",
+          status: "disconnected",
+          orchestrationStatus: "disconnected",
           providerThreadId: "thread_remote_123",
           resumeAvailable: true,
           createdAt: "2026-03-16T00:00:00.000Z",
@@ -108,11 +108,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
         },
         localCodexErrorsDismissedAfter: "2026-03-16T01:00:00.000Z",
       }),
-    ).toMatchObject({
-      kind: "remote",
-      status: "warning",
-      message: "Resume is available for provider thread thread_remote_123.",
-    });
+    ).toBeNull();
   });
 
   it("hides dismissed local Codex provider health until a newer status arrives", () => {

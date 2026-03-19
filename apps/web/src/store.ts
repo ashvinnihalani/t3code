@@ -202,12 +202,14 @@ function mapProjectsFromReadModel(
 
 function toLegacySessionStatus(
   status: OrchestrationSessionStatus,
-): "connecting" | "ready" | "running" | "error" | "closed" {
+): "disconnected" | "connecting" | "ready" | "running" | "error" | "closed" {
   switch (status) {
     case "starting":
       return "connecting";
     case "running":
       return "running";
+    case "disconnected":
+      return "disconnected";
     case "error":
       return "error";
     case "ready":

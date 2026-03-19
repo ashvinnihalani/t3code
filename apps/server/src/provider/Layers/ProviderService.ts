@@ -331,6 +331,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
         readonly threadId: ThreadId;
         readonly isActive: boolean;
+        readonly recovered: boolean;
       },
       ProviderServiceError
     > =>
@@ -347,15 +348,30 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
         const hasRequestedSession = yield* adapter.hasSession(input.threadId);
         if (hasRequestedSession) {
-          return { adapter, threadId: input.threadId, isActive: true } as const;
+          return {
+            adapter,
+            threadId: input.threadId,
+            isActive: true,
+            recovered: false,
+          } as const;
         }
 
         if (!input.allowRecovery) {
-          return { adapter, threadId: input.threadId, isActive: false } as const;
+          return {
+            adapter,
+            threadId: input.threadId,
+            isActive: false,
+            recovered: false,
+          } as const;
         }
 
         const recovered = yield* recoverSessionForThread({ binding, operation: input.operation });
-        return { adapter: recovered.adapter, threadId: input.threadId, isActive: true } as const;
+        return {
+          adapter: recovered.adapter,
+          threadId: input.threadId,
+          isActive: true,
+          recovered: true,
+        } as const;
       });
 
     const startSession: ProviderServiceShape["startSession"] = (threadId, rawInput) =>
@@ -566,6 +582,29 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         });
       });
 
+    const inspectRecoverableThread: ProviderServiceShape["inspectRecoverableThread"] = (input) =>
+      Effect.gen(function* () {
+        const routed = yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.inspectRecoverableThread",
+          allowRecovery: true,
+        });
+        const activeSessions = yield* listSessions();
+        const session = activeSessions.find((entry) => entry.threadId === input.threadId);
+        if (!session) {
+          return yield* toValidationError(
+            "ProviderService.inspectRecoverableThread",
+            `Recovered thread '${input.threadId}' has no active provider session.`,
+          );
+        }
+        const threadSnapshot = yield* routed.adapter.readThread(input.threadId);
+        return {
+          session,
+          threadSnapshot,
+          recovered: routed.recovered,
+        } as const;
+      });
+
     const getCapabilities: ProviderServiceShape["getCapabilities"] = (provider) =>
       registry.getByProvider(provider).pipe(Effect.map((adapter) => adapter.capabilities));
 
@@ -634,6 +673,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       respondToUserInput,
       stopSession,
       listSessions,
+      inspectRecoverableThread,
       getCapabilities,
       rollbackConversation,
       // Each access creates a fresh PubSub subscription so that multiple

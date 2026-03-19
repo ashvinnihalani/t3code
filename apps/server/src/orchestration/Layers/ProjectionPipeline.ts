@@ -531,6 +531,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
+        case "thread.turn-completed":
         case "thread.turn-diff-completed": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -924,6 +925,42 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             requestedAt: event.payload.createdAt,
             startedAt: event.payload.createdAt,
             completedAt: event.payload.createdAt,
+            checkpointTurnCount: null,
+            checkpointRef: null,
+            checkpointStatus: null,
+            checkpointFiles: [],
+            checkpointDiff: null,
+          });
+          return;
+        }
+
+        case "thread.turn-completed": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+
+          if (Option.isSome(existingTurn)) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...existingTurn.value,
+              assistantMessageId: event.payload.assistantMessageId,
+              state: event.payload.state,
+              startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
+              requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
+              completedAt: event.payload.completedAt,
+            });
+            return;
+          }
+
+          yield* projectionTurnRepository.upsertByTurnId({
+            turnId: event.payload.turnId,
+            threadId: event.payload.threadId,
+            pendingMessageId: null,
+            assistantMessageId: event.payload.assistantMessageId,
+            state: event.payload.state,
+            requestedAt: event.payload.completedAt,
+            startedAt: event.payload.completedAt,
+            completedAt: event.payload.completedAt,
             checkpointTurnCount: null,
             checkpointRef: null,
             checkpointStatus: null,

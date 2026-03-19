@@ -267,6 +267,67 @@ describe("orchestration projector", () => {
     expect(afterUpdate.threads[0]?.updatedAt).toBe(updatedAt);
   });
 
+  it("updates latest turn state from thread.turn-completed", async () => {
+    const now = "2026-02-23T08:00:00.000Z";
+    const completedAt = "2026-02-23T08:03:00.000Z";
+    const model = createEmptyReadModel(now);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            model: "gpt-5.3-codex",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const afterComplete = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.turn-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: completedAt,
+          commandId: "cmd-complete",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            state: "completed",
+            assistantMessageId: "message-1",
+            completedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(afterComplete.threads[0]?.latestTurn).toEqual({
+      turnId: "turn-1",
+      state: "completed",
+      requestedAt: completedAt,
+      startedAt: completedAt,
+      completedAt,
+      assistantMessageId: "message-1",
+    });
+  });
+
   it("marks assistant messages completed with non-streaming updates", async () => {
     const createdAt = "2026-02-23T09:00:00.000Z";
     const deltaAt = "2026-02-23T09:00:01.000Z";

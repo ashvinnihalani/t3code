@@ -22,6 +22,7 @@ import {
   ThreadRuntimeModeSetPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
+  ThreadTurnCompletedPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
@@ -469,6 +470,41 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             proposedPlans,
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.turn-completed":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadTurnCompletedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            latestTurn: {
+              turnId: payload.turnId,
+              state: payload.state,
+              requestedAt:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? thread.latestTurn.requestedAt
+                  : payload.completedAt,
+              startedAt:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? (thread.latestTurn.startedAt ?? payload.completedAt)
+                  : payload.completedAt,
+              completedAt: payload.completedAt,
+              assistantMessageId: payload.assistantMessageId,
+            },
             updatedAt: event.occurredAt,
           }),
         };
