@@ -1,5 +1,6 @@
 import { Cache, Data, Duration, Effect, Exit, FileSystem, Layer, Path } from "effect";
 
+import { readRemoteHomeDir } from "../../sshCommand";
 import { GitCommandError } from "../Errors.ts";
 import { GitService } from "../Services/GitService.ts";
 import { GitCore, type GitCoreShape, type GitExecutionContext } from "../Services/GitCore.ts";
@@ -1302,18 +1303,16 @@ const makeGitCore = Effect.gen(function* () {
 
   const createWorktree: GitCoreShape["createWorktree"] = (input) =>
     Effect.gen(function* () {
-      if (input.remote?.kind === "ssh") {
-        return yield* createGitCommandError(
-          "GitCore.createWorktree",
-          input.cwd,
-          ["worktree", "add"],
-          "Git worktrees are unavailable for remote projects.",
-        );
-      }
       const targetBranch = input.newBranch ?? input.branch;
       const sanitizedBranch = targetBranch.replace(/\//g, "-");
       const repoName = path.basename(input.cwd);
-      const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "/tmp";
+      const homeDir =
+        input.remote?.kind === "ssh"
+          ? (readRemoteHomeDir({
+              hostAlias: input.remote.hostAlias,
+              localCwd: process.cwd(),
+            }) ?? "/tmp")
+          : (process.env.HOME ?? process.env.USERPROFILE ?? "/tmp");
       const worktreePath =
         input.path ?? path.join(homeDir, ".t3", "worktrees", repoName, sanitizedBranch);
       const args = input.newBranch
@@ -1402,14 +1401,6 @@ const makeGitCore = Effect.gen(function* () {
 
   const removeWorktree: GitCoreShape["removeWorktree"] = (input) =>
     Effect.gen(function* () {
-      if (input.remote?.kind === "ssh") {
-        return yield* createGitCommandError(
-          "GitCore.removeWorktree",
-          input.cwd,
-          ["worktree", "remove"],
-          "Git worktrees are unavailable for remote projects.",
-        );
-      }
       const args = ["worktree", "remove"];
       if (input.force) {
         args.push("--force");

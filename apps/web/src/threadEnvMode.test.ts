@@ -10,7 +10,7 @@ describe("supportsDraftWorktreeEnv", () => {
     expect(supportsDraftWorktreeEnv({ projectRemote: null })).toBe(true);
   });
 
-  it("disables worktree env for remote projects", () => {
+  it("supports worktree env for remote projects", () => {
     expect(
       supportsDraftWorktreeEnv({
         projectRemote: {
@@ -18,7 +18,7 @@ describe("supportsDraftWorktreeEnv", () => {
           hostAlias: "buildbox",
         },
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -32,7 +32,7 @@ describe("resolveRequestedThreadEnvMode", () => {
     ).toBe("worktree");
   });
 
-  it("forces remote worktree requests back to local", () => {
+  it("keeps remote worktree requests intact", () => {
     expect(
       resolveRequestedThreadEnvMode({
         projectRemote: {
@@ -41,7 +41,7 @@ describe("resolveRequestedThreadEnvMode", () => {
         },
         requestedEnvMode: "worktree",
       }),
-    ).toBe("local");
+    ).toBe("worktree");
   });
 });
 
@@ -59,7 +59,7 @@ describe("resolveEffectiveThreadEnvMode", () => {
     ).toBe("worktree");
   });
 
-  it("normalizes stale remote draft worktree mode without a worktree path back to local", () => {
+  it("keeps remote draft worktree mode before worktree creation", () => {
     expect(
       resolveEffectiveThreadEnvMode({
         projectRemote: {
@@ -69,6 +69,6 @@ describe("resolveEffectiveThreadEnvMode", () => {
         draftThreadEnvMode: "worktree",
         worktreePath: null,
       }),
-    ).toBe("local");
+    ).toBe("worktree");
   });
 });

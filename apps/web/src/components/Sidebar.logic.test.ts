@@ -82,7 +82,7 @@ describe("resolveSidebarNewThreadEnvMode", () => {
     ).toBe("local");
   });
 
-  it("normalizes remote worktree defaults back to local", () => {
+  it("keeps remote worktree defaults when requested", () => {
     expect(
       resolveSidebarNewThreadEnvMode({
         defaultEnvMode: "worktree",
@@ -91,7 +91,7 @@ describe("resolveSidebarNewThreadEnvMode", () => {
           hostAlias: "buildbox",
         },
       }),
-    ).toBe("local");
+    ).toBe("worktree");
   });
 });
 

@@ -75,7 +75,7 @@ This checklist covers the remote SSH functionality and follow-up UX fixes implem
 ## 5. Remote Thread Creation And Session Startup
 
 - Create a new thread in a remote project.
-  Expected: the thread starts in Local env mode, not worktree mode.
+  Expected: the thread starts in the selected env mode, including `New worktree` when requested.
 
 - Start a Codex turn in that remote thread.
   Expected: the session starts successfully and the chat does not show local-only assumptions or broken controls.
@@ -153,16 +153,19 @@ This checklist covers the remote SSH functionality and follow-up UX fixes implem
 - Attempt to use file-manager open actions on a remote project.
   Expected: unsupported remote file-manager actions are blocked cleanly instead of failing ambiguously.
 
-## 11. Remote Env-Mode Normalization
+## 11. Remote Worktree Mode
 
 - Set default new-thread mode to `New worktree` in Settings.
-  Expected: local projects still default to worktree mode.
+  Expected: local projects still default to worktree mode, and remote projects can also inherit that default.
 
 - Create a new thread in a remote project after that setting is enabled.
-  Expected: the remote draft thread is normalized back to Local mode.
+  Expected: the remote draft thread stays in `New worktree` mode until the first send prepares a remote worktree.
 
-- Reload the app while a remote draft thread previously carried stale worktree mode state.
-  Expected: the draft thread still resolves to Local mode unless it already has a real worktree path.
+- Send the first message in that remote draft thread.
+  Expected: the server creates a remote worktree, the thread stores the remote worktree path, and the turn starts from that remote worktree cwd.
+
+- Prepare a PR thread in `New worktree` mode for a remote project.
+  Expected: the PR head is materialized remotely and the thread points at the remote worktree path instead of the main remote checkout.
 
 ## 12. Startup Hydration
 

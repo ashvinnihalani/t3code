@@ -990,13 +990,6 @@ export const makeGitManager = Effect.gen(function* () {
         };
       }
 
-      if (input.remote?.kind === "ssh") {
-        return yield* gitManagerError(
-          "preparePullRequestThread",
-          "PR worktree preparation is unavailable for remote projects.",
-        );
-      }
-
       const rootWorktreePath = canonicalizeExistingPath(input.cwd);
       const ensureExistingWorktreeUpstream = (worktreePath: string) =>
         Effect.gen(function* () {

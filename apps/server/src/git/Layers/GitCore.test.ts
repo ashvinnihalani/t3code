@@ -12,6 +12,7 @@ import { GitCoreLive } from "./GitCore.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitCommandError } from "../Errors.ts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
+import * as sshCommand from "../../sshCommand.ts";
 
 // ── Helpers ──
 
@@ -1142,6 +1143,93 @@ it.layer(TestLayer)("git integration", (it) => {
 
         yield* removeGitWorktree({ cwd: tmp, path: wtPath, force: true });
         expect(existsSync(wtPath)).toBe(false);
+      }),
+    );
+
+    it.effect(
+      "uses the remote home directory when creating an SSH worktree without an explicit path",
+      () =>
+        Effect.gen(function* () {
+          const readRemoteHomeDirSpy = vi
+            .spyOn(sshCommand, "readRemoteHomeDir")
+            .mockReturnValue("/home/remote-user");
+          let executeInput: Parameters<GitServiceShape["execute"]>[0] | null = null;
+          const core = yield* makeIsolatedGitCore({
+            execute: (input) => {
+              executeInput = input;
+              return Effect.succeed({
+                code: 0,
+                stdout: "",
+                stderr: "",
+              });
+            },
+          });
+
+          const result = yield* core.createWorktree({
+            cwd: "/srv/app",
+            branch: "feature/demo",
+            path: null,
+            remote: {
+              kind: "ssh",
+              hostAlias: "buildbox",
+            },
+          });
+
+          expect(readRemoteHomeDirSpy).toHaveBeenCalledWith({
+            hostAlias: "buildbox",
+            localCwd: process.cwd(),
+          });
+          expect(result.worktree).toEqual({
+            path: "/home/remote-user/.t3/worktrees/app/feature-demo",
+            branch: "feature/demo",
+          });
+          expect(executeInput).toMatchObject({
+            cwd: "/srv/app",
+            remote: {
+              kind: "ssh",
+              hostAlias: "buildbox",
+            },
+            args: [
+              "worktree",
+              "add",
+              "/home/remote-user/.t3/worktrees/app/feature-demo",
+              "feature/demo",
+            ],
+          });
+        }),
+    );
+
+    it.effect("forwards SSH worktree removal instead of rejecting it", () =>
+      Effect.gen(function* () {
+        let executeInput: Parameters<GitServiceShape["execute"]>[0] | null = null;
+        const core = yield* makeIsolatedGitCore({
+          execute: (input) => {
+            executeInput = input;
+            return Effect.succeed({
+              code: 0,
+              stdout: "",
+              stderr: "",
+            });
+          },
+        });
+
+        yield* core.removeWorktree({
+          cwd: "/srv/app",
+          path: "/home/remote-user/.t3/worktrees/app/feature-demo",
+          remote: {
+            kind: "ssh",
+            hostAlias: "buildbox",
+          },
+        });
+
+        expect(executeInput).toMatchObject({
+          cwd: "/srv/app",
+          remote: {
+            kind: "ssh",
+            hostAlias: "buildbox",
+          },
+          args: ["worktree", "remove", "/home/remote-user/.t3/worktrees/app/feature-demo"],
+        });
       }),
     );
   });

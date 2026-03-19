@@ -12,7 +12,7 @@ The fork keeps the upstream T3 Code base, but the work in this branch is focused
 - Remote Codex session lifecycle support, including reconnect metadata, session health messaging, and recovery-oriented status banners.
 - Remote Git, diff, terminal, workspace-entry, and open-in-editor flows routed through SSH-aware server logic.
 - Project-aware path resolution so markdown links, terminal paths, diffs, plans, and Git file actions open relative to the active project instead of assuming a local raw cwd.
-- Remote env-mode normalization so SSH-backed projects do not end up with stale local worktree state in draft threads.
+- Remote worktree support for SSH-backed projects, including remote worktree creation from draft thread env mode and PR thread preparation.
 - Startup and state cleanup fixes, including pre-welcome thread hydration and stale local Codex error clearing after settings changes.
 - Kiro CLI listed in the provider picker as a coming-soon provider.
 
