@@ -165,6 +165,7 @@ import {
   LastInvokedScriptByProjectSchema,
   PullRequestDialogState,
   readFileAsDataUrl,
+  resolveVisibleProviderThreadId,
   resolveVisibleThreadError,
   resolveVisibleProviderHealthStatus,
   revokeBlobPreviewUrl,
@@ -1139,6 +1140,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }),
     [activeProject?.remote, activeThread, localCodexErrorsDismissedAfter],
   );
+  const visibleProviderThreadId = useMemo(
+    () => resolveVisibleProviderThreadId(activeThread ?? null),
+    [activeThread],
+  );
+  const showComposerThreadId =
+    settings.threadIdDisplayMode === "composer" && Boolean(visibleProviderThreadId);
+  const timelineProviderThreadId =
+    settings.threadIdDisplayMode === "message" ? visibleProviderThreadId : null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const threadTerminalRuntimeEnv = useMemo(() => {
@@ -3555,6 +3564,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRootDisplay={activeProject?.cwd ?? undefined}
+                providerThreadId={timelineProviderThreadId}
               />
             </div>
 
@@ -3578,7 +3588,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             <form
               ref={composerFormRef}
               onSubmit={onSend}
-              className="mx-auto w-full min-w-0 max-w-3xl"
+              className="mx-auto w-full min-w-0 max-w-3xl space-y-2"
               data-chat-composer-form="true"
             >
               <div
@@ -4057,6 +4067,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   </div>
                 )}
               </div>
+              {showComposerThreadId ? (
+                <p className="px-2 text-center text-[11px] text-muted-foreground/55">
+                  <span className="mr-1 uppercase tracking-[0.12em]">Thread ID</span>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/80">
+                    {visibleProviderThreadId}
+                  </code>
+                </p>
+              ) : null}
             </form>
           </div>
 

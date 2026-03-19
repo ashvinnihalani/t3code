@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_THREAD_ID_DISPLAY_MODE,
   DEFAULT_TIMESTAMP_FORMAT,
   buildCodexHostOverridePatch,
   getAppModelOptions,
@@ -65,6 +66,12 @@ describe("resolveAppModelSelection", () => {
 describe("timestamp format defaults", () => {
   it("defaults timestamp format to locale", () => {
     expect(DEFAULT_TIMESTAMP_FORMAT).toBe("locale");
+  });
+});
+
+describe("thread id display defaults", () => {
+  it("hides thread ids by default", () => {
+    expect(DEFAULT_THREAD_ID_DISPLAY_MODE).toBe("hidden");
   });
 });
 

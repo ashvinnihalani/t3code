@@ -177,6 +177,20 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
+export function resolveVisibleProviderThreadId(thread: Thread | null): string | null {
+  if (!thread) {
+    return null;
+  }
+
+  const sessionProviderThreadId = thread.session?.providerThreadId?.trim();
+  if (sessionProviderThreadId) {
+    return sessionProviderThreadId;
+  }
+
+  const legacyThreadId = thread.codexThreadId?.trim();
+  return legacyThreadId ? legacyThreadId : null;
+}
+
 export type VisibleProviderHealthStatus =
   | {
       kind: "local";

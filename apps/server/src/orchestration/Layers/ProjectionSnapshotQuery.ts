@@ -135,7 +135,6 @@ function mergeRemoteRuntimeSession(input: {
   const metadata = readPersistedRemoteSessionMetadata(input.runtime.runtimePayload);
   const activeTurnId = metadata.activeTurnId ?? input.session?.activeTurnId ?? null;
   const lastError = metadata.lastError ?? input.session?.lastError ?? null;
-  const providerThreadId = metadata.providerThreadId ?? input.session?.providerThreadId ?? null;
   const runtimeStatus = runtimeStatusToSessionStatus({
     status: input.runtime.status,
     activeTurnId,
@@ -146,6 +145,9 @@ function mergeRemoteRuntimeSession(input: {
     input.runtime.status === "stopped" ||
     input.runtime.status === "error" ||
     input.runtime.lastSeenAt >= input.session.updatedAt;
+  const providerThreadId = shouldOverrideLifecycle
+    ? (metadata.providerThreadId ?? input.session?.providerThreadId ?? null)
+    : (input.session?.providerThreadId ?? metadata.providerThreadId ?? null);
 
   if (!input.session) {
     return {

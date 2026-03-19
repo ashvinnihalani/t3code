@@ -293,6 +293,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     defaultThreadEnvMode: "local",
     confirmThreadDelete: true,
     enableAssistantStreaming: false,
+    threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
     customCodexModels: [],
     ...overrides,

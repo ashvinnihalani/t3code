@@ -5,6 +5,7 @@ import {
   buildExpiredTerminalContextToastCopy,
   deriveComposerSendState,
   resolveVisibleProviderHealthStatus,
+  resolveVisibleProviderThreadId,
   resolveVisibleThreadError,
 } from "./ChatView.logic";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "../types";
@@ -216,6 +217,40 @@ describe("resolveVisibleProviderHealthStatus", () => {
         status: "error",
       },
     });
+  });
+});
+
+describe("resolveVisibleProviderThreadId", () => {
+  it("prefers the current session provider thread id", () => {
+    expect(
+      resolveVisibleProviderThreadId(
+        makeThread({
+          codexThreadId: "legacy-thread-id",
+          session: {
+            provider: "codex",
+            status: "ready",
+            orchestrationStatus: "ready",
+            providerThreadId: "provider-thread-123",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+      ),
+    ).toBe("provider-thread-123");
+  });
+
+  it("falls back to the legacy thread id when no session thread id exists", () => {
+    expect(
+      resolveVisibleProviderThreadId(
+        makeThread({
+          codexThreadId: "legacy-thread-id",
+        }),
+      ),
+    ).toBe("legacy-thread-id");
+  });
+
+  it("returns null when no visible provider thread id exists", () => {
+    expect(resolveVisibleProviderThreadId(makeThread())).toBeNull();
   });
 });
 
