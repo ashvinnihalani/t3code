@@ -364,6 +364,18 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "turn/aborted") {
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "turn.aborted",
+        payload: {
+          reason: asString(payload?.reason) ?? event.message ?? "Turn aborted",
+        },
+      },
+    ];
+  }
+
   if (event.method === "turn/plan/updated") {
     return [
       {

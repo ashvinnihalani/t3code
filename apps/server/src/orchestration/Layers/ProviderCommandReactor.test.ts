@@ -734,6 +734,135 @@ describe("ProviderCommandReactor", () => {
     expect(harness.stopSession.mock.calls.length).toBe(0);
   });
 
+  it("continues processing commands for one thread when another thread hangs during a model-changed turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-thread-1-initial"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-thread-1-initial"),
+          role: "user",
+          text: "keep working",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-2"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        projectId: asProjectId("project-1"),
+        title: "Thread 2",
+        model: "auto",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-thread-2-initial"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        message: {
+          messageId: asMessageId("user-message-thread-2-initial"),
+          role: "user",
+          text: "start on auto",
+          attachments: [],
+        },
+        model: "auto",
+        provider: "kiro",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-model-2"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        model: "claude-opus-4.6",
+      }),
+    );
+
+    harness.sendTurn.mockImplementation((input: unknown) => {
+      if (
+        typeof input === "object" &&
+        input !== null &&
+        "threadId" in input &&
+        input.threadId === ThreadId.makeUnsafe("thread-2") &&
+        "model" in input &&
+        input.model === "claude-opus-4.6"
+      ) {
+        return Effect.never;
+      }
+
+      return Effect.succeed({
+        threadId:
+          typeof input === "object" &&
+          input !== null &&
+          "threadId" in input &&
+          typeof input.threadId === "string"
+            ? ThreadId.makeUnsafe(input.threadId)
+            : ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-follow-up"),
+      });
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-thread-2-model-change"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        message: {
+          messageId: asMessageId("user-message-thread-2-model-change"),
+          role: "user",
+          text: "switch models",
+          attachments: [],
+        },
+        model: "claude-opus-4.6",
+        provider: "kiro",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-thread-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+    expect(harness.interruptTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
+  });
+
   it("restarts the provider session when runtime mode is updated on the thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

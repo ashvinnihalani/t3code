@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadId, TurnId } from "@t3tools/contracts";
 
 import { formatKiroProcessExitMessage, KiroAcpManager, readKiroTextChunk } from "./kiroAcpManager";
@@ -69,6 +69,10 @@ describe("formatKiroProcessExitMessage", () => {
 });
 
 describe("KiroAcpManager", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("emits turn/completed when ACP sends turn_end", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
@@ -158,5 +162,44 @@ describe("KiroAcpManager", () => {
 
     expect(result.turnId).toBe(activeTurnId);
     expect(events.filter((event) => event.method === "turn/completed")).toHaveLength(1);
+  });
+
+  it("force-stops the session when cancel hangs", async () => {
+    vi.useFakeTimers();
+
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.rpc.request = vi.fn(async (method: string) => {
+      if (method === "session/cancel") {
+        return await new Promise(() => undefined);
+      }
+      return undefined;
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    const events: Array<{ method: string; payload?: unknown }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { method: string; payload?: unknown });
+    });
+
+    const interruptPromise = manager.interruptTurn(session.threadId);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await interruptPromise;
+
+    expect(session.process.kill).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "turn/aborted",
+          payload: expect.objectContaining({
+            reason: expect.stringContaining("session/cancel"),
+          }),
+        }),
+      ]),
+    );
   });
 });

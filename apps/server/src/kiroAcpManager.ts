@@ -19,6 +19,8 @@ import type { ProjectRemoteTarget } from "@t3tools/contracts";
 
 const PROVIDER = "kiro" as const;
 const DEFAULT_BINARY_PATH = "kiro-cli";
+const KIRO_CANCEL_TIMEOUT_MS = 5_000;
+const KIRO_CANCEL_GRACE_PERIOD_MS = 5_000;
 
 interface KiroModeDescriptor {
   readonly id: string;
@@ -170,6 +172,22 @@ export function formatKiroProcessExitMessage(input: {
     ? " Set the Kiro binary path to the full `kiro-cli` executable path if it is not on PATH."
     : "";
   return `${baseMessage}${detail}${hint}`;
+}
+
+function isIgnorableCancelError(cause: unknown): boolean {
+  if (!(cause instanceof Error)) {
+    return false;
+  }
+  const normalized = cause.message.trim().toLowerCase();
+  return normalized === "internal error" || normalized.includes("nothing to cancel");
+}
+
+function timeoutAfter(ms: number, message: string): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(message));
+    }, ms);
+  });
 }
 
 function resumeCursorFromSessionId(sessionId: string | undefined): unknown {
@@ -835,9 +853,53 @@ export class KiroAcpManager extends EventEmitter {
 
   async interruptTurn(threadId: ThreadId): Promise<void> {
     const session = this.requireSession(threadId);
-    await session.rpc.request("session/cancel", {
-      sessionId: session.sessionId,
-    });
+    const turnId = session.activeTurnId;
+    if (!turnId) {
+      return;
+    }
+    try {
+      await Promise.race([
+        session.rpc.request("session/cancel", {
+          sessionId: session.sessionId,
+        }),
+        timeoutAfter(
+          KIRO_CANCEL_TIMEOUT_MS,
+          `Timed out waiting for session/cancel after ${KIRO_CANCEL_TIMEOUT_MS}ms.`,
+        ),
+      ]);
+    } catch (error) {
+      if (isIgnorableCancelError(error)) {
+        this.forceAbortTurnAndStopSession(
+          session,
+          turnId,
+          "Kiro ACP could not cancel the active turn. Stopped the stuck session instead.",
+        );
+        return;
+      }
+      this.forceAbortTurnAndStopSession(
+        session,
+        turnId,
+        error instanceof Error
+          ? error.message
+          : "Kiro ACP failed to cancel the active turn. Stopped the stuck session instead.",
+      );
+      return;
+    }
+
+    const interruptedGracefully = await this.waitForTurnToClear(
+      session,
+      turnId,
+      KIRO_CANCEL_GRACE_PERIOD_MS,
+    );
+    if (interruptedGracefully) {
+      return;
+    }
+
+    this.forceAbortTurnAndStopSession(
+      session,
+      turnId,
+      "Kiro ACP did not stop after cancel. Stopped the stuck session instead.",
+    );
   }
 
   async respondToRequest(
@@ -982,6 +1044,24 @@ export class KiroAcpManager extends EventEmitter {
     return true;
   }
 
+  private abortTurn(session: KiroSessionState, turnId: TurnId, reason: string): boolean {
+    if (session.activeTurnId !== turnId) {
+      return false;
+    }
+
+    session.activeTurnId = undefined;
+    session.updatedAt = nowIso();
+    this.emitNotificationEvent(
+      session,
+      "turn/aborted",
+      {
+        reason,
+      },
+      { turnId },
+    );
+    return true;
+  }
+
   private turnCompletionFromUpdate(update: Record<string, unknown>): {
     readonly state: "completed" | "failed" | "cancelled";
     readonly stopReason?: string;
@@ -1026,6 +1106,32 @@ export class KiroAcpManager extends EventEmitter {
       throw new Error(`Unknown Kiro ACP session for thread ${threadId}`);
     }
     return session;
+  }
+
+  private async waitForTurnToClear(
+    session: KiroSessionState,
+    turnId: TurnId,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (session.activeTurnId !== turnId) {
+        return true;
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+    return session.activeTurnId !== turnId;
+  }
+
+  private forceAbortTurnAndStopSession(
+    session: KiroSessionState,
+    turnId: TurnId,
+    reason: string,
+  ): void {
+    this.abortTurn(session, turnId, reason);
+    this.stopSession(session.threadId);
   }
 
   private async setModel(session: KiroSessionState, model: string): Promise<void> {
