@@ -34,6 +34,8 @@ import { estimateTimelineMessageHeight } from "./timelineHeight";
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
+const NON_GIT_PROJECT_ID = "project-2" as ProjectId;
+const NON_GIT_THREAD_ID = "thread-browser-test-non-git" as ThreadId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
@@ -46,10 +48,17 @@ interface WsRequestEnvelope {
   };
 }
 
+interface TestGitRepoFixture {
+  isRepo: boolean;
+  hasOriginRemote?: boolean;
+  currentBranch?: string;
+}
+
 interface TestFixture {
   snapshot: OrchestrationReadModel;
   serverConfig: ServerConfig;
   welcome: WsWelcomePayload;
+  gitReposByCwd?: Record<string, TestGitRepoFixture>;
 }
 
 let fixture: TestFixture;
@@ -337,6 +346,60 @@ function addThreadToSnapshot(
   };
 }
 
+function createSnapshotWithNonGitThread(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-non-git-target" as MessageId,
+    targetText: "non git thread",
+  });
+
+  return {
+    ...snapshot,
+    projects: [
+      ...snapshot.projects,
+      {
+        id: NON_GIT_PROJECT_ID,
+        title: "Plain Project",
+        workspaceRoot: "/repo/plain",
+        defaultModel: "gpt-5",
+        scripts: [],
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+      },
+    ],
+    threads: [
+      ...snapshot.threads,
+      {
+        id: NON_GIT_THREAD_ID,
+        projectId: NON_GIT_PROJECT_ID,
+        title: "Plain thread",
+        model: "gpt-5",
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+        messages: [],
+        activities: [],
+        proposedPlans: [],
+        checkpoints: [],
+        session: {
+          threadId: NON_GIT_THREAD_ID,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: NOW_ISO,
+        },
+      },
+    ],
+  };
+}
+
 function createDraftOnlySnapshot(): OrchestrationReadModel {
   const snapshot = createSnapshotForTargetUser({
     targetMessageId: "msg-user-draft-target" as MessageId,
@@ -458,6 +521,24 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     };
   }
   if (tag === WS_METHODS.gitListBranches) {
+    const cwd = typeof body.cwd === "string" ? body.cwd : "/repo/project";
+    const repo = fixture.gitReposByCwd?.[cwd];
+    if (repo) {
+      return {
+        isRepo: repo.isRepo,
+        hasOriginRemote: repo.hasOriginRemote ?? repo.isRepo,
+        branches: repo.isRepo
+          ? [
+              {
+                name: repo.currentBranch ?? "main",
+                current: true,
+                isDefault: true,
+                worktreePath: null,
+              },
+            ]
+          : [],
+      };
+    }
     return {
       isRepo: true,
       hasOriginRemote: true,
@@ -472,6 +553,22 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     };
   }
   if (tag === WS_METHODS.gitStatus) {
+    const cwd = typeof body.cwd === "string" ? body.cwd : "/repo/project";
+    if (fixture.gitReposByCwd?.[cwd]?.isRepo === false) {
+      return {
+        branch: null,
+        hasWorkingTreeChanges: false,
+        workingTree: {
+          files: [],
+          insertions: 0,
+          deletions: 0,
+        },
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      };
+    }
     return {
       branch: "main",
       hasWorkingTreeChanges: false,
@@ -732,6 +829,7 @@ async function mountChatView(options: {
   viewport: ViewportSpec;
   snapshot: OrchestrationReadModel;
   configureFixture?: (fixture: TestFixture) => void;
+  initialEntry?: string;
 }): Promise<MountedChatView> {
   fixture = buildFixture(options.snapshot);
   options.configureFixture?.(fixture);
@@ -749,7 +847,7 @@ async function mountChatView(options: {
 
   const router = getRouter(
     createMemoryHistory({
-      initialEntries: [`/${THREAD_ID}`],
+      initialEntries: [options.initialEntry ?? `/${THREAD_ID}`],
     }),
   );
 
@@ -918,6 +1016,95 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(useStore.getState().localCodexErrorsDismissedAfter).not.toBeNull();
       });
       expect(document.body.textContent).toContain(remoteError);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("closes and resets the diff viewer when navigating into a non-git thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithNonGitThread(),
+      initialEntry: `/${THREAD_ID}?diff=1`,
+      configureFixture: (nextFixture) => {
+        nextFixture.gitReposByCwd = {
+          "/repo/project": {
+            isRepo: true,
+            hasOriginRemote: true,
+            currentBranch: "main",
+          },
+          "/repo/plain": {
+            isRepo: false,
+          },
+        };
+      },
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          const search = mounted.router.state.location.search as Record<string, unknown>;
+          expect(search.diff).toBe("1");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const initialDiffToggle = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Toggle diff panel"]'),
+        "Unable to find diff toggle button.",
+      );
+      expect(initialDiffToggle.disabled).toBe(false);
+      expect(initialDiffToggle.getAttribute("aria-pressed")).toBe("true");
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: NON_GIT_THREAD_ID },
+      });
+
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${NON_GIT_THREAD_ID}`,
+        "Route should have changed to the non-git thread.",
+      );
+
+      await vi.waitFor(
+        () => {
+          const search = mounted.router.state.location.search as Record<string, unknown>;
+          const diffToggle = document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Toggle diff panel"]',
+          );
+          expect(search.diff).toBeUndefined();
+          expect(search.diffTurnId).toBeUndefined();
+          expect(search.diffFilePath).toBeUndefined();
+          expect(diffToggle?.disabled).toBe(true);
+          expect(diffToggle?.getAttribute("aria-pressed")).not.toBe("true");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "Route should have changed back to the git thread.",
+      );
+
+      await vi.waitFor(
+        () => {
+          const search = mounted.router.state.location.search as Record<string, unknown>;
+          const diffToggle = document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Toggle diff panel"]',
+          );
+          expect(search.diff).toBeUndefined();
+          expect(diffToggle?.disabled).toBe(false);
+          expect(diffToggle?.getAttribute("aria-pressed")).not.toBe("true");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }

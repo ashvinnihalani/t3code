@@ -1,6 +1,7 @@
 import { ThreadId } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, type ReactNode, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import ChatView from "../components/ChatView";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
@@ -17,6 +18,7 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { gitBranchesQueryOptions } from "../lib/gitReactQuery";
 import { useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
@@ -167,27 +169,41 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
-  const draftThreadExists = useComposerDraftStore((store) =>
-    Object.hasOwn(store.draftThreadsByThreadId, threadId),
-  );
-  const routeThreadExists = threadExists || draftThreadExists;
-  const diffOpen = search.diff === "1";
+  const serverThread = useStore((store) => store.threads.find((thread) => thread.id === threadId));
+  const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
+  const routeThreadExists = serverThread !== undefined || draftThread !== null;
+  const requestedDiffOpen = search.diff === "1";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
+  const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
+  const activeProject = useStore((store) =>
+    activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
+  );
+  const gitTarget = useMemo(
+    () => ({
+      cwd: serverThread?.worktreePath ?? draftThread?.worktreePath ?? activeProject?.cwd ?? null,
+      projectId: activeProject?.id ?? null,
+    }),
+    [activeProject?.cwd, activeProject?.id, draftThread?.worktreePath, serverThread?.worktreePath],
+  );
+  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
+  const isResolvedNonGitRepo = gitBranchesQuery.data?.isRepo === false;
+  const diffOpen = requestedDiffOpen && !isResolvedNonGitRepo;
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
-  const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
+  const [hasOpenedDiff, setHasOpenedDiff] = useState(requestedDiffOpen);
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
       params: { threadId },
-      search: { diff: undefined },
+      replace: true,
+      search: (previous) => stripDiffSearchParams(previous),
     });
   }, [navigate, threadId]);
   const openDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
       params: { threadId },
+      replace: true,
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
         return { ...rest, diff: "1" };
@@ -200,6 +216,13 @@ function ChatThreadRouteView() {
       setHasOpenedDiff(true);
     }
   }, [diffOpen]);
+
+  useEffect(() => {
+    if (!requestedDiffOpen || !isResolvedNonGitRepo) {
+      return;
+    }
+    closeDiff();
+  }, [closeDiff, isResolvedNonGitRepo, requestedDiffOpen]);
 
   useEffect(() => {
     if (!threadsHydrated) {
