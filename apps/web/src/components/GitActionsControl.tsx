@@ -7,6 +7,7 @@ import type {
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
+import { buildGitRequestSettings, useAppSettings } from "../appSettings";
 import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
@@ -176,9 +177,11 @@ export default function GitActionsControl({
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
+  const { settings } = useAppSettings();
+  const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
 
   const { data: gitStatus = null, error: gitStatusError } = useQuery(
-    gitStatusQueryOptions(gitTarget),
+    gitStatusQueryOptions(gitTarget, gitRequestSettings),
   );
 
   const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitTarget));
@@ -204,7 +207,11 @@ export default function GitActionsControl({
   const initMutation = useMutation(gitInitMutationOptions({ target: gitTarget, queryClient }));
 
   const runImmediateGitActionMutation = useMutation(
-    gitRunStackedActionMutationOptions({ target: gitTarget, queryClient }),
+    gitRunStackedActionMutationOptions({
+      target: gitTarget,
+      queryClient,
+      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+    }),
   );
   const pullMutation = useMutation(gitPullMutationOptions({ target: gitTarget, queryClient }));
 
@@ -225,8 +232,20 @@ export default function GitActionsControl({
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
+      resolveQuickAction(
+        gitStatusForActions,
+        isGitActionRunning,
+        isDefaultBranch,
+        hasOriginRemote,
+        settings.gitDefaultAction,
+      ),
+    [
+      gitStatusForActions,
+      hasOriginRemote,
+      isDefaultBranch,
+      isGitActionRunning,
+      settings.gitDefaultAction,
+    ],
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")

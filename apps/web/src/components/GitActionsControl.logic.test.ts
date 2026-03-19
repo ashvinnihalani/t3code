@@ -249,6 +249,53 @@ describe("when: branch is clean, ahead, and has no open PR", () => {
   });
 });
 
+describe("when: a git default action preference is set", () => {
+  it("keeps the original contextual behavior when the preference is auto", () => {
+    const quick = resolveQuickAction(
+      status({ aheadCount: 2, pr: null }),
+      false,
+      false,
+      true,
+      "auto",
+    );
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "commit_push_pr",
+      label: "Push & create PR",
+    });
+  });
+
+  it("prefers commit-only when there are local changes", () => {
+    const quick = resolveQuickAction(
+      status({ hasWorkingTreeChanges: true, aheadCount: 0, pr: null }),
+      false,
+      false,
+      true,
+      "commit",
+    );
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "commit",
+      label: "Commit",
+    });
+  });
+
+  it("prefers push-only over PR creation when the preference is commit and push", () => {
+    const quick = resolveQuickAction(
+      status({ aheadCount: 2, pr: null }),
+      false,
+      false,
+      true,
+      "commit_push",
+    );
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "commit_push",
+      label: "Push",
+    });
+  });
+});
+
 describe("when: branch is clean, up to date, and has no open PR", () => {
   it("resolveQuickAction returns disabled no-action state", () => {
     const quick = resolveQuickAction(

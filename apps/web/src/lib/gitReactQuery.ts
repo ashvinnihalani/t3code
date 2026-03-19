@@ -1,4 +1,4 @@
-import type { GitStackedAction, ProjectId } from "@t3tools/contracts";
+import type { GitRequestSettings, GitStackedAction, ProjectId } from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -24,7 +24,8 @@ function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: Proj
 
 export const gitQueryKeys = {
   all: ["git"] as const,
-  status: (target: GitQueryTarget) => ["git", "status", target.projectId, target.cwd] as const,
+  status: (target: GitQueryTarget, settings?: GitRequestSettings) =>
+    ["git", "status", target.projectId, target.cwd, settings?.githubBinaryPath ?? null] as const,
   branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
 };
 
@@ -45,12 +46,15 @@ export function invalidateGitQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
 }
 
-export function gitStatusQueryOptions(target: GitQueryTarget) {
+export function gitStatusQueryOptions(target: GitQueryTarget, settings?: GitRequestSettings) {
   return queryOptions({
-    queryKey: gitQueryKeys.status(target),
+    queryKey: gitQueryKeys.status(target, settings),
     queryFn: async () => {
       const api = ensureNativeApi();
-      return api.git.status(toGitApiTarget(target));
+      return api.git.status({
+        ...toGitApiTarget(target),
+        ...(settings ? { settings } : {}),
+      });
     },
     enabled: target.cwd !== null,
     staleTime: GIT_STATUS_STALE_TIME_MS,
@@ -78,6 +82,7 @@ export function gitBranchesQueryOptions(target: GitQueryTarget) {
 export function gitResolvePullRequestQueryOptions(input: {
   target: GitQueryTarget;
   reference: string | null;
+  settings?: GitRequestSettings;
 }) {
   return queryOptions({
     queryKey: [
@@ -86,6 +91,7 @@ export function gitResolvePullRequestQueryOptions(input: {
       input.target.projectId,
       input.target.cwd,
       input.reference,
+      input.settings?.githubBinaryPath ?? null,
     ] as const,
     queryFn: async () => {
       const api = ensureNativeApi();
@@ -95,6 +101,7 @@ export function gitResolvePullRequestQueryOptions(input: {
       return api.git.resolvePullRequest({
         ...toGitApiTarget(input.target),
         reference: input.reference,
+        ...(input.settings ? { settings: input.settings } : {}),
       });
     },
     enabled: input.target.cwd !== null && input.reference !== null,
@@ -139,6 +146,7 @@ export function gitCheckoutMutationOptions(input: {
 export function gitRunStackedActionMutationOptions(input: {
   target: GitQueryTarget;
   queryClient: QueryClient;
+  settings?: GitRequestSettings;
 }) {
   return mutationOptions({
     mutationKey: gitMutationKeys.runStackedAction(input.target),
@@ -160,6 +168,7 @@ export function gitRunStackedActionMutationOptions(input: {
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(input.settings ? { settings: input.settings } : {}),
       });
     },
     onSettled: async () => {
@@ -246,6 +255,7 @@ export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClie
 export function gitPreparePullRequestThreadMutationOptions(input: {
   target: GitQueryTarget;
   queryClient: QueryClient;
+  settings?: GitRequestSettings;
 }) {
   return mutationOptions({
     mutationFn: async ({ reference, mode }: { reference: string; mode: "local" | "worktree" }) => {
@@ -254,6 +264,7 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
         ...toGitApiTarget(input.target),
         reference,
         mode,
+        ...(input.settings ? { settings: input.settings } : {}),
       });
     },
     mutationKey: gitMutationKeys.preparePullRequestThread(input.target),

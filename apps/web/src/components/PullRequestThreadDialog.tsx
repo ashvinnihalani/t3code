@@ -2,6 +2,7 @@ import type { GitResolvePullRequestResult, ProjectId } from "@t3tools/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildGitRequestSettings, useAppSettings } from "~/appSettings";
 
 import {
   gitPreparePullRequestThreadMutationOptions,
@@ -42,6 +43,7 @@ export function PullRequestThreadDialog({
   onPrepared,
 }: PullRequestThreadDialogProps) {
   const queryClient = useQueryClient();
+  const { settings } = useAppSettings();
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
   const [referenceDirty, setReferenceDirty] = useState(false);
@@ -73,10 +75,12 @@ export function PullRequestThreadDialog({
   const parsedReference = parsePullRequestReference(reference);
   const parsedDebouncedReference = parsePullRequestReference(debouncedReference);
   const gitTarget = useMemo(() => ({ cwd, projectId }), [cwd, projectId]);
+  const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
   const resolvePullRequestQuery = useQuery(
     gitResolvePullRequestQueryOptions({
       target: gitTarget,
       reference: open ? parsedDebouncedReference : null,
+      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
     }),
   );
   const cachedPullRequest = useMemo(() => {
@@ -89,11 +93,16 @@ export function PullRequestThreadDialog({
       projectId,
       cwd,
       parsedReference,
+      gitRequestSettings?.githubBinaryPath ?? null,
     ]);
     return cached?.pullRequest ?? null;
-  }, [cwd, parsedReference, projectId, queryClient]);
+  }, [cwd, gitRequestSettings?.githubBinaryPath, parsedReference, projectId, queryClient]);
   const preparePullRequestThreadMutation = useMutation(
-    gitPreparePullRequestThreadMutationOptions({ target: gitTarget, queryClient }),
+    gitPreparePullRequestThreadMutationOptions({
+      target: gitTarget,
+      queryClient,
+      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+    }),
   );
 
   const liveResolvedPullRequest =

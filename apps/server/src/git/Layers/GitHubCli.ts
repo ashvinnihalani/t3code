@@ -12,13 +12,28 @@ import {
 } from "../Services/GitHubCli.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_GITHUB_CLI_BIN = "gh";
+const GITHUB_CLI_BIN_ENV = "T3_GH_BIN";
 
-function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown): GitHubCliError {
+function resolveGitHubCliBin(override?: string | null): string {
+  const trimmedOverride = override?.trim() ?? "";
+  if (trimmedOverride.length > 0) {
+    return trimmedOverride;
+  }
+  const configured = process.env[GITHUB_CLI_BIN_ENV]?.trim() ?? "";
+  return configured.length > 0 ? configured : DEFAULT_GITHUB_CLI_BIN;
+}
+
+function normalizeGitHubCliError(
+  operation: "execute" | "stdout",
+  error: unknown,
+  executable: string,
+): GitHubCliError {
   if (error instanceof Error) {
-    if (error.message.includes("Command not found: gh")) {
+    if (error.message.includes(`Command not found: ${executable}`)) {
       return new GitHubCliError({
         operation,
-        detail: "GitHub CLI (`gh`) is required but not available on PATH.",
+        detail: `GitHub CLI executable (\`${executable}\`) is required but not available on PATH.`,
         cause: error,
       });
     }
@@ -165,13 +180,14 @@ function decodeGitHubJson<S extends Schema.Top>(
 const makeGitHubCli = Effect.sync(() => {
   const execute: GitHubCliShape["execute"] = (input) =>
     Effect.tryPromise({
-      try: () =>
-        input.remote?.kind === "ssh"
+      try: () => {
+        const executable = resolveGitHubCliBin(input.executablePath);
+        return input.remote?.kind === "ssh"
           ? runProcess(
               "ssh",
               buildSshExecArgs({
                 hostAlias: input.remote.hostAlias,
-                command: "gh",
+                command: executable,
                 args: input.args,
                 cwd: input.cwd,
                 localCwd: process.cwd(),
@@ -181,11 +197,13 @@ const makeGitHubCli = Effect.sync(() => {
                 timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
               },
             )
-          : runProcess("gh", input.args, {
+          : runProcess(executable, input.args, {
               cwd: input.cwd,
               timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            }),
-      catch: (error) => normalizeGitHubCliError("execute", error),
+            });
+      },
+      catch: (error) =>
+        normalizeGitHubCliError("execute", error, resolveGitHubCliBin(input.executablePath)),
     });
 
   const service = {
@@ -205,6 +223,7 @@ const makeGitHubCli = Effect.sync(() => {
           "--json",
           "number,title,url,baseRefName,headRefName",
         ],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -230,6 +249,7 @@ const makeGitHubCli = Effect.sync(() => {
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -247,6 +267,7 @@ const makeGitHubCli = Effect.sync(() => {
       execute({
         cwd: input.cwd,
         args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -275,12 +296,14 @@ const makeGitHubCli = Effect.sync(() => {
           "--body",
           input.body,
         ],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
         args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(
         Effect.map((value) => {
@@ -292,6 +315,7 @@ const makeGitHubCli = Effect.sync(() => {
       execute({
         cwd: input.cwd,
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(Effect.asVoid),
   } satisfies GitHubCliShape;

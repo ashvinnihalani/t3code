@@ -181,7 +181,10 @@ export function resolveQuickAction(
   isBusy: boolean,
   isDefaultBranch = false,
   hasOriginRemote = true,
+  preferredAction: GitStackedAction | "auto" = "auto",
 ): GitQuickAction {
+  const effectivePreferredAction = preferredAction === "auto" ? "commit_push_pr" : preferredAction;
+
   if (isBusy) {
     return { label: "Commit", disabled: true, kind: "show_hint", hint: "Git action in progress." };
   }
@@ -215,7 +218,10 @@ export function resolveQuickAction(
     if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
     }
-    if (hasOpenPr || isDefaultBranch) {
+    if (effectivePreferredAction === "commit") {
+      return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
+    }
+    if (effectivePreferredAction === "commit_push" || hasOpenPr || isDefaultBranch) {
       return { label: "Commit & push", disabled: false, kind: "run_action", action: "commit_push" };
     }
     return {
@@ -252,12 +258,14 @@ export function resolveQuickAction(
     if (hasOpenPr || isDefaultBranch) {
       return { label: "Push", disabled: false, kind: "run_action", action: "commit_push" };
     }
-    return {
-      label: "Push & create PR",
-      disabled: false,
-      kind: "run_action",
-      action: "commit_push_pr",
-    };
+    return effectivePreferredAction === "commit_push_pr"
+      ? {
+          label: "Push & create PR",
+          disabled: false,
+          kind: "run_action",
+          action: "commit_push_pr",
+        }
+      : { label: "Push", disabled: false, kind: "run_action", action: "commit_push" };
   }
 
   if (isDiverged) {
@@ -278,7 +286,7 @@ export function resolveQuickAction(
   }
 
   if (isAhead) {
-    if (hasOpenPr || isDefaultBranch) {
+    if (hasOpenPr || isDefaultBranch || effectivePreferredAction !== "commit_push_pr") {
       return { label: "Push", disabled: false, kind: "run_action", action: "commit_push" };
     }
     return {

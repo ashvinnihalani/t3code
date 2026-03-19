@@ -327,6 +327,31 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
     ),
   );
 
+  it.effect("includes a custom system prompt for commit generation", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Respect custom instructions",
+          body: "",
+        }),
+        stdinMustContain: "Always prefer imperative database migration wording.",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/custom-commit-prompt",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          systemPrompt: "Always prefer imperative database migration wording.",
+        });
+
+        expect(generated.subject).toBe("Respect custom instructions");
+      }),
+    ),
+  );
+
   it.effect("falls back to a local working directory for remote commit message generation", () =>
     withFakeCodexEnv(
       {
