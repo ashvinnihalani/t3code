@@ -95,6 +95,7 @@ describe("MessagesTimeline", () => {
         resolvedTheme="light"
         timestampFormat="locale"
         workspaceRootDisplay={undefined}
+        providerThreadId={null}
       />,
     );
 

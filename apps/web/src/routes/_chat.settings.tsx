@@ -79,6 +79,7 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit: "Commit",
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
+};
 const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Hidden",
   composer: "Below input box",
