@@ -1,9 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type ProviderKind, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@t3tools/contracts";
+import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  type DesktopAppCloseBehavior,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
+  DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
   DEFAULT_GIT_DEFAULT_ACTION,
   GIT_DEFAULT_ACTION_OPTIONS,
   type GitDefaultAction,
@@ -79,6 +84,17 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit: "Commit",
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
+};
+const DESKTOP_APP_CLOSE_BEHAVIOR_LABELS: Record<DesktopAppCloseBehavior, string> = {
+  terminate_all_agents: "Terminate All Agents",
+  terminate_local_agents_only: "Terminate Local Agents Only",
+  terminate_no_agents: "Terminate No Agents",
+};
+const DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS: Record<DesktopAppCloseBehavior, string> = {
+  terminate_all_agents: "Quit the local threads server and stop every active agent session.",
+  terminate_local_agents_only:
+    "Keep the local threads server running, but stop agents for local projects before exit.",
+  terminate_no_agents: "Leave the local threads server and all agent sessions running.",
 };
 const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Hidden",
@@ -630,6 +646,69 @@ function SettingsRouteView() {
                     Reset codex overrides
                   </Button>
                 </div>
+
+                {isElectron ? (
+                  <div className="space-y-2 rounded-xl border border-border bg-background/50 p-4">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="desktop-app-close-behavior"
+                        className="block text-xs font-medium text-foreground"
+                      >
+                        App close behavior
+                      </label>
+                      <Select
+                        value={settings.desktopAppCloseBehavior}
+                        onValueChange={(value) => {
+                          if (value === null || !(value in DESKTOP_APP_CLOSE_BEHAVIOR_LABELS)) {
+                            return;
+                          }
+                          updateSettings({
+                            desktopAppCloseBehavior: value as DesktopAppCloseBehavior,
+                          });
+                        }}
+                      >
+                        <SelectTrigger
+                          id="desktop-app-close-behavior"
+                          className="w-full"
+                          aria-label="Desktop app close behavior"
+                        >
+                          <SelectValue>
+                            {DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[settings.desktopAppCloseBehavior]}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectPopup>
+                          {Object.entries(DESKTOP_APP_CLOSE_BEHAVIOR_LABELS).map(
+                            ([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectPopup>
+                      </Select>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      {DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]}
+                    </p>
+
+                    {settings.desktopAppCloseBehavior !== DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
+                      <div className="flex justify-end">
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() =>
+                            updateSettings({
+                              desktopAppCloseBehavior: DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
+                            })
+                          }
+                        >
+                          Restore default
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </section>
 

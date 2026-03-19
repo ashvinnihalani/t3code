@@ -328,7 +328,23 @@ function AppSettingsWatcher() {
   const { settings } = useAppSettings();
   const dismissLocalCodexErrors = useStore((store) => store.dismissLocalCodexErrors);
   const previousSettingsSignatureRef = useRef<string | null>(null);
+  const syncedDesktopCloseBehaviorRef = useRef<string | null>(null);
   const settingsSignature = JSON.stringify(settings);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge) {
+      syncedDesktopCloseBehaviorRef.current = null;
+      return;
+    }
+    if (syncedDesktopCloseBehaviorRef.current === settings.desktopAppCloseBehavior) {
+      return;
+    }
+    syncedDesktopCloseBehaviorRef.current = settings.desktopAppCloseBehavior;
+    void bridge.setAppCloseBehavior(settings.desktopAppCloseBehavior).catch(() => {
+      syncedDesktopCloseBehaviorRef.current = null;
+    });
+  }, [settings.desktopAppCloseBehavior]);
 
   useEffect(() => {
     if (previousSettingsSignatureRef.current === null) {

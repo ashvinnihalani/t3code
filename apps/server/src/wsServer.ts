@@ -316,6 +316,48 @@ function formatRouteFailureMessage(cause: Cause.Cause<unknown>): string {
   return Cause.pretty(cause);
 }
 
+function hasAuthorizedDesktopRequest(
+  req: http.IncomingMessage,
+  authToken: string | undefined,
+): boolean {
+  if (!authToken) {
+    return true;
+  }
+
+  const rawHeader = req.headers["x-t3code-auth-token"];
+  const providedToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  return providedToken === authToken;
+}
+
+function readJsonRequestBody(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    const maxBytes = 16 * 1024;
+
+    req.on("data", (chunk) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.byteLength;
+      if (totalBytes > maxBytes) {
+        reject(new Error("Request body too large."));
+        return;
+      }
+      chunks.push(buffer);
+    });
+
+    req.on("end", () => {
+      try {
+        const text = Buffer.concat(chunks).toString("utf8").trim();
+        resolve(text.length > 0 ? (JSON.parse(text) as unknown) : null);
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
 export const createServer = Effect.fn(function* (): Effect.fn.Return<
   http.Server,
   ServerLifecycleError,
@@ -520,10 +562,93 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       res.writeHead(statusCode, headers);
       res.end(body);
     };
+    const respondJson = (statusCode: number, body: unknown) =>
+      respond(statusCode, { "Content-Type": "application/json" }, JSON.stringify(body));
 
     void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+        if (url.pathname === "/api/desktop/runtime") {
+          if (!hasAuthorizedDesktopRequest(req, authToken)) {
+            respondJson(401, { ok: false, error: "Unauthorized" });
+            return;
+          }
+
+          if (req.method === "GET") {
+            respondJson(200, {
+              ok: true,
+              mode: serverConfig.mode,
+              pid: process.pid,
+            });
+            return;
+          }
+
+          if (req.method === "POST") {
+            const bodyExit = yield* Effect.promise(() => readJsonRequestBody(req)).pipe(
+              Effect.exit,
+            );
+            if (Exit.isFailure(bodyExit)) {
+              respondJson(400, { ok: false, error: "Invalid JSON body" });
+              return;
+            }
+            const body = bodyExit.value;
+
+            const action =
+              typeof body === "object" && body !== null && "action" in body
+                ? (body as { action?: unknown }).action
+                : undefined;
+
+            if (action === "stop-local-sessions") {
+              const snapshot = yield* projectionReadModelQuery.getSnapshot();
+              const projectsById = new Map(
+                snapshot.projects.map((project) => [project.id, project]),
+              );
+              const localThreadIds = snapshot.threads
+                .filter((thread) => {
+                  if (thread.deletedAt !== null || thread.session === null) {
+                    return false;
+                  }
+                  if (thread.session.status === "stopped") {
+                    return false;
+                  }
+                  const project = projectsById.get(thread.projectId);
+                  return project?.deletedAt === null && project.remote == null;
+                })
+                .map((thread) => thread.id);
+
+              const createdAt = new Date().toISOString();
+              yield* Effect.forEach(localThreadIds, (threadId) =>
+                orchestrationEngine.dispatch({
+                  type: "thread.session.stop",
+                  commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+                  threadId,
+                  createdAt,
+                }),
+              ).pipe(Effect.asVoid);
+
+              respondJson(200, {
+                ok: true,
+                stoppedThreadIds: localThreadIds,
+              });
+              return;
+            }
+
+            if (action === "shutdown-server") {
+              respondJson(200, { ok: true, shuttingDown: true });
+              setImmediate(() => {
+                process.kill(process.pid, "SIGTERM");
+              });
+              return;
+            }
+
+            respondJson(400, { ok: false, error: "Unsupported action" });
+            return;
+          }
+
+          respondJson(405, { ok: false, error: "Method not allowed" });
+          return;
+        }
+
         const attachmentRequest = parseProjectThreadAttachmentPath(url.pathname);
         const snapshot =
           url.pathname === "/api/project-favicon" || attachmentRequest !== null

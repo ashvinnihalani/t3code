@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
   DEFAULT_GIT_DEFAULT_ACTION,
   DEFAULT_THREAD_ID_DISPLAY_MODE,
   DEFAULT_TIMESTAMP_FORMAT,
@@ -68,6 +69,12 @@ describe("resolveAppModelSelection", () => {
 describe("timestamp format defaults", () => {
   it("defaults timestamp format to locale", () => {
     expect(DEFAULT_TIMESTAMP_FORMAT).toBe("locale");
+  });
+});
+
+describe("desktop app close behavior defaults", () => {
+  it("defaults desktop app close behavior to terminating all agents", () => {
+    expect(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR).toBe("terminate_all_agents");
   });
 });
 

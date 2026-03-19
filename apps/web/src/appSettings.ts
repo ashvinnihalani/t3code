@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
 import {
+  DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS,
   TrimmedNonEmptyString,
+  type DesktopAppCloseBehavior,
   type GitRequestSettings,
   type ProviderKind,
 } from "@t3tools/contracts";
@@ -14,6 +16,7 @@ export const MAX_CUSTOM_MODEL_LENGTH = 256;
 export const TIMESTAMP_FORMAT_OPTIONS = ["locale", "12-hour", "24-hour"] as const;
 export type TimestampFormat = (typeof TIMESTAMP_FORMAT_OPTIONS)[number];
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
+export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
 export const GIT_DEFAULT_ACTION_OPTIONS = [
   "auto",
   "commit",
@@ -61,6 +64,9 @@ const AppSettingsSchema = Schema.Struct({
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withConstructorDefault(() => Option.some(true))),
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
+  ),
+  desktopAppCloseBehavior: Schema.Literals(DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR)),
   ),
   threadIdDisplayMode: Schema.Literals(["hidden", "composer", "message"]).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_THREAD_ID_DISPLAY_MODE)),
