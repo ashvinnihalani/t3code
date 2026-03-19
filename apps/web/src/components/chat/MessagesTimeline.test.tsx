@@ -85,10 +85,16 @@ describe("MessagesTimeline", () => {
         onRevertUserMessage={() => {}}
         isRevertingCheckpoint={false}
         onImageExpand={() => {}}
-        markdownCwd={undefined}
+        projectId={undefined}
+        linkContext={{
+          projectId: undefined,
+          threadId: undefined,
+          referenceRoot: undefined,
+          remote: undefined,
+        }}
         resolvedTheme="light"
         timestampFormat="locale"
-        workspaceRoot={undefined}
+        workspaceRootDisplay={undefined}
       />,
     );
 
