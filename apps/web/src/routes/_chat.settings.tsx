@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
+  DEFAULT_GIT_DEFAULT_ACTION,
+  GIT_DEFAULT_ACTION_OPTIONS,
+  type GitDefaultAction,
   MAX_CUSTOM_MODEL_LENGTH,
   buildCodexHostOverridePatch,
   getCodexHostOverride,
@@ -25,6 +28,7 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
+import { Textarea } from "../components/ui/textarea";
 import { APP_VERSION } from "../branding";
 import { SidebarInset } from "~/components/ui/sidebar";
 
@@ -67,6 +71,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
+  auto: "Auto",
+  commit: "Commit",
+  commit_push: "Commit and Push",
+  commit_push_pr: "Commit Push and PR",
+};
 const LOCAL_CODEX_SETTINGS_SCOPE = "local";
 const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
 
@@ -369,6 +379,109 @@ function SettingsRouteView() {
                   </div>
                 ) : null}
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Git</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Configure the default stacked git action and overrides used for auto-generated
+                  commits and PR workflows.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">Default action</p>
+                    <p className="text-xs text-muted-foreground">
+                      Auto preserves the original context-sensitive behavior. The other options
+                      force a preferred action when possible.
+                    </p>
+                  </div>
+                  <Select
+                    value={settings.gitDefaultAction}
+                    onValueChange={(value) => {
+                      if (!GIT_DEFAULT_ACTION_OPTIONS.includes(value as GitDefaultAction)) {
+                        return;
+                      }
+                      updateSettings({
+                        gitDefaultAction: value as GitDefaultAction,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-48" aria-label="Default git action">
+                      <SelectValue>
+                        {GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end">
+                      {GIT_DEFAULT_ACTION_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {GIT_DEFAULT_ACTION_LABELS[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+
+                <label htmlFor="git-commit-prompt" className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">Commit prompt</span>
+                  <Textarea
+                    id="git-commit-prompt"
+                    value={settings.gitCommitPrompt}
+                    onChange={(event) =>
+                      updateSettings({
+                        gitCommitPrompt: event.target.value,
+                      })
+                    }
+                    placeholder="Optional system prompt for auto-generated commit messages"
+                    spellCheck={false}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Leave blank to use the built-in commit prompt only.
+                  </span>
+                </label>
+
+                <label htmlFor="github-binary-path" className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">GitHub binary path</span>
+                  <Input
+                    id="github-binary-path"
+                    value={settings.gitHubBinaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        gitHubBinaryPath: event.target.value,
+                      })
+                    }
+                    placeholder="gh"
+                    spellCheck={false}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Optional executable override for git status, PR actions, and PR checkout. For
+                    SSH projects, the same path must exist on the remote host.
+                  </span>
+                </label>
+              </div>
+
+              {settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
+              settings.gitCommitPrompt !== "" ||
+              settings.gitHubBinaryPath !== "" ? (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        gitDefaultAction: defaults.gitDefaultAction,
+                        gitCommitPrompt: defaults.gitCommitPrompt,
+                        gitHubBinaryPath: defaults.gitHubBinaryPath,
+                      })
+                    }
+                  >
+                    Restore default
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">

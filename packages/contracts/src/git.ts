@@ -19,6 +19,11 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+const GitRequestSettings = Schema.Struct({
+  githubBinaryPath: Schema.optional(Schema.String.check(Schema.isMaxLength(4096))),
+  commitPrompt: Schema.optional(Schema.String.check(Schema.isMaxLength(10_000))),
+});
+export type GitRequestSettings = typeof GitRequestSettings.Type;
 
 export const GitBranch = Schema.Struct({
   name: TrimmedNonEmptyStringSchema,
@@ -49,6 +54,7 @@ export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 export const GitStatusInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  settings: Schema.optional(GitRequestSettings),
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
 
@@ -67,6 +73,7 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  settings: Schema.optional(GitRequestSettings),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 
@@ -89,6 +96,7 @@ export const GitPullRequestRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
   reference: GitPullRequestReference,
+  settings: Schema.optional(GitRequestSettings),
 });
 export type GitPullRequestRefInput = typeof GitPullRequestRefInput.Type;
 
@@ -97,6 +105,7 @@ export const GitPreparePullRequestThreadInput = Schema.Struct({
   projectId: Schema.optional(ProjectId),
   reference: GitPullRequestReference,
   mode: GitPreparePullRequestThreadMode,
+  settings: Schema.optional(GitRequestSettings),
 });
 export type GitPreparePullRequestThreadInput = typeof GitPreparePullRequestThreadInput.Type;
 

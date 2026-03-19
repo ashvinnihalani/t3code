@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_GIT_DEFAULT_ACTION,
   DEFAULT_TIMESTAMP_FORMAT,
   buildCodexHostOverridePatch,
+  buildGitRequestSettings,
   getAppModelOptions,
   getCodexHostOverride,
   normalizeCustomModelSlugs,
@@ -64,6 +66,35 @@ describe("resolveAppModelSelection", () => {
 describe("timestamp format defaults", () => {
   it("defaults timestamp format to locale", () => {
     expect(DEFAULT_TIMESTAMP_FORMAT).toBe("locale");
+  });
+});
+
+describe("git settings defaults", () => {
+  it("defaults the primary git action to auto", () => {
+    expect(DEFAULT_GIT_DEFAULT_ACTION).toBe("auto");
+  });
+});
+
+describe("buildGitRequestSettings", () => {
+  it("omits empty git request settings", () => {
+    expect(
+      buildGitRequestSettings({
+        gitCommitPrompt: "   ",
+        gitHubBinaryPath: "",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns trimmed git request settings", () => {
+    expect(
+      buildGitRequestSettings({
+        gitCommitPrompt: "  prefer concise infra-focused commits  ",
+        gitHubBinaryPath: "  /opt/bin/gh-custom  ",
+      }),
+    ).toEqual({
+      commitPrompt: "prefer concise infra-focused commits",
+      githubBinaryPath: "/opt/bin/gh-custom",
+    });
   });
 });
 
