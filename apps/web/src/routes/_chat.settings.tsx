@@ -86,15 +86,15 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit_push_pr: "Commit Push and PR",
 };
 const DESKTOP_APP_CLOSE_BEHAVIOR_LABELS: Record<DesktopAppCloseBehavior, string> = {
-  terminate_all_agents: "Terminate All Agents",
-  terminate_local_agents_only: "Terminate Local Agents Only",
-  terminate_no_agents: "Terminate No Agents",
+  terminate_all_agents: "Stop all sessions",
+  terminate_local_agents_only: "Stop local sessions only",
+  terminate_no_agents: "Keep all sessions running",
 };
 const DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS: Record<DesktopAppCloseBehavior, string> = {
-  terminate_all_agents: "Quit the local threads server and stop every active agent session.",
+  terminate_all_agents: "Quit the local threads server and stop every active Codex session.",
   terminate_local_agents_only:
-    "Keep the local threads server running, but stop agents for local projects before exit.",
-  terminate_no_agents: "Leave the local threads server and all agent sessions running.",
+    "Keep the local threads server running, but stop sessions for local projects before exit.",
+  terminate_no_agents: "Leave the local threads server and existing sessions running.",
 };
 const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Hidden",
@@ -685,14 +685,15 @@ function SettingsRouteView() {
                 </div>
 
                 {isElectron ? (
-                  <div className="space-y-2 rounded-xl border border-border bg-background/50 p-4">
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="desktop-app-close-behavior"
-                        className="block text-xs font-medium text-foreground"
-                      >
-                        App close behavior
-                      </label>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">On app close</p>
+                      <p className="text-xs text-muted-foreground">
+                        {DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <Select
                         value={settings.desktopAppCloseBehavior}
                         onValueChange={(value) => {
@@ -706,14 +707,14 @@ function SettingsRouteView() {
                       >
                         <SelectTrigger
                           id="desktop-app-close-behavior"
-                          className="w-full"
-                          aria-label="Desktop app close behavior"
+                          className="w-56"
+                          aria-label="Codex app close behavior"
                         >
                           <SelectValue>
                             {DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[settings.desktopAppCloseBehavior]}
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectPopup>
+                        <SelectPopup align="end">
                           {Object.entries(DESKTOP_APP_CLOSE_BEHAVIOR_LABELS).map(
                             ([value, label]) => (
                               <SelectItem key={value} value={value}>
@@ -723,14 +724,8 @@ function SettingsRouteView() {
                           )}
                         </SelectPopup>
                       </Select>
-                    </div>
 
-                    <p className="text-xs text-muted-foreground">
-                      {DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]}
-                    </p>
-
-                    {settings.desktopAppCloseBehavior !== DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
-                      <div className="flex justify-end">
+                      {settings.desktopAppCloseBehavior !== DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
                         <Button
                           size="xs"
                           variant="outline"
@@ -740,10 +735,10 @@ function SettingsRouteView() {
                             })
                           }
                         >
-                          Restore default
+                          Reset
                         </Button>
-                      </div>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>
