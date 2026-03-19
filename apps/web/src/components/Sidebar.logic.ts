@@ -15,6 +15,7 @@ export interface ThreadStatusPill {
   label:
     | "Working"
     | "Connecting"
+    | "Disconnected"
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
@@ -128,6 +129,15 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  if (thread.session?.status === "disconnected") {
+    return {
+      label: "Disconnected",
+      colorClass: "text-slate-600 dark:text-slate-300/80",
+      dotClass: "bg-slate-500 dark:bg-slate-300/80",
+      pulse: false,
     };
   }
 

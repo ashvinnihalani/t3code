@@ -217,6 +217,40 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
   });
+
+  it("shows disconnected for stale sessions without higher-priority blockers", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "disconnected",
+            orchestrationStatus: "disconnected",
+          },
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Disconnected", pulse: false });
+  });
+
+  it("keeps pending approval above disconnected", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "disconnected",
+            orchestrationStatus: "disconnected",
+          },
+        },
+        hasPendingApprovals: true,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Pending Approval", pulse: false });
+  });
 });
 
 describe("resolveThreadRowClassName", () => {

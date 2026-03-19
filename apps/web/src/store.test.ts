@@ -303,6 +303,31 @@ describe("store read model sync", () => {
     });
   });
 
+  it("preserves disconnected orchestration sessions instead of collapsing them to closed", () => {
+    const initialState = makeState(makeThread());
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            status: "disconnected",
+            providerName: "codex",
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.session).toMatchObject({
+      status: "disconnected",
+      orchestrationStatus: "disconnected",
+    });
+  });
+
   it("falls back to the codex default for unsupported provider models without an active session", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(

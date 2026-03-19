@@ -19,6 +19,7 @@ import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/Proj
 import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
+import { StartupThreadReconcilerLive } from "./orchestration/Layers/StartupThreadReconciler";
 import { ProviderUnsupportedError } from "./provider/Errors";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
@@ -107,6 +108,7 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
     Layer.provideMerge(checkpointReactorLayer),
+    Layer.provideMerge(StartupThreadReconcilerLive.pipe(Layer.provideMerge(runtimeServicesLayer))),
   );
 
   const terminalLayer = TerminalManagerLive.pipe(

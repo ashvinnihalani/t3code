@@ -5,6 +5,7 @@ import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { StartupThreadReconciler } from "../Services/StartupThreadReconciler.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -17,7 +18,7 @@ describe("OrchestrationReactor", () => {
     runtime = null;
   });
 
-  it("starts provider ingestion, provider command, and checkpoint reactors", async () => {
+  it("starts provider ingestion, provider command, checkpoint, and startup reconciliation", async () => {
     const started: string[] = [];
 
     runtime = ManagedRuntime.make(
@@ -46,6 +47,13 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
           }),
         ),
+        Layer.provideMerge(
+          Layer.succeed(StartupThreadReconciler, {
+            start: Effect.sync(() => {
+              started.push("startup-thread-reconciler");
+            }),
+          }),
+        ),
       ),
     );
 
@@ -57,6 +65,7 @@ describe("OrchestrationReactor", () => {
       "provider-runtime-ingestion",
       "provider-command-reactor",
       "checkpoint-reactor",
+      "startup-thread-reconciler",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

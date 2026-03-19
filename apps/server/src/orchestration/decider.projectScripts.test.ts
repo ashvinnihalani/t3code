@@ -358,4 +358,88 @@ describe("decider project scripts", () => {
       },
     });
   });
+
+  it("emits thread.turn-completed from thread.turn.complete", async () => {
+    const now = new Date().toISOString();
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-turn-complete"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-project-create-turn-complete"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-turn-complete"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModel: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-turn-complete"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-turn-complete"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-turn-complete"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          model: "gpt-5-codex",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.complete",
+          commandId: CommandId.makeUnsafe("cmd-turn-complete"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: "turn-1" as never,
+          state: "completed",
+          completedAt: now,
+          assistantMessageId: "message-1" as never,
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
+
+    const singleResult = Array.isArray(result) ? null : result;
+    if (singleResult === null) {
+      throw new Error("Expected a single thread.turn-completed event.");
+    }
+    expect(singleResult).toMatchObject({
+      type: "thread.turn-completed",
+      payload: {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: "turn-1",
+        state: "completed",
+        assistantMessageId: "message-1",
+      },
+    });
+  });
 });

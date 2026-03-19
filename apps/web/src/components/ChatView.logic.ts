@@ -1,5 +1,4 @@
 import {
-  type OrchestrationSessionReconnectState,
   ProjectId,
   type ProjectRemoteTarget,
   type ProviderKind,
@@ -221,38 +220,6 @@ function isOlderThanOrEqualToDismissedAt(
   return checkedAtMs <= dismissedAtMs;
 }
 
-function buildRemoteReconnectSummary(input: {
-  reconnectState?: OrchestrationSessionReconnectState | undefined;
-  resumeAvailable?: boolean | undefined;
-  reconnectSummary?: string | undefined;
-  providerThreadId?: string | undefined;
-}): string | null {
-  if (input.reconnectSummary) {
-    return input.reconnectSummary;
-  }
-
-  switch (input.reconnectState) {
-    case "resume-thread":
-      return input.providerThreadId
-        ? `Reconnected to provider thread ${input.providerThreadId}.`
-        : "Reconnected to the persisted remote provider session.";
-    case "adopt-existing":
-      return "Reattached to an existing remote provider session.";
-    case "resume-unavailable":
-      return "Automatic reconnect is not available for this remote session.";
-    case "resume-failed":
-      return "Automatic reconnect failed for this remote session.";
-    case "fresh-start":
-      return null;
-    default:
-      return input.resumeAvailable && input.providerThreadId
-        ? `Resume is available for provider thread ${input.providerThreadId}.`
-        : input.resumeAvailable
-          ? "Automatic reconnect is available for this remote session."
-          : null;
-  }
-}
-
 function buildRemoteProviderHealthStatus(input: {
   projectRemote: ProjectRemoteTarget;
   session: ThreadSession | null;
@@ -275,51 +242,26 @@ function buildRemoteProviderHealthStatus(input: {
     };
   }
 
-  const reconnectSummary = buildRemoteReconnectSummary({
-    reconnectState: session.reconnectState,
-    reconnectSummary: session.reconnectSummary,
-    resumeAvailable: session.resumeAvailable,
-    providerThreadId: session.providerThreadId,
-  });
-
   switch (session.orchestrationStatus) {
-    case "starting":
-      return {
-        kind: "remote",
-        status: "warning",
-        title: "Remote Codex session status",
-        message: reconnectSummary ?? `Connecting to the remote Codex session on ${hostAlias}.`,
-      };
     case "error":
-      return {
-        kind: "remote",
-        status: "error",
-        title: "Remote Codex session status",
-        message:
-          session.lastError ??
-          reconnectSummary ??
-          `The remote Codex session on ${hostAlias} failed.`,
-      };
-    case "stopped":
-    case "idle":
-      return {
-        kind: "remote",
-        status: "warning",
-        title: "Remote Codex session status",
-        message: reconnectSummary ?? `The remote Codex session on ${hostAlias} is disconnected.`,
-      };
-    case "ready":
-    case "running":
-    case "interrupted":
-      if (!reconnectSummary || session.reconnectState === "fresh-start") {
+      if (!session.lastError) {
         return null;
       }
       return {
         kind: "remote",
-        status: "info",
+        status: "error",
         title: "Remote Codex session status",
-        message: reconnectSummary,
+        message: session.lastError ?? `The remote Codex session on ${hostAlias} failed.`,
       };
+    case "starting":
+    case "stopped":
+    case "idle":
+    case "disconnected":
+      return null;
+    case "ready":
+    case "running":
+    case "interrupted":
+      return null;
   }
 }
 
