@@ -1,6 +1,10 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
-import { TrimmedNonEmptyString, type GitRequestSettings, type ProviderKind } from "@t3tools/contracts";
+import {
+  TrimmedNonEmptyString,
+  type GitRequestSettings,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
