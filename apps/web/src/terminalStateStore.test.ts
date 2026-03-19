@@ -7,9 +7,6 @@ const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 
 describe("terminalStateStore actions", () => {
   beforeEach(() => {
-    if (typeof localStorage !== "undefined") {
-      localStorage.clear();
-    }
     useTerminalStateStore.setState({ terminalStateByThreadId: {} });
   });
 
