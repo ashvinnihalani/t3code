@@ -20,6 +20,7 @@ import { page } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { APP_SETTINGS_STORAGE_KEY, type AppSettings } from "../appSettings";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isMacPlatform } from "../lib/utils";
 import { getRouter } from "../router";
@@ -250,6 +251,29 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   };
 }
 
+function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+  return {
+    codexBinaryPath: "",
+    codexHomePath: "",
+    codexRemoteOverrides: {},
+    defaultThreadEnvMode: "local",
+    confirmThreadDelete: true,
+    enableAssistantStreaming: false,
+    timestampFormat: "locale",
+    customCodexModels: [],
+    ...overrides,
+  };
+}
+
+function dispatchAppSettingsChange(nextSettings: AppSettings): void {
+  localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+  window.dispatchEvent(
+    new CustomEvent("t3code:local_storage_change", {
+      detail: { key: APP_SETTINGS_STORAGE_KEY },
+    }),
+  );
+}
+
 function addThreadToSnapshot(
   snapshot: OrchestrationReadModel,
   threadId: ThreadId,
@@ -352,6 +376,38 @@ function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
             updatedAt: isoAt(1_001),
           })
         : thread,
+    ),
+  };
+}
+
+function createSnapshotWithSessionError(options: {
+  error: string;
+  remote?: { kind: "ssh"; hostAlias: string } | null;
+}): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-session-error" as MessageId,
+    targetText: "session error",
+    sessionStatus: "error",
+  });
+
+  return {
+    ...snapshot,
+    projects: snapshot.projects.map((project) =>
+      Object.assign({}, project, {
+        remote: options.remote ?? undefined,
+      }),
+    ),
+    threads: snapshot.threads.map((thread) =>
+      Object.assign({}, thread, {
+        updatedAt: NOW_ISO,
+        session: thread.session
+          ? Object.assign({}, thread.session, {
+              status: "error" as const,
+              lastError: options.error,
+              updatedAt: NOW_ISO,
+            })
+          : thread.session,
+      }),
     ),
   };
 }
@@ -737,11 +793,102 @@ describe("ChatView timeline estimator parity (full app)", () => {
       projects: [],
       threads: [],
       threadsHydrated: false,
+      localCodexErrorsDismissedAfter: null,
     });
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("does not clear local Codex errors on initial settings hydration but clears them after a later settings change", async () => {
+    const localError = "Codex CLI is not installed.";
+    localStorage.setItem(
+      APP_SETTINGS_STORAGE_KEY,
+      JSON.stringify(buildAppSettings({ codexBinaryPath: "codex" })),
+    );
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSessionError({
+        error: localError,
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [
+            {
+              provider: "codex",
+              status: "error",
+              available: false,
+              authStatus: "unknown",
+              checkedAt: NOW_ISO,
+              message: localError,
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain("Local Codex provider status");
+        expect(document.body.textContent).toContain(localError);
+      });
+
+      dispatchAppSettingsChange(buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }));
+
+      await vi.waitFor(() => {
+        expect(useStore.getState().localCodexErrorsDismissedAfter).not.toBeNull();
+        expect(document.body.textContent).not.toContain("Local Codex provider status");
+        expect(document.body.textContent).not.toContain(localError);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not clear remote thread errors when settings change", async () => {
+    const remoteError = "Remote thread error sentinel.";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSessionError({
+        error: remoteError,
+        remote: {
+          kind: "ssh",
+          hostAlias: "buildbox",
+        },
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [
+            {
+              provider: "codex",
+              status: "ready",
+              available: true,
+              authStatus: "authenticated",
+              checkedAt: NOW_ISO,
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain(remoteError);
+      });
+
+      dispatchAppSettingsChange(buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }));
+
+      await vi.waitFor(() => {
+        expect(useStore.getState().localCodexErrorsDismissedAfter).not.toBeNull();
+      });
+      expect(document.body.textContent).toContain(remoteError);
+    } finally {
+      await mounted.cleanup();
+    }
   });
 
   it.each(TEXT_VIEWPORT_MATRIX)(

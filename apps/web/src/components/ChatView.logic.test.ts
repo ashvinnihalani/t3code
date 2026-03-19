@@ -1,6 +1,31 @@
+import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { resolveVisibleProviderHealthStatus } from "./ChatView.logic";
+import { resolveVisibleProviderHealthStatus, resolveVisibleThreadError } from "./ChatView.logic";
+import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "../types";
+
+function makeThread(overrides: Partial<Thread> = {}): Thread {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    codexThreadId: null,
+    projectId: ProjectId.makeUnsafe("project-1"),
+    title: "Thread",
+    model: "gpt-5-codex",
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    session: null,
+    messages: [],
+    proposedPlans: [],
+    error: null,
+    createdAt: "2026-03-16T00:00:00.000Z",
+    latestTurn: null,
+    branch: null,
+    worktreePath: null,
+    turnDiffSummaries: [],
+    activities: [],
+    ...overrides,
+  };
+}
 
 describe("resolveVisibleProviderHealthStatus", () => {
   it("keeps provider health visible for local projects", () => {
@@ -16,6 +41,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
         },
         projectRemote: null,
         session: null,
+        localCodexErrorsDismissedAfter: null,
       }),
     ).toMatchObject({
       kind: "local",
@@ -42,6 +68,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           hostAlias: "g7e_axe",
         },
         session: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T01:00:00.000Z",
       }),
     ).toMatchObject({
       kind: "remote",
@@ -73,11 +100,136 @@ describe("resolveVisibleProviderHealthStatus", () => {
           createdAt: "2026-03-16T00:00:00.000Z",
           updatedAt: "2026-03-16T00:00:00.000Z",
         },
+        localCodexErrorsDismissedAfter: "2026-03-16T01:00:00.000Z",
       }),
     ).toMatchObject({
       kind: "remote",
       status: "warning",
       message: "Resume is available for provider thread thread_remote_123.",
     });
+  });
+
+  it("hides dismissed local Codex provider health until a newer status arrives", () => {
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "codex",
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          checkedAt: "2026-03-16T00:00:00.000Z",
+          message: "Codex CLI is missing.",
+        },
+        projectRemote: null,
+        session: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toBeNull();
+
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "codex",
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          checkedAt: "2026-03-16T00:00:01.000Z",
+          message: "Codex CLI is still missing.",
+        },
+        projectRemote: null,
+        session: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      kind: "local",
+      status: {
+        status: "error",
+      },
+    });
+  });
+});
+
+describe("resolveVisibleThreadError", () => {
+  it("hides stale local Codex session errors after dismissal", () => {
+    expect(
+      resolveVisibleThreadError({
+        thread: makeThread({
+          error: "Codex CLI is not installed.",
+          session: {
+            provider: "codex",
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Codex CLI is not installed.",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+        projectRemote: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps newer local Codex session errors visible after dismissal", () => {
+    expect(
+      resolveVisibleThreadError({
+        thread: makeThread({
+          error: "Codex CLI is not installed.",
+          session: {
+            provider: "codex",
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Codex CLI is not installed.",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:01.000Z",
+          },
+        }),
+        projectRemote: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toBe("Codex CLI is not installed.");
+  });
+
+  it("does not hide remote thread errors on settings dismissal", () => {
+    expect(
+      resolveVisibleThreadError({
+        thread: makeThread({
+          error: "Remote Codex session failed.",
+          session: {
+            provider: "codex",
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Remote Codex session failed.",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+        projectRemote: {
+          kind: "ssh",
+          hostAlias: "g7e_axe",
+        },
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toBe("Remote Codex session failed.");
+  });
+
+  it("does not hide unrelated local UI errors", () => {
+    expect(
+      resolveVisibleThreadError({
+        thread: makeThread({
+          error: "You can attach up to 20 images per message.",
+          session: {
+            provider: "codex",
+            status: "ready",
+            orchestrationStatus: "ready",
+            lastError: "Different provider error",
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        }),
+        projectRemote: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
+      }),
+    ).toBe("You can attach up to 20 images per message.");
   });
 });

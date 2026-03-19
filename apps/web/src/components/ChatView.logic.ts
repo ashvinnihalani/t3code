@@ -144,6 +144,23 @@ export type VisibleProviderHealthStatus =
     }
   | null;
 
+function isOlderThanOrEqualToDismissedAt(
+  checkedAt: string | undefined,
+  dismissedAt: string | null | undefined,
+): boolean {
+  if (!checkedAt || !dismissedAt) {
+    return false;
+  }
+
+  const checkedAtMs = Date.parse(checkedAt);
+  const dismissedAtMs = Date.parse(dismissedAt);
+  if (!Number.isFinite(checkedAtMs) || !Number.isFinite(dismissedAtMs)) {
+    return false;
+  }
+
+  return checkedAtMs <= dismissedAtMs;
+}
+
 function buildRemoteReconnectSummary(input: {
   reconnectState?: OrchestrationSessionReconnectState | undefined;
   resumeAvailable?: boolean | undefined;
@@ -250,6 +267,7 @@ export function resolveVisibleProviderHealthStatus(input: {
   status: ServerProviderStatus | null;
   projectRemote: ProjectRemoteTarget | null;
   session: ThreadSession | null;
+  localCodexErrorsDismissedAfter?: string | null;
 }): VisibleProviderHealthStatus {
   if (input.projectRemote) {
     return buildRemoteProviderHealthStatus({
@@ -259,5 +277,37 @@ export function resolveVisibleProviderHealthStatus(input: {
     });
   }
 
+  if (
+    input.status?.provider === "codex" &&
+    input.status.status !== "ready" &&
+    isOlderThanOrEqualToDismissedAt(input.status.checkedAt, input.localCodexErrorsDismissedAfter)
+  ) {
+    return null;
+  }
+
   return input.status ? { kind: "local", status: input.status } : null;
+}
+
+export function resolveVisibleThreadError(input: {
+  thread: Thread | null;
+  projectRemote: ProjectRemoteTarget | null;
+  localCodexErrorsDismissedAfter?: string | null;
+}): string | null {
+  const error = input.thread?.error ?? null;
+  if (!error) {
+    return null;
+  }
+
+  if (input.projectRemote) {
+    return error;
+  }
+
+  const session = input.thread?.session ?? null;
+  if (session?.provider !== "codex" || session.lastError !== error) {
+    return error;
+  }
+
+  return isOlderThanOrEqualToDismissedAt(session.updatedAt, input.localCodexErrorsDismissedAfter)
+    ? null
+    : error;
 }

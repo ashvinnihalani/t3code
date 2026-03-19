@@ -13,6 +13,7 @@ import { Throttler } from "@tanstack/react-pacer";
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import { useAppSettings } from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
@@ -51,6 +52,7 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
+        <AppSettingsWatcher />
         <EventRouter />
         <DesktopProjectBootstrap />
         <Outlet />
@@ -318,6 +320,27 @@ function EventRouter() {
     setProjectExpanded,
     syncServerReadModel,
   ]);
+
+  return null;
+}
+
+function AppSettingsWatcher() {
+  const { settings } = useAppSettings();
+  const dismissLocalCodexErrors = useStore((store) => store.dismissLocalCodexErrors);
+  const previousSettingsSignatureRef = useRef<string | null>(null);
+  const settingsSignature = JSON.stringify(settings);
+
+  useEffect(() => {
+    if (previousSettingsSignatureRef.current === null) {
+      previousSettingsSignatureRef.current = settingsSignature;
+      return;
+    }
+    if (previousSettingsSignatureRef.current === settingsSignature) {
+      return;
+    }
+    previousSettingsSignatureRef.current = settingsSignature;
+    dismissLocalCodexErrors(new Date().toISOString());
+  }, [dismissLocalCodexErrors, settingsSignature]);
 
   return null;
 }

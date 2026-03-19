@@ -154,6 +154,7 @@ import {
   LastInvokedScriptByProjectSchema,
   PullRequestDialogState,
   readFileAsDataUrl,
+  resolveVisibleThreadError,
   resolveVisibleProviderHealthStatus,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -198,6 +199,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
+  const localCodexErrorsDismissedAfter = useStore((store) => store.localCodexErrorsDismissedAfter);
   const { settings } = useAppSettings();
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
@@ -1040,8 +1042,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
         status: activeProviderStatus,
         projectRemote: activeProject?.remote ?? null,
         session: activeThread?.session ?? null,
+        localCodexErrorsDismissedAfter,
       }),
-    [activeProject?.remote, activeProviderStatus, activeThread?.session],
+    [
+      activeProject?.remote,
+      activeProviderStatus,
+      activeThread?.session,
+      localCodexErrorsDismissedAfter,
+    ],
+  );
+  const visibleThreadError = useMemo(
+    () =>
+      resolveVisibleThreadError({
+        thread: activeThread ?? null,
+        projectRemote: activeProject?.remote ?? null,
+        localCodexErrorsDismissedAfter,
+      }),
+    [activeProject?.remote, activeThread, localCodexErrorsDismissedAfter],
   );
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
@@ -1965,17 +1982,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
       phase === "running" ||
       activePendingApproval !== null ||
       activePendingUserInput !== null ||
-      activeThread?.error
+      visibleThreadError
     ) {
       resetSendPhase();
     }
   }, [
     activePendingApproval,
     activePendingUserInput,
-    activeThread?.error,
     phase,
     resetSendPhase,
     sendPhase,
+    visibleThreadError,
   ]);
 
   useEffect(() => {
@@ -3295,7 +3312,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner status={visibleProviderStatus} />
       <ThreadErrorBanner
-        error={activeThread.error}
+        error={visibleThreadError}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
       {/* Main content area with optional plan sidebar */}

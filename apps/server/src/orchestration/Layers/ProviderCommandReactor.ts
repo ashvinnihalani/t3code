@@ -133,6 +133,18 @@ function resolveProjectScopedProviderOptions(input: {
   return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
 }
 
+function providerOptionsRestartKey(input?: ProviderStartOptions): string {
+  const codex = input?.codex;
+  const remote =
+    codex?.remote?.kind === "ssh" ? `${codex.remote.kind}:${codex.remote.hostAlias}` : null;
+
+  return JSON.stringify({
+    binaryPath: codex?.binaryPath ?? null,
+    homePath: codex?.homePath ?? null,
+    remote,
+  });
+}
+
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -151,7 +163,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const threadProviderOptions = new Map<string, ProviderStartOptions>();
+  const threadProviderOptions = new Map<string, ProviderStartOptions | undefined>();
 
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -237,6 +249,7 @@ const make = Effect.gen(function* () {
         : {}),
       projectRemote,
     });
+    const cachedProviderOptions = threadProviderOptions.get(threadId);
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -295,8 +308,17 @@ const make = Effect.gen(function* () {
           : (yield* providerService.getCapabilities(currentProvider)).sessionModelSwitch;
       const modelChanged = options?.model !== undefined && options.model !== activeSession?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
+      const providerOptionsChanged =
+        providerOptionsRestartKey(effectiveProviderOptions) !==
+        providerOptionsRestartKey(cachedProviderOptions);
 
-      if (!runtimeModeChanged && !providerChanged && !shouldRestartForModelChange) {
+      if (
+        !runtimeModeChanged &&
+        !providerChanged &&
+        !shouldRestartForModelChange &&
+        !providerOptionsChanged
+      ) {
+        threadProviderOptions.set(threadId, effectiveProviderOptions);
         return existingSessionThreadId;
       }
 
@@ -314,6 +336,7 @@ const make = Effect.gen(function* () {
         runtimeModeChanged,
         providerChanged,
         modelChanged,
+        providerOptionsChanged,
         shouldRestartForModelChange,
         hasResumeCursor: resumeCursor !== undefined,
       });
@@ -321,6 +344,7 @@ const make = Effect.gen(function* () {
         ...(resumeCursor !== undefined ? { resumeCursor } : {}),
         ...(options?.provider !== undefined ? { provider: options.provider } : {}),
       });
+      threadProviderOptions.set(threadId, effectiveProviderOptions);
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -335,6 +359,7 @@ const make = Effect.gen(function* () {
     const startedSession = yield* startProviderSession(
       options?.provider !== undefined ? { provider: options.provider } : undefined,
     );
+    threadProviderOptions.set(threadId, effectiveProviderOptions);
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
@@ -353,9 +378,6 @@ const make = Effect.gen(function* () {
     const thread = yield* resolveThread(input.threadId);
     if (!thread) {
       return;
-    }
-    if (input.providerOptions !== undefined) {
-      threadProviderOptions.set(input.threadId, input.providerOptions);
     }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.provider !== undefined ? { provider: input.provider } : {}),
