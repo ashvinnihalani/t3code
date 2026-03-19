@@ -72,6 +72,12 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+export const DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS = [
+  "terminate_all_agents",
+  "terminate_local_agents_only",
+  "terminate_no_agents",
+] as const;
+export type DesktopAppCloseBehavior = (typeof DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS)[number];
 
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
@@ -106,6 +112,7 @@ export interface DesktopBridge {
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
+  setAppCloseBehavior: (behavior: DesktopAppCloseBehavior) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },

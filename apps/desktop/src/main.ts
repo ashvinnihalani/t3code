@@ -18,6 +18,7 @@ import {
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
+  DesktopAppCloseBehavior,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
@@ -56,6 +57,7 @@ const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
+const APP_CLOSE_BEHAVIOR_SET_CHANNEL = "desktop:app-close-behavior:set";
 const STATE_DIR =
   process.env.T3CODE_STATE_DIR?.trim() || Path.join(OS.homedir(), ".t3", "userdata");
 const DESKTOP_SCHEME = "t3";
@@ -75,8 +77,24 @@ const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
+const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
+const DESKTOP_BACKEND_STATE_PATH = Path.join(STATE_DIR, "desktop-backend.json");
+const DESKTOP_BACKEND_RUNTIME_PATH = "/api/desktop/runtime";
+const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
+type DesktopBackendControlAction = "shutdown-server" | "stop-local-sessions";
+
+interface PersistedDesktopSettings {
+  appCloseBehavior: DesktopAppCloseBehavior;
+}
+
+interface PersistedDesktopBackendState {
+  port: number;
+  authToken: string;
+  pid: number | null;
+  startedAt: string;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess.ChildProcess | null = null;
@@ -86,6 +104,8 @@ let backendWsUrl = "";
 let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
+let quitPrepared = false;
+let quitPreparationPromise: Promise<void> | null = null;
 let desktopProtocolRegistered = false;
 let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
@@ -100,6 +120,115 @@ const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
 });
 const initialUpdateState = (): DesktopUpdateState =>
   createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo);
+let desktopAppCloseBehavior =
+  readPersistedDesktopSettings().appCloseBehavior ?? DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR;
+
+function isDesktopAppCloseBehavior(value: unknown): value is DesktopAppCloseBehavior {
+  return (
+    value === "terminate_all_agents" ||
+    value === "terminate_local_agents_only" ||
+    value === "terminate_no_agents"
+  );
+}
+
+function ensureStateDirExists(): void {
+  FS.mkdirSync(STATE_DIR, { recursive: true });
+}
+
+function readJsonFile(filePath: string): unknown {
+  const raw = FS.readFileSync(filePath, "utf8");
+  return JSON.parse(raw) as unknown;
+}
+
+function writeJsonFile(filePath: string, value: unknown): void {
+  ensureStateDirExists();
+  FS.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function deleteFileIfExists(filePath: string): void {
+  try {
+    FS.rmSync(filePath, { force: true });
+  } catch {
+    // Ignore cleanup failures during shutdown/startup recovery.
+  }
+}
+
+function readPersistedDesktopSettings(): PersistedDesktopSettings {
+  try {
+    const parsed = readJsonFile(DESKTOP_SETTINGS_PATH);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      isDesktopAppCloseBehavior((parsed as { appCloseBehavior?: unknown }).appCloseBehavior)
+    ) {
+      return {
+        appCloseBehavior: (parsed as { appCloseBehavior: DesktopAppCloseBehavior })
+          .appCloseBehavior,
+      };
+    }
+  } catch {
+    // Fall back to defaults for missing or malformed files.
+  }
+
+  return {
+    appCloseBehavior: DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
+  };
+}
+
+function persistDesktopSettings(settings: PersistedDesktopSettings): void {
+  writeJsonFile(DESKTOP_SETTINGS_PATH, settings);
+}
+
+function isPersistedDesktopBackendState(value: unknown): value is PersistedDesktopBackendState {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { port?: unknown }).port === "number" &&
+    Number.isInteger((value as { port: number }).port) &&
+    (value as { port: number }).port > 0 &&
+    typeof (value as { authToken?: unknown }).authToken === "string" &&
+    (value as { authToken: string }).authToken.trim().length > 0 &&
+    (typeof (value as { pid?: unknown }).pid === "number" ||
+      (value as { pid?: unknown }).pid === null) &&
+    typeof (value as { startedAt?: unknown }).startedAt === "string"
+  );
+}
+
+function readPersistedBackendState(): PersistedDesktopBackendState | null {
+  try {
+    const parsed = readJsonFile(DESKTOP_BACKEND_STATE_PATH);
+    return isPersistedDesktopBackendState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistBackendState(state: PersistedDesktopBackendState): void {
+  writeJsonFile(DESKTOP_BACKEND_STATE_PATH, state);
+}
+
+function clearPersistedBackendState(): void {
+  deleteFileIfExists(DESKTOP_BACKEND_STATE_PATH);
+}
+
+function setBackendConnection(port: number, authToken: string): void {
+  backendPort = port;
+  backendAuthToken = authToken;
+  backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
+  process.env.T3CODE_DESKTOP_WS_URL = backendWsUrl;
+}
+
+function getBackendControlUrl(port: number): string {
+  return `http://127.0.0.1:${port}${DESKTOP_BACKEND_RUNTIME_PATH}`;
+}
+
+function getBackendControlHeaders(authToken: string): Record<string, string> {
+  return authToken
+    ? {
+        "X-T3Code-Auth-Token": authToken,
+      }
+    : {};
+}
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -131,6 +260,74 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+async function requestBackendControl(
+  input:
+    | { port: number; authToken: string; method: "GET" }
+    | {
+        port: number;
+        authToken: string;
+        method: "POST";
+        action: DesktopBackendControlAction;
+      },
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 3_000);
+  timeout.unref();
+
+  try {
+    const response = await fetch(getBackendControlUrl(input.port), {
+      method: input.method,
+      headers: {
+        Accept: "application/json",
+        ...getBackendControlHeaders(input.authToken),
+        ...(input.method === "POST" ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(input.method === "POST" ? { body: JSON.stringify({ action: input.action }) } : {}),
+      signal: abortController.signal,
+    });
+
+    const text = await response.text();
+    let body: unknown = null;
+    if (text.trim().length > 0) {
+      try {
+        body = JSON.parse(text) as unknown;
+      } catch {
+        body = text;
+      }
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function probePersistedBackend(state: PersistedDesktopBackendState): Promise<boolean> {
+  try {
+    const response = await requestBackendControl({
+      port: state.port,
+      authToken: state.authToken,
+      method: "GET",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function tryKillPersistedBackendProcess(pid: number | null): void {
+  if (pid === null) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Ignore failures when the persisted PID is already gone.
+  }
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -444,6 +641,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   }
   stopBackend();
   restoreStdIoCapture?.();
+  quitPrepared = true;
   app.quit();
 }
 
@@ -798,11 +996,13 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
   clearUpdatePollTimer();
   try {
     await stopBackendAndWaitForExit();
+    quitPrepared = true;
     autoUpdater.quitAndInstall();
     return { accepted: true, completed: true };
   } catch (error: unknown) {
     const message = formatErrorMessage(error);
     isQuitting = false;
+    quitPrepared = false;
     setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
@@ -929,6 +1129,40 @@ function backendEnv(): NodeJS.ProcessEnv {
   };
 }
 
+async function adoptPersistedBackendIfAvailable(): Promise<boolean> {
+  const persisted = readPersistedBackendState();
+  if (!persisted) {
+    return false;
+  }
+
+  const healthy = await probePersistedBackend(persisted);
+  if (!healthy) {
+    writeDesktopLogHeader(
+      `discarding stale backend state pid=${persisted.pid ?? "unknown"} port=${persisted.port}`,
+    );
+    clearPersistedBackendState();
+    return false;
+  }
+
+  setBackendConnection(persisted.port, persisted.authToken);
+  writeDesktopLogHeader(
+    `adopted existing backend pid=${persisted.pid ?? "unknown"} port=${persisted.port}`,
+  );
+  return true;
+}
+
+async function reserveNewBackendConnection(): Promise<void> {
+  const port = await Effect.service(NetService).pipe(
+    Effect.flatMap((net) => net.reserveLoopbackPort()),
+    Effect.provide(NetService.layer),
+    Effect.runPromise,
+  );
+  const authToken = Crypto.randomBytes(24).toString("hex");
+  setBackendConnection(port, authToken);
+  writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
+  writeDesktopLogHeader(`bootstrap resolved websocket url=${backendWsUrl}`);
+}
+
 function scheduleBackendRestart(reason: string): void {
   if (isQuitting || restartTimer) return;
 
@@ -960,9 +1194,16 @@ function startBackend(): void {
       ...backendEnv(),
       ELECTRON_RUN_AS_NODE: "1",
     },
+    detached: true,
     stdio: captureBackendLogs ? ["ignore", "pipe", "pipe"] : "inherit",
   });
   backendProcess = child;
+  persistBackendState({
+    port: backendPort,
+    authToken: backendAuthToken,
+    pid: child.pid ?? null,
+    startedAt: new Date().toISOString(),
+  });
   let backendSessionClosed = false;
   const closeBackendSession = (details: string) => {
     if (backendSessionClosed) return;
@@ -983,6 +1224,7 @@ function startBackend(): void {
     if (backendProcess === child) {
       backendProcess = null;
     }
+    clearPersistedBackendState();
     closeBackendSession(`pid=${child.pid ?? "unknown"} error=${error.message}`);
     scheduleBackendRestart(error.message);
   });
@@ -991,6 +1233,7 @@ function startBackend(): void {
     if (backendProcess === child) {
       backendProcess = null;
     }
+    clearPersistedBackendState();
     closeBackendSession(
       `pid=${child.pid ?? "unknown"} code=${code ?? "null"} signal=${signal ?? "null"}`,
     );
@@ -1008,6 +1251,7 @@ function stopBackend(): void {
 
   const child = backendProcess;
   backendProcess = null;
+  clearPersistedBackendState();
   if (!child) return;
 
   if (child.exitCode === null && child.signalCode === null) {
@@ -1028,6 +1272,7 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
 
   const child = backendProcess;
   backendProcess = null;
+  clearPersistedBackendState();
   if (!child) return;
   const backendChild = child;
   if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
@@ -1071,6 +1316,98 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
   });
 }
 
+function releaseBackendForBackgroundRun(): void {
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+
+  const child = backendProcess;
+  backendProcess = null;
+  if (!child) {
+    return;
+  }
+
+  child.removeAllListeners("error");
+  child.removeAllListeners("exit");
+  child.stdout?.removeAllListeners("data");
+  child.stderr?.removeAllListeners("data");
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  child.unref();
+}
+
+async function stopLocalBackendSessions(): Promise<void> {
+  if (backendPort <= 0 || backendAuthToken.length === 0) {
+    return;
+  }
+  const response = await requestBackendControl({
+    port: backendPort,
+    authToken: backendAuthToken,
+    method: "POST",
+    action: "stop-local-sessions",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to stop local backend sessions (status ${response.status}).`);
+  }
+}
+
+async function shutdownDetachedBackend(): Promise<void> {
+  const persisted = readPersistedBackendState();
+  if (!persisted) {
+    return;
+  }
+
+  try {
+    const response = await requestBackendControl({
+      port: persisted.port,
+      authToken: persisted.authToken,
+      method: "POST",
+      action: "shutdown-server",
+    });
+    if (!response.ok) {
+      tryKillPersistedBackendProcess(persisted.pid);
+    }
+  } catch {
+    tryKillPersistedBackendProcess(persisted.pid);
+  } finally {
+    clearPersistedBackendState();
+  }
+}
+
+async function applyAppCloseBehavior(): Promise<void> {
+  switch (desktopAppCloseBehavior) {
+    case "terminate_all_agents":
+      if (backendProcess) {
+        await stopBackendAndWaitForExit();
+      } else {
+        await shutdownDetachedBackend();
+      }
+      return;
+
+    case "terminate_local_agents_only":
+      try {
+        await stopLocalBackendSessions();
+      } catch (error) {
+        writeDesktopLogHeader(
+          `local-only close behavior failed; falling back to full shutdown message=${formatErrorMessage(error)}`,
+        );
+        if (backendProcess) {
+          await stopBackendAndWaitForExit();
+        } else {
+          await shutdownDetachedBackend();
+        }
+        return;
+      }
+      releaseBackendForBackgroundRun();
+      return;
+
+    case "terminate_no_agents":
+      releaseBackendForBackgroundRun();
+      return;
+  }
+}
+
 function registerIpcHandlers(): void {
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
@@ -1104,6 +1441,18 @@ function registerIpcHandlers(): void {
     }
 
     nativeTheme.themeSource = theme;
+  });
+
+  ipcMain.removeHandler(APP_CLOSE_BEHAVIOR_SET_CHANNEL);
+  ipcMain.handle(APP_CLOSE_BEHAVIOR_SET_CHANNEL, async (_event, rawBehavior: unknown) => {
+    if (!isDesktopAppCloseBehavior(rawBehavior)) {
+      return;
+    }
+
+    desktopAppCloseBehavior = rawBehavior;
+    persistDesktopSettings({
+      appCloseBehavior: desktopAppCloseBehavior,
+    });
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
@@ -1313,31 +1662,56 @@ configureAppIdentity();
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  backendPort = await Effect.service(NetService).pipe(
-    Effect.flatMap((net) => net.reserveLoopbackPort()),
-    Effect.provide(NetService.layer),
-    Effect.runPromise,
-  );
-  writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
-  backendAuthToken = Crypto.randomBytes(24).toString("hex");
-  backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
-  process.env.T3CODE_DESKTOP_WS_URL = backendWsUrl;
-  writeDesktopLogHeader(`bootstrap resolved websocket url=${backendWsUrl}`);
+  const adoptedExistingBackend = await adoptPersistedBackendIfAvailable();
+  if (!adoptedExistingBackend) {
+    await reserveNewBackendConnection();
+  }
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
-  startBackend();
-  writeDesktopLogHeader("bootstrap backend start requested");
+  if (!adoptedExistingBackend) {
+    startBackend();
+    writeDesktopLogHeader("bootstrap backend start requested");
+  }
   mainWindow = createWindow();
   writeDesktopLogHeader("bootstrap main window created");
 }
 
-app.on("before-quit", () => {
+async function prepareForQuitAndExit(reason: string): Promise<void> {
+  if (quitPrepared) {
+    return;
+  }
+
   isQuitting = true;
-  writeDesktopLogHeader("before-quit received");
+  writeDesktopLogHeader(`${reason} received closeBehavior=${desktopAppCloseBehavior}`);
   clearUpdatePollTimer();
-  stopBackend();
-  restoreStdIoCapture?.();
+
+  try {
+    await applyAppCloseBehavior();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `quit preparation failed reason=${reason} message=${formatErrorMessage(error)}`,
+    );
+  } finally {
+    restoreStdIoCapture?.();
+    quitPrepared = true;
+    app.quit();
+  }
+}
+
+app.on("before-quit", (event) => {
+  if (quitPrepared) {
+    return;
+  }
+
+  event.preventDefault();
+  if (quitPreparationPromise) {
+    return;
+  }
+
+  quitPreparationPromise = prepareForQuitAndExit("before-quit").finally(() => {
+    quitPreparationPromise = null;
+  });
 });
 
 app
@@ -1370,22 +1744,16 @@ app.on("window-all-closed", () => {
 
 if (process.platform !== "win32") {
   process.on("SIGINT", () => {
-    if (isQuitting) return;
-    isQuitting = true;
-    writeDesktopLogHeader("SIGINT received");
-    clearUpdatePollTimer();
-    stopBackend();
-    restoreStdIoCapture?.();
-    app.quit();
+    if (quitPrepared || quitPreparationPromise) return;
+    quitPreparationPromise = prepareForQuitAndExit("SIGINT").finally(() => {
+      quitPreparationPromise = null;
+    });
   });
 
   process.on("SIGTERM", () => {
-    if (isQuitting) return;
-    isQuitting = true;
-    writeDesktopLogHeader("SIGTERM received");
-    clearUpdatePollTimer();
-    stopBackend();
-    restoreStdIoCapture?.();
-    app.quit();
+    if (quitPrepared || quitPreparationPromise) return;
+    quitPreparationPromise = prepareForQuitAndExit("SIGTERM").finally(() => {
+      quitPreparationPromise = null;
+    });
   });
 }
