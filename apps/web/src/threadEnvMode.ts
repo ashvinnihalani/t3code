@@ -5,8 +5,8 @@ interface ThreadEnvInput {
   projectRemote: ProjectRemoteTarget | null | undefined;
 }
 
-export function supportsDraftWorktreeEnv(input: ThreadEnvInput): boolean {
-  return input.projectRemote == null;
+export function supportsDraftWorktreeEnv(_input: ThreadEnvInput): boolean {
+  return true;
 }
 
 export function resolveRequestedThreadEnvMode(

@@ -15,6 +15,13 @@ const remotePathEnvCache = new Map<
     readonly readAt: number;
   }
 >();
+const remoteHomeEnvCache = new Map<
+  string,
+  {
+    readonly value: string | null;
+    readonly readAt: number;
+  }
+>();
 
 export function quotePosixShell(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
@@ -85,6 +92,29 @@ export function readRemotePathEnv(input: {
     readAt: Date.now(),
   });
   return pathEnv ?? undefined;
+}
+
+export function readRemoteHomeDir(input: {
+  readonly hostAlias: string;
+  readonly localCwd: string;
+}): string | undefined {
+  const cacheKey = `${input.hostAlias}\u0000${input.localCwd}`;
+  const cached = remoteHomeEnvCache.get(cacheKey);
+  if (cached && Date.now() - cached.readAt < REMOTE_PATH_ENV_CACHE_TTL_MS) {
+    return cached.value ?? undefined;
+  }
+
+  const remoteEnvironment = readRemoteEnvironmentFromLoginShell({
+    hostAlias: input.hostAlias,
+    localCwd: input.localCwd,
+    names: ["HOME"],
+  });
+  const homeDir = remoteEnvironment.HOME?.trim() || null;
+  remoteHomeEnvCache.set(cacheKey, {
+    value: homeDir,
+    readAt: Date.now(),
+  });
+  return homeDir ?? undefined;
 }
 
 export function buildRemoteExecCommand(input: {

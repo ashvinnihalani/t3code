@@ -1156,7 +1156,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("does not prepare a worktree when a remote draft carries stale worktree env mode", async () => {
+  it("prepares a worktree when a remote draft is in worktree mode", async () => {
     const baseSnapshot = createDraftOnlySnapshot();
     const snapshot: OrchestrationReadModel = {
       ...baseSnapshot,
@@ -1235,26 +1235,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(
         requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
-      ).toBe(false);
-      expect(
-        requestsAfterSend.find((request) => {
-          if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-            return false;
-          }
-          const command = request.command;
-          return (
-            typeof command === "object" &&
-            command !== null &&
-            "type" in command &&
-            command.type === "thread.create"
-          );
-        }),
-      ).toMatchObject({
+      ).toBe(true);
+      const createWorktreeRequest = requestsAfterSend.find(
+        (request) => request._tag === WS_METHODS.gitCreateWorktree,
+      );
+      expect(createWorktreeRequest).toMatchObject({
+        _tag: WS_METHODS.gitCreateWorktree,
+        newBranch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
+      });
+      const createdWorktreeBranch =
+        typeof createWorktreeRequest?.newBranch === "string" ? createWorktreeRequest.newBranch : "";
+      const createdThreadRequest = requestsAfterSend.find((request) => {
+        if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return false;
+        }
+        const command = request.command;
+        return (
+          typeof command === "object" &&
+          command !== null &&
+          "type" in command &&
+          command.type === "thread.create"
+        );
+      });
+      expect(createdThreadRequest).toMatchObject({
         _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
         command: {
           type: "thread.create",
-          branch: "main",
-          worktreePath: null,
+          branch: createdWorktreeBranch,
+          worktreePath: `/repo/.t3/worktrees/${createdWorktreeBranch.replaceAll("/", "-")}`,
         },
       });
     } finally {

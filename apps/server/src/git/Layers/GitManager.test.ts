@@ -5,11 +5,12 @@ import { spawnSync } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type { ProjectRemoteTarget } from "@t3tools/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
+import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import {
   type GitHubCliShape,
   type GitHubPullRequestSummary,
@@ -1588,6 +1589,177 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         "--show-current",
       ])).stdout.trim();
       expect(worktreeBranch).toBe("feature/pr-worktree");
+    }),
+  );
+
+  it.effect("prepares pull request worktree threads for remote SSH projects", () =>
+    Effect.gen(function* () {
+      const remote: ProjectRemoteTarget = {
+        kind: "ssh",
+        hostAlias: "buildbox",
+      };
+      const worktreePath = "/home/remote-user/.t3/worktrees/repo/feature-pr-remote-worktree";
+      const { service: gitHubCli } = createGitHubCliWithFakeGh({
+        pullRequest: {
+          number: 77,
+          title: "Remote Worktree PR",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+          baseRefName: "main",
+          headRefName: "feature/pr-remote-worktree",
+          state: "open",
+        },
+      });
+      const textGeneration = createTextGeneration();
+      let listBranchesCallCount = 0;
+      let fetchedPullRequestBranchInput:
+        | Parameters<GitCoreShape["fetchPullRequestBranch"]>[0]
+        | null = null;
+      let createWorktreeInput: Parameters<GitCoreShape["createWorktree"]>[0] | null = null;
+      const fakeGitCore: GitCoreShape = {
+        status: vi.fn(() => Effect.die(new Error("Unexpected GitCore.status call")) as any),
+        statusDetails: vi.fn((cwd, receivedRemote) =>
+          Effect.succeed({
+            branch: cwd === worktreePath ? "feature/pr-remote-worktree" : "main",
+            hasWorkingTreeChanges: false,
+            workingTree: {
+              files: [],
+              insertions: 0,
+              deletions: 0,
+            },
+            hasUpstream: true,
+            aheadCount: 0,
+            behindCount: 0,
+            upstreamRef: receivedRemote ? "origin/main" : null,
+          }),
+        ),
+        prepareCommitContext: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.prepareCommitContext call")) as any,
+        ),
+        commit: vi.fn(() => Effect.die(new Error("Unexpected GitCore.commit call")) as any),
+        pushCurrentBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.pushCurrentBranch call")) as any,
+        ),
+        readRangeContext: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.readRangeContext call")) as any,
+        ),
+        readConfigValue: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.readConfigValue call")) as any,
+        ),
+        listBranches: vi.fn(() => {
+          listBranchesCallCount += 1;
+          return Effect.succeed({
+            branches:
+              listBranchesCallCount === 1
+                ? [
+                    {
+                      name: "main",
+                      current: true,
+                      isDefault: true,
+                      worktreePath: null,
+                    },
+                  ]
+                : [
+                    {
+                      name: "main",
+                      current: true,
+                      isDefault: true,
+                      worktreePath: null,
+                    },
+                    {
+                      name: "feature/pr-remote-worktree",
+                      current: false,
+                      isDefault: false,
+                      worktreePath: null,
+                    },
+                  ],
+            isRepo: true,
+            hasOriginRemote: true,
+          });
+        }),
+        pullCurrentBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.pullCurrentBranch call")) as any,
+        ),
+        createWorktree: vi.fn((input) => {
+          createWorktreeInput = input;
+          return Effect.succeed({
+            worktree: {
+              path: worktreePath,
+              branch: "feature/pr-remote-worktree",
+            },
+          });
+        }),
+        fetchPullRequestBranch: vi.fn((input) => {
+          fetchedPullRequestBranchInput = input;
+          return Effect.void;
+        }),
+        ensureRemote: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.ensureRemote call")) as any,
+        ),
+        fetchRemoteBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.fetchRemoteBranch call")) as any,
+        ),
+        setBranchUpstream: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.setBranchUpstream call")) as any,
+        ),
+        removeWorktree: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.removeWorktree call")) as any,
+        ),
+        renameBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.renameBranch call")) as any,
+        ),
+        createBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.createBranch call")) as any,
+        ),
+        checkoutBranch: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.checkoutBranch call")) as any,
+        ),
+        initRepo: vi.fn(() => Effect.die(new Error("Unexpected GitCore.initRepo call")) as any),
+        listLocalBranchNames: vi.fn(
+          () => Effect.die(new Error("Unexpected GitCore.listLocalBranchNames call")) as any,
+        ),
+      };
+
+      const manager = yield* makeGitManager.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(GitCore, fakeGitCore),
+            Layer.succeed(GitHubCli, gitHubCli),
+            Layer.succeed(TextGeneration, textGeneration),
+          ),
+        ),
+      );
+
+      const result = yield* manager.preparePullRequestThread({
+        cwd: "/srv/repo",
+        reference: "77",
+        mode: "worktree",
+        remote,
+      });
+
+      expect(result).toEqual({
+        pullRequest: {
+          number: 77,
+          title: "Remote Worktree PR",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+          baseBranch: "main",
+          headBranch: "feature/pr-remote-worktree",
+          state: "open",
+        },
+        branch: "feature/pr-remote-worktree",
+        worktreePath,
+      });
+      expect(fetchedPullRequestBranchInput).toEqual({
+        cwd: "/srv/repo",
+        prNumber: 77,
+        branch: "feature/pr-remote-worktree",
+        remote,
+      });
+      expect(createWorktreeInput).toEqual({
+        cwd: "/srv/repo",
+        branch: "feature/pr-remote-worktree",
+        path: null,
+        remote,
+      });
     }),
   );
 

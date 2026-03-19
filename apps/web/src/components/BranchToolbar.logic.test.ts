@@ -20,7 +20,7 @@ describe("resolveEffectiveEnvMode", () => {
     ).toBe("worktree");
   });
 
-  it("normalizes stale remote draft worktree mode back to local", () => {
+  it("keeps remote draft worktree mode before worktree creation", () => {
     expect(
       resolveEffectiveEnvMode({
         activeWorktreePath: null,
@@ -30,7 +30,7 @@ describe("resolveEffectiveEnvMode", () => {
           hostAlias: "buildbox",
         },
       }),
-    ).toBe("local");
+    ).toBe("worktree");
   });
 });
 
