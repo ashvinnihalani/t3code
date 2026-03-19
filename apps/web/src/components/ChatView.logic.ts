@@ -203,6 +203,23 @@ export type VisibleProviderHealthStatus =
     }
   | null;
 
+const SUPPRESSED_REMOTE_THREAD_MANAGEMENT_MESSAGES = [
+  "Started a new provider session.",
+  "The provider service stopped and can reconnect on the next turn.",
+  "Cannot reconnect automatically because no persisted remote provider thread is available.",
+  "Automatic reconnect to the persisted remote provider session failed.",
+] as const;
+
+function isSuppressedRemoteThreadManagementMessage(message: string | null | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+  if (SUPPRESSED_REMOTE_THREAD_MANAGEMENT_MESSAGES.includes(message as never)) {
+    return true;
+  }
+  return message.startsWith("Reconnected to provider thread ");
+}
+
 function isOlderThanOrEqualToDismissedAt(
   checkedAt: string | undefined,
   dismissedAt: string | null | undefined,
@@ -244,7 +261,7 @@ function buildRemoteProviderHealthStatus(input: {
 
   switch (session.orchestrationStatus) {
     case "error":
-      if (!session.lastError) {
+      if (!session.lastError || isSuppressedRemoteThreadManagementMessage(session.lastError)) {
         return null;
       }
       return {
@@ -301,6 +318,9 @@ export function resolveVisibleThreadError(input: {
   }
 
   if (input.projectRemote) {
+    if (isSuppressedRemoteThreadManagementMessage(error)) {
+      return null;
+    }
     return error;
   }
 

@@ -122,6 +122,30 @@ function readPersistedProviderOptions(
   return raw as Record<string, unknown>;
 }
 
+function hasPersistedRemoteTarget(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): boolean {
+  const providerOptions = readPersistedProviderOptions(runtimePayload);
+  if (!providerOptions) {
+    return false;
+  }
+  const codexOptions =
+    "codex" in providerOptions &&
+    providerOptions.codex &&
+    typeof providerOptions.codex === "object" &&
+    !Array.isArray(providerOptions.codex)
+      ? (providerOptions.codex as Record<string, unknown>)
+      : null;
+  const remote = codexOptions && "remote" in codexOptions ? codexOptions.remote : null;
+  return (
+    remote !== null &&
+    typeof remote === "object" &&
+    !Array.isArray(remote) &&
+    "kind" in remote &&
+    remote.kind === "ssh"
+  );
+}
+
 function readPersistedCwd(
   runtimePayload: ProviderRuntimeBinding["runtimePayload"],
 ): string | undefined {
@@ -633,22 +657,36 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const runStopAll = () =>
       Effect.gen(function* () {
         const threadIds = yield* directory.listThreadIds();
+        const stoppedAt = new Date().toISOString();
         yield* Effect.forEach(adapters, (adapter) => adapter.stopAll()).pipe(Effect.asVoid);
         yield* Effect.forEach(threadIds, (threadId) =>
-          directory.getProvider(threadId).pipe(
-            Effect.flatMap((provider) =>
-              directory.upsert({
-                threadId,
-                provider,
-                status: "stopped",
-                runtimePayload: {
-                  activeTurnId: null,
-                  lastRuntimeEvent: "provider.stopAll",
-                  lastRuntimeEventAt: new Date().toISOString(),
-                  reconnectSummary:
-                    "The provider service stopped and can reconnect on the next turn.",
-                  reconnectUpdatedAt: new Date().toISOString(),
-                },
+          directory.getBinding(threadId).pipe(
+            Effect.flatMap((binding) =>
+              Option.match(binding, {
+                onNone: () => Effect.void,
+                onSome: (value) =>
+                  directory.upsert({
+                    threadId,
+                    provider: value.provider,
+                    ...(value.runtimeMode !== undefined ? { runtimeMode: value.runtimeMode } : {}),
+                    ...(value.resumeCursor !== undefined
+                      ? { resumeCursor: value.resumeCursor }
+                      : {}),
+                    ...(!hasPersistedRemoteTarget(value.runtimePayload)
+                      ? { status: "stopped" as const }
+                      : {}),
+                    runtimePayload: {
+                      ...(!hasPersistedRemoteTarget(value.runtimePayload)
+                        ? { activeTurnId: null }
+                        : {}),
+                      lastError: null,
+                      lastRuntimeEvent: "provider.stopAll",
+                      lastRuntimeEventAt: stoppedAt,
+                      reconnectState: null,
+                      reconnectSummary: null,
+                      reconnectUpdatedAt: null,
+                    },
+                  }),
               }),
             ),
           ),
