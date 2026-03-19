@@ -290,17 +290,54 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
         const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
         const persistedProviderOptions = readPersistedProviderOptions(input.binding.runtimePayload);
+        const startSessionInput = {
+          threadId: input.binding.threadId,
+          provider: input.binding.provider,
+          ...(persistedCwd ? { cwd: persistedCwd } : {}),
+          ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
+          runtimeMode: input.binding.runtimeMode ?? "full-access",
+        } satisfies ProviderSessionStartInput;
+
+        const startFreshAfterResumeUnavailable = () =>
+          adapter.startSession(startSessionInput).pipe(
+            Effect.map((session) => ({
+              session,
+              strategy: "resume-fallback-fresh-start" as const,
+              reconnectState: "fresh-start" as const,
+              reconnectSummary:
+                "Persisted provider session was unavailable; started a new provider session.",
+            })),
+          );
 
         const resumed = yield* adapter
           .startSession({
-            threadId: input.binding.threadId,
-            provider: input.binding.provider,
-            ...(persistedCwd ? { cwd: persistedCwd } : {}),
-            ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
+            ...startSessionInput,
             ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
-            runtimeMode: input.binding.runtimeMode ?? "full-access",
           })
           .pipe(
+            Effect.map((session) => ({
+              session,
+              strategy: "resume-thread" as const,
+              reconnectState: "resume-thread" as const,
+              reconnectSummary: (() => {
+                const resumedProviderThreadId = readProviderThreadIdFromResumeCursor(
+                  session.resumeCursor,
+                );
+                return resumedProviderThreadId
+                  ? `Reconnected to remote provider thread ${resumedProviderThreadId}.`
+                  : "Resumed the persisted remote provider session.";
+              })(),
+            })),
+            Effect.catchTags({
+              ProviderAdapterSessionNotFoundError: (error) =>
+                input.binding.provider === "kiro"
+                  ? startFreshAfterResumeUnavailable()
+                  : Effect.fail(error),
+              ProviderAdapterSessionClosedError: (error) =>
+                input.binding.provider === "kiro"
+                  ? startFreshAfterResumeUnavailable()
+                  : Effect.fail(error),
+            }),
             Effect.tapError(() =>
               directory
                 .upsert({
@@ -320,30 +357,27 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 .pipe(Effect.catch(() => Effect.void)),
             ),
           );
-        if (resumed.provider !== adapter.provider) {
+        if (resumed.session.provider !== adapter.provider) {
           return yield* toValidationError(
             input.operation,
-            `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.provider}'.`,
+            `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.session.provider}'.`,
           );
         }
 
-        const resumedProviderThreadId = readProviderThreadIdFromResumeCursor(resumed.resumeCursor);
-        yield* upsertSessionBinding(resumed, input.binding.threadId, {
+        yield* upsertSessionBinding(resumed.session, input.binding.threadId, {
           runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
-            session: resumed,
-            reconnectState: "resume-thread",
-            reconnectSummary: resumedProviderThreadId
-              ? `Reconnected to remote provider thread ${resumedProviderThreadId}.`
-              : "Resumed the persisted remote provider session.",
-            resumeAvailable: true,
+            session: resumed.session,
+            reconnectState: resumed.reconnectState,
+            reconnectSummary: resumed.reconnectSummary,
+            resumeAvailable: resumed.session.resumeCursor !== undefined,
           }),
         });
         yield* analytics.record("provider.session.recovered", {
-          provider: resumed.provider,
-          strategy: "resume-thread",
-          hasResumeCursor: resumed.resumeCursor !== undefined,
+          provider: resumed.session.provider,
+          strategy: resumed.strategy,
+          hasResumeCursor: resumed.session.resumeCursor !== undefined,
         });
-        return { adapter, session: resumed } as const;
+        return { adapter, session: resumed.session } as const;
       });
 
     const resolveRoutableSession = (input: {

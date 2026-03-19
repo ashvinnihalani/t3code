@@ -129,9 +129,11 @@ export function cloneComposerImageForRetry(
 
 export function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
+  customKiroModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    kiro: getAppModelOptions("kiro", settings.customKiroModels),
   };
 }
 

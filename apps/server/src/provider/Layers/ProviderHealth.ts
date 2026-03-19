@@ -26,6 +26,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
+const KIRO_PROVIDER = "kiro" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -47,6 +48,18 @@ function isCommandMissingCause(error: unknown): boolean {
   return (
     lower.includes("command not found: codex") ||
     lower.includes("spawn codex enoent") ||
+    lower.includes("enoent") ||
+    lower.includes("notfound")
+  );
+}
+
+function isGenericCommandMissingCause(binary: string, error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const lower = error.message.toLowerCase();
+  const binaryLower = binary.toLowerCase();
+  return (
+    lower.includes(`command not found: ${binaryLower}`) ||
+    lower.includes(`spawn ${binaryLower} enoent`) ||
     lower.includes("enoent") ||
     lower.includes("notfound")
   );
@@ -243,10 +256,12 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
     (acc, chunk) => acc + new TextDecoder().decode(chunk),
   );
 
-const runCodexCommand = (args: ReadonlyArray<string>) =>
+const runCodexCommand = (args: ReadonlyArray<string>) => runCliCommand("codex", args);
+
+const runCliCommand = (binary: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const command = ChildProcess.make("codex", [...args], {
+    const command = ChildProcess.make(binary, [...args], {
       shell: process.platform === "win32",
     });
 
@@ -263,6 +278,61 @@ const runCodexCommand = (args: ReadonlyArray<string>) =>
 
     return { stdout, stderr, code: exitCode } satisfies CommandResult;
   }).pipe(Effect.scoped);
+
+function parseKiroAuthStatusFromOutput(result: CommandResult): {
+  readonly status: ServerProviderStatusState;
+  readonly authStatus: ServerProviderAuthStatus;
+  readonly message?: string;
+} {
+  const combinedOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  if (
+    combinedOutput.includes("not logged in") ||
+    combinedOutput.includes("login required") ||
+    combinedOutput.includes("authentication required")
+  ) {
+    return {
+      status: "error",
+      authStatus: "unauthenticated",
+      message: "Kiro CLI is not authenticated. Run `kiro-cli login` and try again.",
+    };
+  }
+
+  const trimmed = result.stdout.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const hasIdentity =
+        typeof parsed.email === "string" ||
+        typeof parsed.username === "string" ||
+        typeof parsed.userId === "string" ||
+        typeof parsed.accountId === "string";
+      if (hasIdentity) {
+        return {
+          status: "ready",
+          authStatus: "authenticated",
+        };
+      }
+    } catch {
+      // Fall through to the generic exit-code based handling below.
+    }
+  }
+
+  if (result.code === 0) {
+    return {
+      status: "ready",
+      authStatus: "authenticated",
+    };
+  }
+
+  const detail = detailFromResult(result);
+  return {
+    status: "warning",
+    authStatus: "unknown",
+    message: detail
+      ? `Could not verify Kiro authentication status. ${detail}`
+      : "Could not verify Kiro authentication status.",
+  };
+}
 
 // ── Health check ────────────────────────────────────────────────────
 
@@ -390,18 +460,112 @@ export const checkCodexProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkKiroProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const checkedAt = new Date().toISOString();
+
+  const versionProbe = yield* runCliCommand("kiro-cli", ["--version"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(versionProbe)) {
+    const error = versionProbe.failure;
+    return {
+      provider: KIRO_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: isGenericCommandMissingCause("kiro-cli", error)
+        ? "Kiro CLI (`kiro-cli`) is not installed or not on PATH."
+        : `Failed to execute Kiro CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+    };
+  }
+
+  if (Option.isNone(versionProbe.success)) {
+    return {
+      provider: KIRO_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Kiro CLI is installed but failed to run. Timed out while running command.",
+    };
+  }
+
+  const version = versionProbe.success.value;
+  if (version.code !== 0) {
+    const detail = detailFromResult(version);
+    return {
+      provider: KIRO_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: detail
+        ? `Kiro CLI is installed but failed to run. ${detail}`
+        : "Kiro CLI is installed but failed to run.",
+    };
+  }
+
+  const authProbe = yield* runCliCommand("kiro-cli", ["whoami", "--format", "json"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(authProbe)) {
+    const error = authProbe.failure;
+    return {
+      provider: KIRO_PROVIDER,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message:
+        error instanceof Error
+          ? `Could not verify Kiro authentication status: ${error.message}.`
+          : "Could not verify Kiro authentication status.",
+    };
+  }
+
+  if (Option.isNone(authProbe.success)) {
+    return {
+      provider: KIRO_PROVIDER,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Could not verify Kiro authentication status. Timed out while running command.",
+    };
+  }
+
+  const parsed = parseKiroAuthStatusFromOutput(authProbe.success.value);
+  return {
+    provider: KIRO_PROVIDER,
+    status: parsed.status,
+    available: true,
+    authStatus: parsed.authStatus,
+    checkedAt,
+    ...(parsed.message ? { message: parsed.message } : {}),
+  } satisfies ServerProviderStatus;
+});
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
-    const codexStatusFiber = yield* checkCodexProviderStatus.pipe(
-      Effect.map(Array.of),
-      Effect.forkScoped,
-    );
+    const codexStatusFiber = yield* checkCodexProviderStatus.pipe(Effect.forkScoped);
+    const kiroStatusFiber = yield* checkKiroProviderStatus.pipe(Effect.forkScoped);
 
     return {
-      getStatuses: Fiber.join(codexStatusFiber),
+      getStatuses: Effect.all([Fiber.join(codexStatusFiber), Fiber.join(kiroStatusFiber)]).pipe(
+        Effect.map(([codexStatus, kiroStatus]) => [codexStatus, kiroStatus]),
+      ),
     } satisfies ProviderHealthShape;
   }),
 );

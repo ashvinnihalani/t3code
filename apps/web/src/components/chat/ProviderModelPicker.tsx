@@ -63,6 +63,7 @@ function resolveModelForProviderPicker(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  kiro: KiroCliIcon,
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
@@ -72,7 +73,6 @@ const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option
 const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
-  { id: "kiroCli", label: "Kiro CLI", icon: KiroCliIcon },
 ] as const;
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {

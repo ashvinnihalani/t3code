@@ -17,7 +17,9 @@ import {
   MAX_CUSTOM_MODEL_LENGTH,
   THREAD_ID_DISPLAY_MODE_OPTIONS,
   buildCodexHostOverridePatch,
+  buildKiroHostOverridePatch,
   getCodexHostOverride,
+  getKiroHostOverride,
   useAppSettings,
 } from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -72,6 +74,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     placeholder: "your-codex-model-slug",
     example: "gpt-6.7-codex-ultra-preview",
   },
+  {
+    provider: "kiro",
+    title: "Kiro CLI",
+    description: "Save additional Kiro model slugs for the picker and `/model` command.",
+    placeholder: "your-kiro-model-slug",
+    example: "claude-sonnet4.6",
+  },
 ] as const;
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -108,6 +117,8 @@ const THREAD_ID_DISPLAY_MODE_DESCRIPTIONS: Record<ThreadIdDisplayMode, string> =
 };
 const LOCAL_CODEX_SETTINGS_SCOPE = "local";
 const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
+const LOCAL_KIRO_SETTINGS_SCOPE = "local";
+const SSH_KIRO_SETTINGS_SCOPE_PREFIX = "ssh:";
 
 function encodeCodexSettingsScope(hostAlias: string | null): string {
   return hostAlias ? `${SSH_CODEX_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_CODEX_SETTINGS_SCOPE;
@@ -119,14 +130,25 @@ function decodeCodexSettingsScope(scope: string): string | null {
     : null;
 }
 
+function encodeKiroSettingsScope(hostAlias: string | null): string {
+  return hostAlias ? `${SSH_KIRO_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_KIRO_SETTINGS_SCOPE;
+}
+
+function decodeKiroSettingsScope(scope: string): string | null {
+  return scope.startsWith(SSH_KIRO_SETTINGS_SCOPE_PREFIX)
+    ? scope.slice(SSH_KIRO_SETTINGS_SCOPE_PREFIX.length)
+    : null;
+}
+
 function getCustomModelsForProvider(
   settings: ReturnType<typeof useAppSettings>["settings"],
   provider: ProviderKind,
 ) {
   switch (provider) {
     case "codex":
-    default:
       return settings.customCodexModels;
+    case "kiro":
+      return settings.customKiroModels;
   }
 }
 
@@ -136,16 +158,18 @@ function getDefaultCustomModelsForProvider(
 ) {
   switch (provider) {
     case "codex":
-    default:
       return defaults.customCodexModels;
+    case "kiro":
+      return defaults.customKiroModels;
   }
 }
 
 function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
-    default:
       return { customCodexModels: models };
+    case "kiro":
+      return { customKiroModels: models };
   }
 }
 
@@ -159,10 +183,13 @@ function SettingsRouteView() {
   const [selectedCodexSettingsScope, setSelectedCodexSettingsScope] = useState(
     LOCAL_CODEX_SETTINGS_SCOPE,
   );
+  const [selectedKiroSettingsScope, setSelectedKiroSettingsScope] =
+    useState(LOCAL_KIRO_SETTINGS_SCOPE);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
     codex: "",
+    kiro: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -193,6 +220,21 @@ function SettingsRouteView() {
     [remoteCodexHosts],
   );
   const hasRemoteCodexHosts = remoteCodexHosts.length > 0;
+  const remoteKiroHosts = remoteCodexHosts;
+  const kiroSettingsScopeOptions = useMemo(
+    () => [
+      {
+        label: "Local",
+        value: LOCAL_KIRO_SETTINGS_SCOPE,
+      },
+      ...remoteKiroHosts.map((hostAlias) => ({
+        label: hostAlias,
+        value: encodeKiroSettingsScope(hostAlias),
+      })),
+    ],
+    [remoteKiroHosts],
+  );
+  const hasRemoteKiroHosts = remoteKiroHosts.length > 0;
 
   useEffect(() => {
     if (selectedCodexSettingsScope === LOCAL_CODEX_SETTINGS_SCOPE) {
@@ -204,6 +246,16 @@ function SettingsRouteView() {
     }
   }, [codexSettingsScopeOptions, selectedCodexSettingsScope]);
 
+  useEffect(() => {
+    if (selectedKiroSettingsScope === LOCAL_KIRO_SETTINGS_SCOPE) {
+      return;
+    }
+
+    if (!kiroSettingsScopeOptions.some((option) => option.value === selectedKiroSettingsScope)) {
+      setSelectedKiroSettingsScope(LOCAL_KIRO_SETTINGS_SCOPE);
+    }
+  }, [kiroSettingsScopeOptions, selectedKiroSettingsScope]);
+
   const selectedCodexHostAlias = decodeCodexSettingsScope(selectedCodexSettingsScope);
   const selectedCodexSettingsOption =
     codexSettingsScopeOptions.find((option) => option.value === selectedCodexSettingsScope) ??
@@ -211,6 +263,12 @@ function SettingsRouteView() {
   const codexHostOverride = getCodexHostOverride(settings, selectedCodexHostAlias);
   const codexBinaryPath = codexHostOverride.binaryPath;
   const codexHomePath = codexHostOverride.homePath;
+  const selectedKiroHostAlias = decodeKiroSettingsScope(selectedKiroSettingsScope);
+  const selectedKiroSettingsOption =
+    kiroSettingsScopeOptions.find((option) => option.value === selectedKiroSettingsScope) ??
+    kiroSettingsScopeOptions[0];
+  const kiroHostOverride = getKiroHostOverride(settings, selectedKiroHostAlias);
+  const kiroBinaryPath = kiroHostOverride.binaryPath;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
@@ -752,6 +810,109 @@ function SettingsRouteView() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Kiro CLI</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  These overrides apply to new sessions and let you point T3 Code at a specific Kiro
+                  CLI binary per host.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="kiro-settings-host"
+                    className="block text-xs font-medium text-foreground"
+                  >
+                    Host
+                  </label>
+                  <Select
+                    value={selectedKiroSettingsScope}
+                    onValueChange={(value) => {
+                      if (
+                        value === null ||
+                        !kiroSettingsScopeOptions.some((option) => option.value === value)
+                      ) {
+                        return;
+                      }
+                      setSelectedKiroSettingsScope(value);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="kiro-settings-host"
+                      className="w-full"
+                      aria-label="Kiro settings host"
+                      disabled={!hasRemoteKiroHosts}
+                    >
+                      <SelectValue>{selectedKiroSettingsOption?.label ?? "Local"}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {kiroSettingsScopeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {hasRemoteKiroHosts
+                      ? "Choose which machine this override applies to. Remote host overrides are stored locally on this device for now."
+                      : "Only local projects are open right now, so these overrides are locked to Local."}
+                  </span>
+                </div>
+
+                <label htmlFor="kiro-binary-path" className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">Kiro binary path</span>
+                  <Input
+                    id="kiro-binary-path"
+                    value={kiroBinaryPath}
+                    onChange={(event) =>
+                      updateSettings(
+                        buildKiroHostOverridePatch(
+                          settings,
+                          { binaryPath: event.target.value },
+                          selectedKiroHostAlias,
+                        ),
+                      )
+                    }
+                    placeholder="kiro-cli"
+                    spellCheck={false}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Leave blank to use <code>kiro-cli</code> from your PATH on the selected host.
+                  </span>
+                </label>
+
+                <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p>Binary source for {selectedKiroSettingsOption?.label ?? "Local"}</p>
+                    <p className="mt-1 break-all font-mono text-[11px] text-foreground">
+                      {kiroBinaryPath || "PATH"}
+                    </p>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="self-start"
+                    onClick={() =>
+                      updateSettings(
+                        buildKiroHostOverridePatch(
+                          settings,
+                          {
+                            binaryPath: defaults.kiroBinaryPath,
+                          },
+                          selectedKiroHostAlias,
+                        ),
+                      )
+                    }
+                  >
+                    Reset Kiro overrides
+                  </Button>
+                </div>
               </div>
             </section>
 

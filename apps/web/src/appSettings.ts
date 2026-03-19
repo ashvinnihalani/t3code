@@ -30,6 +30,7 @@ export type ThreadIdDisplayMode = (typeof THREAD_ID_DISPLAY_MODE_OPTIONS)[number
 export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
+  kiro: new Set(getModelOptions("kiro").map((option) => option.slug)),
 };
 const CodexSettingsPathSchema = Schema.String.check(Schema.isMaxLength(4096)).pipe(
   Schema.withConstructorDefault(() => Option.some("")),
@@ -45,11 +46,21 @@ const CodexHostOverrideSchema = Schema.Struct({
 });
 export type CodexHostOverride = typeof CodexHostOverrideSchema.Type;
 const DEFAULT_CODEX_HOST_OVERRIDE = CodexHostOverrideSchema.makeUnsafe({});
+const KiroHostOverrideSchema = Schema.Struct({
+  binaryPath: CodexSettingsPathSchema,
+});
+export type KiroHostOverride = typeof KiroHostOverrideSchema.Type;
+const DEFAULT_KIRO_HOST_OVERRIDE = KiroHostOverrideSchema.makeUnsafe({});
 
 const AppSettingsSchema = Schema.Struct({
   codexBinaryPath: CodexSettingsPathSchema,
   codexHomePath: CodexSettingsPathSchema,
   codexRemoteOverrides: Schema.Record(Schema.String, CodexHostOverrideSchema).pipe(
+    Schema.withConstructorDefault(() => Option.some({})),
+    Schema.withDecodingDefault(() => ({})),
+  ),
+  kiroBinaryPath: CodexSettingsPathSchema,
+  kiroRemoteOverrides: Schema.Record(Schema.String, KiroHostOverrideSchema).pipe(
     Schema.withConstructorDefault(() => Option.some({})),
     Schema.withDecodingDefault(() => ({})),
   ),
@@ -78,6 +89,9 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some([])),
   ),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  customKiroModels: Schema.Array(Schema.String).pipe(
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 export interface AppModelOption {
@@ -135,6 +149,52 @@ export function buildCodexHostOverridePatch(
   }
 
   return { codexRemoteOverrides };
+}
+
+export function getKiroHostOverride(
+  settings: Pick<AppSettings, "kiroBinaryPath" | "kiroRemoteOverrides">,
+  hostAlias?: string | null,
+): KiroHostOverride {
+  if (!hostAlias) {
+    return {
+      binaryPath: settings.kiroBinaryPath,
+    };
+  }
+
+  const override = settings.kiroRemoteOverrides[hostAlias];
+  if (!override) {
+    return { ...DEFAULT_KIRO_HOST_OVERRIDE };
+  }
+
+  return {
+    binaryPath: override.binaryPath,
+  };
+}
+
+export function buildKiroHostOverridePatch(
+  settings: Pick<AppSettings, "kiroBinaryPath" | "kiroRemoteOverrides">,
+  patch: Partial<KiroHostOverride>,
+  hostAlias?: string | null,
+): Partial<AppSettings> {
+  const nextOverride = {
+    ...getKiroHostOverride(settings, hostAlias),
+    ...patch,
+  };
+
+  if (!hostAlias) {
+    return {
+      kiroBinaryPath: nextOverride.binaryPath,
+    };
+  }
+
+  const kiroRemoteOverrides = { ...settings.kiroRemoteOverrides };
+  if (!nextOverride.binaryPath) {
+    delete kiroRemoteOverrides[hostAlias];
+  } else {
+    kiroRemoteOverrides[hostAlias] = nextOverride;
+  }
+
+  return { kiroRemoteOverrides };
 }
 
 export function normalizeCustomModelSlugs(

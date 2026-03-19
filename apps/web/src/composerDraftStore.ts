@@ -330,7 +330,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" ? value : null;
+  return value === "codex" || value === "kiro" ? value : null;
 }
 
 function revokeObjectPreviewUrl(previewUrl: string): void {
@@ -470,7 +470,8 @@ function normalizePersistedComposerDraftState(value: unknown): PersistedComposer
             : DEFAULT_RUNTIME_MODE,
         interactionMode:
           candidateDraftThread.interactionMode === "plan" ||
-          candidateDraftThread.interactionMode === "default"
+          candidateDraftThread.interactionMode === "default" ||
+          candidateDraftThread.interactionMode === "help"
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
         branch: typeof branch === "string" ? branch : null,
@@ -550,7 +551,9 @@ function normalizePersistedComposerDraftState(value: unknown): PersistedComposer
         ? draftCandidate.runtimeMode
         : null;
     const interactionMode =
-      draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
+      draftCandidate.interactionMode === "plan" ||
+      draftCandidate.interactionMode === "default" ||
+      draftCandidate.interactionMode === "help"
         ? draftCandidate.interactionMode
         : null;
     const effortCandidate =
@@ -1018,7 +1021,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (threadId.length === 0) {
           return;
         }
-        const normalizedModel = normalizeModelSlug(model) ?? null;
+        const provider = get().draftsByThreadId[threadId]?.provider ?? "codex";
+        const normalizedModel = normalizeModelSlug(model, provider) ?? null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && normalizedModel === null) {
@@ -1074,7 +1078,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return;
         }
         const nextInteractionMode =
-          interactionMode === "plan" || interactionMode === "default" ? interactionMode : null;
+          interactionMode === "plan" || interactionMode === "default" || interactionMode === "help"
+            ? interactionMode
+            : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && nextInteractionMode === null) {

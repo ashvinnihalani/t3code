@@ -573,6 +573,16 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    if (thread.session?.providerName === "kiro") {
+      yield* appendRevertFailureActivity({
+        threadId: event.payload.threadId,
+        turnCount: event.payload.turnCount,
+        detail: "Checkpoint revert is not supported yet for Kiro threads.",
+        createdAt: now,
+      }).pipe(Effect.catch(() => Effect.void));
+      return;
+    }
+
     const sessionRuntime = yield* resolveSessionRuntimeForThread(event.payload.threadId);
     if (Option.isNone(sessionRuntime)) {
       yield* appendRevertFailureActivity({

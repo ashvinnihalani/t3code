@@ -66,22 +66,23 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
 
-  const startSession = vi.fn((input: ProviderSessionStartInput) =>
-    Effect.sync(() => {
-      const now = new Date().toISOString();
-      const session: ProviderSession = {
-        provider,
-        status: "ready",
-        runtimeMode: input.runtimeMode,
-        threadId: input.threadId,
-        resumeCursor: input.resumeCursor ?? { opaque: `cursor-${String(input.threadId)}` },
-        cwd: input.cwd ?? process.cwd(),
-        createdAt: now,
-        updatedAt: now,
-      };
-      sessions.set(session.threadId, session);
-      return session;
-    }),
+  const startSession = vi.fn(
+    (input: ProviderSessionStartInput): Effect.Effect<ProviderSession, ProviderAdapterError> =>
+      Effect.sync(() => {
+        const now = new Date().toISOString();
+        const session: ProviderSession = {
+          provider,
+          status: "ready",
+          runtimeMode: input.runtimeMode,
+          threadId: input.threadId,
+          resumeCursor: input.resumeCursor ?? { opaque: `cursor-${String(input.threadId)}` },
+          cwd: input.cwd ?? process.cwd(),
+          createdAt: now,
+          updatedAt: now,
+        };
+        sessions.set(session.threadId, session);
+        return session;
+      }),
   );
 
   const sendTurn = vi.fn(
@@ -416,6 +417,125 @@ it.effect(
 
       fs.rmSync(tempDir, { recursive: true, force: true });
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("ProviderServiceLive falls back to a fresh Kiro session when resume state is gone", () =>
+  (() => {
+    const kiro = makeFakeCodexAdapter("kiro");
+    const baseStartSession = kiro.startSession.getMockImplementation();
+    let sessionCounter = 0;
+    kiro.startSession.mockImplementation((input: ProviderSessionStartInput) => {
+      if (input.resumeCursor !== undefined) {
+        return Effect.fail(
+          new ProviderAdapterSessionNotFoundError({
+            provider: "kiro",
+            threadId: input.threadId,
+          }),
+        );
+      }
+      const start = baseStartSession?.(input);
+      if (!start) {
+        return Effect.die(new Error("Missing fake Kiro startSession implementation"));
+      }
+      return start.pipe(
+        Effect.map((session) => {
+          sessionCounter += 1;
+          return {
+            ...session,
+            resumeCursor: { sessionId: `kiro-session-${sessionCounter}` },
+          };
+        }),
+      );
+    });
+
+    const registry: typeof ProviderAdapterRegistry.Service = {
+      getByProvider: (provider) =>
+        provider === "kiro"
+          ? Effect.succeed(kiro.adapter)
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+      listProviders: () => Effect.succeed(["kiro"]),
+    };
+
+    const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+      Layer.provide(directoryLayer),
+      Layer.provide(AnalyticsService.layerTest),
+    );
+
+    return Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = asThreadId("thread-kiro");
+
+      const initial = yield* provider.startSession(threadId, {
+        provider: "kiro",
+        threadId,
+        cwd: "/tmp/project-kiro",
+        runtimeMode: "full-access",
+      });
+
+      yield* kiro.stopAll();
+      kiro.startSession.mockClear();
+      kiro.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId,
+        input: "resume",
+        attachments: [],
+      });
+
+      assert.equal(kiro.startSession.mock.calls.length, 2);
+      const resumeAttempt = kiro.startSession.mock.calls[0]?.[0] as
+        | {
+            provider?: string;
+            cwd?: string;
+            resumeCursor?: unknown;
+            threadId?: string;
+          }
+        | undefined;
+      const fallbackAttempt = kiro.startSession.mock.calls[1]?.[0] as
+        | {
+            provider?: string;
+            cwd?: string;
+            resumeCursor?: unknown;
+            threadId?: string;
+          }
+        | undefined;
+      assert.equal(resumeAttempt?.provider, "kiro");
+      assert.equal(resumeAttempt?.cwd, "/tmp/project-kiro");
+      assert.deepEqual(resumeAttempt?.resumeCursor, initial.resumeCursor);
+      assert.equal(resumeAttempt?.threadId, threadId);
+      assert.equal(fallbackAttempt?.provider, "kiro");
+      assert.equal(fallbackAttempt?.cwd, "/tmp/project-kiro");
+      assert.equal(fallbackAttempt?.resumeCursor, undefined);
+      assert.equal(fallbackAttempt?.threadId, threadId);
+      assert.equal(kiro.sendTurn.mock.calls.length, 1);
+
+      const recoveredRuntime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(recoveredRuntime), true);
+      if (Option.isSome(recoveredRuntime)) {
+        const payload = recoveredRuntime.value.runtimePayload;
+        assert.equal(payload !== null && typeof payload === "object", true);
+        if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+          const runtimePayload = payload as {
+            reconnectState?: string;
+            reconnectSummary?: string;
+          };
+          assert.equal(runtimePayload.reconnectState, "fresh-start");
+          assert.equal(
+            runtimePayload.reconnectSummary,
+            "Persisted provider session was unavailable; started a new provider session.",
+          );
+        }
+      }
+    }).pipe(
+      Effect.provide(Layer.mergeAll(providerLayer, runtimeRepositoryLayer, NodeServices.layer)),
+    );
+  })(),
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {

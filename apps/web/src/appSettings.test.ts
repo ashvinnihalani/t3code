@@ -6,9 +6,11 @@ import {
   DEFAULT_THREAD_ID_DISPLAY_MODE,
   DEFAULT_TIMESTAMP_FORMAT,
   buildCodexHostOverridePatch,
+  buildKiroHostOverridePatch,
   buildGitRequestSettings,
   getAppModelOptions,
   getCodexHostOverride,
+  getKiroHostOverride,
   normalizeCustomModelSlugs,
   resolveAppModelSelection,
 } from "./appSettings";
@@ -52,6 +54,17 @@ describe("getAppModelOptions", () => {
       isCustom: true,
     });
   });
+
+  it("returns the built-in Kiro catalog and custom Kiro models", () => {
+    const options = getAppModelOptions("kiro", ["custom/kiro-model"]);
+
+    expect(options.map((option) => option.slug)).toContain("auto");
+    expect(options.at(-1)).toEqual({
+      slug: "custom/kiro-model",
+      name: "custom/kiro-model",
+      isCustom: true,
+    });
+  });
 });
 
 describe("resolveAppModelSelection", () => {
@@ -63,6 +76,10 @@ describe("resolveAppModelSelection", () => {
 
   it("falls back to the provider default when no model is selected", () => {
     expect(resolveAppModelSelection("codex", [], "")).toBe("gpt-5.4");
+  });
+
+  it("falls back to the Kiro provider default when no model is selected", () => {
+    expect(resolveAppModelSelection("kiro", [], "")).toBe("auto");
   });
 });
 
@@ -215,6 +232,61 @@ describe("codex host overrides", () => {
       ),
     ).toEqual({
       codexRemoteOverrides: {},
+    });
+  });
+});
+
+describe("kiro host overrides", () => {
+  it("reads the local override when no host is selected", () => {
+    expect(
+      getKiroHostOverride(
+        {
+          kiroBinaryPath: "/usr/local/bin/kiro-cli",
+          kiroRemoteOverrides: {},
+        },
+        null,
+      ),
+    ).toEqual({
+      binaryPath: "/usr/local/bin/kiro-cli",
+    });
+  });
+
+  it("reads a saved remote override for the selected host", () => {
+    expect(
+      getKiroHostOverride(
+        {
+          kiroBinaryPath: "",
+          kiroRemoteOverrides: {
+            "prod-box": {
+              binaryPath: "/opt/kiro/bin/kiro-cli",
+            },
+          },
+        },
+        "prod-box",
+      ),
+    ).toEqual({
+      binaryPath: "/opt/kiro/bin/kiro-cli",
+    });
+  });
+
+  it("removes a remote override when the host value is reset to blank", () => {
+    expect(
+      buildKiroHostOverridePatch(
+        {
+          kiroBinaryPath: "",
+          kiroRemoteOverrides: {
+            "prod-box": {
+              binaryPath: "/opt/kiro/bin/kiro-cli",
+            },
+          },
+        },
+        {
+          binaryPath: "",
+        },
+        "prod-box",
+      ),
+    ).toEqual({
+      kiroRemoteOverrides: {},
     });
   });
 });

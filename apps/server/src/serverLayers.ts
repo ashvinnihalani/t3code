@@ -22,6 +22,7 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus"
 import { StartupThreadReconcilerLive } from "./orchestration/Layers/StartupThreadReconciler";
 import { ProviderUnsupportedError } from "./provider/Errors";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
+import { makeKiroAdapterLive } from "./provider/Layers/KiroAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
@@ -60,8 +61,10 @@ export function makeServerProviderLayer(): Layer.Layer<
     const codexAdapterLayer = makeCodexAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     );
+    const kiroAdapterLayer = makeKiroAdapterLive();
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
+      Layer.provide(kiroAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     return makeProviderServiceLive(
