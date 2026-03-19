@@ -31,15 +31,15 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
   ],
   kiro: [
     { slug: "auto", name: "Auto" },
-    { slug: "claude-opus4.6", name: "Claude Opus 4.6" },
-    { slug: "claude-opus4.5", name: "Claude Opus 4.5" },
-    { slug: "claude-sonnet4.6", name: "Claude Sonnet 4.6" },
-    { slug: "claude-sonnet4.5", name: "Claude Sonnet 4.5" },
-    { slug: "claude-sonnet4.0", name: "Claude Sonnet 4.0" },
-    { slug: "claude-haiku4.5", name: "Claude Haiku 4.5" },
+    { slug: "claude-opus-4.6", name: "Claude Opus 4.6" },
+    { slug: "claude-opus-4.5", name: "Claude Opus 4.5" },
+    { slug: "claude-sonnet-4.6", name: "Claude Sonnet 4.6" },
+    { slug: "claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
+    { slug: "claude-sonnet-4", name: "Claude Sonnet 4" },
+    { slug: "claude-haiku-4.5", name: "Claude Haiku 4.5" },
     { slug: "deepseek-3.2", name: "DeepSeek 3.2" },
-    { slug: "minimax-2.5", name: "MiniMax 2.5" },
-    { slug: "minimax-2.1", name: "MiniMax 2.1" },
+    { slug: "minimax-m2.5", name: "MiniMax M2.5" },
+    { slug: "minimax-m2.1", name: "MiniMax M2.1" },
     { slug: "qwen3-coder-next", name: "Qwen3 Coder Next" },
   ],
 } as const satisfies Record<ProviderKind, readonly ModelOption[]>;
@@ -63,7 +63,16 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER = {
     "5.3-spark": "gpt-5.3-codex-spark",
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
   },
-  kiro: {},
+  kiro: {
+    "claude-opus4.6": "claude-opus-4.6",
+    "claude-opus4.5": "claude-opus-4.5",
+    "claude-sonnet4.6": "claude-sonnet-4.6",
+    "claude-sonnet4.5": "claude-sonnet-4.5",
+    "claude-sonnet4.0": "claude-sonnet-4",
+    "claude-haiku4.5": "claude-haiku-4.5",
+    "minimax-2.5": "minimax-m2.5",
+    "minimax-2.1": "minimax-m2.1",
+  },
 } as const satisfies Record<ProviderKind, Record<string, ModelSlug>>;
 
 export const REASONING_EFFORT_OPTIONS_BY_PROVIDER = {

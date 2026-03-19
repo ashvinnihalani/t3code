@@ -46,7 +46,7 @@ export function readProviderThreadIdFromResumeCursor(resumeCursor: unknown): str
   if (!isRecord(resumeCursor)) {
     return undefined;
   }
-  return readTrimmedString(resumeCursor.threadId);
+  return readTrimmedString(resumeCursor.threadId) ?? readTrimmedString(resumeCursor.sessionId);
 }
 
 export function buildRemoteSessionRuntimeMetadataPatch(input: {

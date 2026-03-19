@@ -27,6 +27,16 @@ function createTestSession() {
       defaultModeId: undefined,
       availableModes: [],
     },
+    modelState: {
+      currentModelId: undefined,
+      availableModels: [],
+    },
+    commandsSnapshot: {
+      commands: [],
+      prompts: [],
+      tools: [],
+      mcpServers: [],
+    },
     turns: [],
     pendingPermissionRequests: new Map(),
     suppressReplay: false,
@@ -59,12 +69,12 @@ describe("formatKiroProcessExitMessage", () => {
 });
 
 describe("KiroAcpManager", () => {
-  it("emits turn.completed when ACP sends turn_end", async () => {
+  it("emits turn/completed when ACP sends turn_end", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
-    const events: Array<{ type: string; turnId?: string; payload?: unknown }> = [];
+    const events: Array<{ method: string; turnId?: string; payload?: unknown }> = [];
     manager.on("event", (event) => {
-      events.push(event as { type: string; turnId?: string; payload?: unknown });
+      events.push(event as { method: string; turnId?: string; payload?: unknown });
     });
 
     await (
@@ -86,11 +96,13 @@ describe("KiroAcpManager", () => {
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: "turn.completed",
+          method: "turn/completed",
           turnId: "turn-1",
           payload: expect.objectContaining({
-            state: "completed",
-            stopReason: "done",
+            turn: expect.objectContaining({
+              status: "completed",
+              stopReason: "done",
+            }),
           }),
         }),
       ]),
@@ -112,9 +124,9 @@ describe("KiroAcpManager", () => {
       }
     ).sessions.set(session.threadId, session);
 
-    const events: Array<{ type: string; turnId?: string }> = [];
+    const events: Array<{ method: string; turnId?: string }> = [];
     manager.on("event", (event) => {
-      events.push(event as { type: string; turnId?: string });
+      events.push(event as { method: string; turnId?: string });
     });
 
     const sendPromise = manager.sendTurn({
@@ -145,6 +157,6 @@ describe("KiroAcpManager", () => {
     const result = await sendPromise;
 
     expect(result.turnId).toBe(activeTurnId);
-    expect(events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+    expect(events.filter((event) => event.method === "turn/completed")).toHaveLength(1);
   });
 });

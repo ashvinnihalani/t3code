@@ -1,12 +1,14 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
+  ApprovalRequestId,
+  EventId,
+  type ProviderEvent,
+  type ProviderRequestKind,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
-  type ProviderRuntimeEvent,
   ProviderItemId,
-  RuntimeItemId,
-  RuntimeRequestId,
   ThreadId,
   TurnId,
   type ProviderSession,
@@ -30,10 +32,30 @@ interface KiroModeState {
   readonly availableModes: ReadonlyArray<KiroModeDescriptor>;
 }
 
+interface KiroModelDescriptor {
+  readonly modelId: string;
+  readonly name?: string;
+  readonly description?: string;
+}
+
+interface KiroModelState {
+  readonly currentModelId: string | undefined;
+  readonly availableModels: ReadonlyArray<KiroModelDescriptor>;
+}
+
+interface KiroCommandsSnapshot {
+  readonly commands: ReadonlyArray<Record<string, unknown>>;
+  readonly prompts: ReadonlyArray<Record<string, unknown>>;
+  readonly tools: ReadonlyArray<Record<string, unknown>>;
+  readonly mcpServers: ReadonlyArray<Record<string, unknown>>;
+}
+
 interface PendingPermissionRequest {
   readonly rpcRequestId: number | string;
-  readonly requestId: string;
+  readonly requestId: ApprovalRequestId;
   readonly toolCallId: string | undefined;
+  readonly requestKind: ProviderRequestKind | undefined;
+  readonly method: string;
   readonly options: ReadonlyArray<{
     readonly optionId: string;
     readonly kind?: string;
@@ -48,7 +70,7 @@ interface KiroTurnSnapshot {
 interface KiroSessionState {
   readonly threadId: ThreadId;
   readonly process: ChildProcessWithoutNullStreams;
-  readonly rpc: JsonRpcConnection;
+  rpc: JsonRpcConnection;
   readonly runtimeMode: ProviderSession["runtimeMode"];
   readonly cwd: string | undefined;
   createdAt: string;
@@ -58,6 +80,8 @@ interface KiroSessionState {
   sessionId: string | undefined;
   activeTurnId: TurnId | undefined;
   modeState: KiroModeState;
+  modelState: KiroModelState;
+  commandsSnapshot: KiroCommandsSnapshot;
   turns: Array<KiroTurnSnapshot>;
   pendingPermissionRequests: Map<string, PendingPermissionRequest>;
   suppressReplay: boolean;
@@ -149,7 +173,7 @@ export function formatKiroProcessExitMessage(input: {
 }
 
 function resumeCursorFromSessionId(sessionId: string | undefined): unknown {
-  return sessionId ? { sessionId } : undefined;
+  return sessionId ? { sessionId, threadId: sessionId } : undefined;
 }
 
 function readResumeSessionId(resumeCursor: unknown): string | undefined {
@@ -238,56 +262,108 @@ function extractModeState(value: unknown): KiroModeState | undefined {
   };
 }
 
-function toCanonicalItemType(
-  kind: string | undefined,
-): Extract<ProviderRuntimeEvent, { type: "item.started" }>["payload"]["itemType"] {
-  switch ((kind ?? "").toLowerCase()) {
-    case "execute":
-      return "command_execution";
-    case "edit":
-    case "move":
-    case "delete":
-      return "file_change";
-    case "search":
-    case "fetch":
-      return "web_search";
-    default:
-      return "dynamic_tool_call";
-  }
+function extractModelState(value: unknown): KiroModelState | undefined {
+  const result = asRecord(value);
+  const models = asRecord(result?.models);
+  if (!models) return undefined;
+  const availableModels = (asArray(models.availableModels) ?? [])
+    .map((entry) => {
+      const model = asRecord(entry);
+      const modelId = normalizeNonEmpty(asString(model?.modelId));
+      if (!modelId) return undefined;
+      const descriptor: { modelId: string; name?: string; description?: string } = { modelId };
+      const name = normalizeNonEmpty(asString(model?.name));
+      const description = normalizeNonEmpty(asString(model?.description));
+      if (name) {
+        descriptor.name = name;
+      }
+      if (description) {
+        descriptor.description = description;
+      }
+      return descriptor;
+    })
+    .filter((model): model is KiroModelDescriptor => model !== undefined);
+  return {
+    currentModelId: normalizeNonEmpty(asString(models.currentModelId)),
+    availableModels,
+  };
 }
 
-function toCanonicalRequestType(
-  kind: string | undefined,
-): Extract<ProviderRuntimeEvent, { type: "request.opened" }>["payload"]["requestType"] {
+function emptyCommandsSnapshot(): KiroCommandsSnapshot {
+  return {
+    commands: [],
+    prompts: [],
+    tools: [],
+    mcpServers: [],
+  };
+}
+
+function extractCommandsSnapshot(value: unknown): KiroCommandsSnapshot | undefined {
+  const result = asRecord(value);
+  if (!result) return undefined;
+  return {
+    commands: (asArray(result.commands) ?? []).flatMap((entry) => {
+      const record = asRecord(entry);
+      return record ? [record] : [];
+    }),
+    prompts: (asArray(result.prompts) ?? []).flatMap((entry) => {
+      const record = asRecord(entry);
+      return record ? [record] : [];
+    }),
+    tools: (asArray(result.tools) ?? []).flatMap((entry) => {
+      const record = asRecord(entry);
+      return record ? [record] : [];
+    }),
+    mcpServers: (asArray(result.mcpServers) ?? []).flatMap((entry) => {
+      const record = asRecord(entry);
+      return record ? [record] : [];
+    }),
+  };
+}
+
+function permissionRequestKind(kind: string | undefined): ProviderRequestKind | undefined {
   switch ((kind ?? "").toLowerCase()) {
     case "execute":
     case "switch_mode":
-      return "command_execution_approval";
+      return "command";
     case "read":
-      return "file_read_approval";
+      return "file-read";
     case "edit":
     case "move":
     case "delete":
-      return "file_change_approval";
+      return "file-change";
     default:
-      return "unknown";
+      return undefined;
   }
 }
 
-function toItemStatus(
-  status: string | undefined,
-): "inProgress" | "completed" | "failed" | "declined" {
-  switch ((status ?? "").toLowerCase()) {
-    case "pending":
-    case "in_progress":
-      return "inProgress";
-    case "failed":
-      return "failed";
-    case "cancelled":
-    case "declined":
-      return "declined";
+function permissionRequestMethod(kind: string | undefined): string {
+  const requestKind = permissionRequestKind(kind);
+  switch (requestKind) {
+    case "command":
+      return "item/commandExecution/requestApproval";
+    case "file-read":
+      return "item/fileRead/requestApproval";
+    case "file-change":
+      return "item/fileChange/requestApproval";
     default:
-      return "completed";
+      return "item/requestApproval";
+  }
+}
+
+function toolItemType(kind: string | undefined): string {
+  switch ((kind ?? "").toLowerCase()) {
+    case "execute":
+      return "commandExecution";
+    case "edit":
+    case "move":
+    case "delete":
+      return "fileChange";
+    case "search":
+    case "fetch":
+      return "webSearch";
+    default:
+      return "dynamicToolCall";
   }
 }
 
@@ -523,13 +599,41 @@ export class KiroAcpManager extends EventEmitter {
 
   async startSession(input: KiroAcpStartSessionInput): Promise<ProviderSession> {
     this.stopSession(input.threadId);
+    const binaryPath = input.binaryPath ?? DEFAULT_BINARY_PATH;
     const { process, command } = this.spawnProcess({
-      binaryPath: input.binaryPath ?? DEFAULT_BINARY_PATH,
+      binaryPath,
       ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(input.model ? { model: input.model } : {}),
       ...(input.remote ? { remote: input.remote } : {}),
     });
 
-    let session = undefined as KiroSessionState | undefined;
+    const now = nowIso();
+    let session: KiroSessionState = {
+      threadId: input.threadId,
+      process,
+      rpc: undefined as never,
+      runtimeMode: input.runtimeMode,
+      cwd: input.cwd,
+      createdAt: now,
+      updatedAt: now,
+      status: "connecting",
+      model: input.model,
+      sessionId: undefined,
+      activeTurnId: undefined,
+      modeState: {
+        currentModeId: undefined,
+        defaultModeId: undefined,
+        availableModes: [],
+      },
+      modelState: {
+        currentModelId: input.model,
+        availableModels: [],
+      },
+      commandsSnapshot: emptyCommandsSnapshot(),
+      turns: [],
+      pendingPermissionRequests: new Map(),
+      suppressReplay: false,
+    };
     const rpc = new JsonRpcConnection(
       process,
       command,
@@ -547,21 +651,22 @@ export class KiroAcpManager extends EventEmitter {
         if (!session) return;
         session.status = error ? "error" : "closed";
         session.updatedAt = nowIso();
-        this.emit(
-          "event",
-          this.runtimeEvent(session, {
-            type: "session.exited",
-            payload: {
-              exitKind: error ? ("error" as const) : ("graceful" as const),
-              ...(error ? { reason: error.message } : {}),
-            },
-          }),
+        this.emitSessionEvent(
+          session,
+          "session/exited",
+          error?.message ?? `Kiro ACP process exited (${error ? "error" : "graceful"} shutdown).`,
+          {
+            exitKind: error ? "error" : "graceful",
+            ...(error ? { reason: error.message } : {}),
+          },
         );
         this.sessions.delete(session.threadId);
       },
     );
+    session.rpc = rpc;
+    this.emitSessionEvent(session, "session/connecting", `Starting ${command}`);
 
-    await rpc.request("initialize", {
+    const initializeResult = await rpc.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: {
         fs: {
@@ -576,28 +681,11 @@ export class KiroAcpManager extends EventEmitter {
         version: "0.0.0",
       },
     });
-
-    session = {
-      threadId: input.threadId,
-      process,
-      rpc,
-      runtimeMode: input.runtimeMode,
-      cwd: input.cwd,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-      status: "ready",
-      model: input.model,
-      sessionId: undefined,
-      activeTurnId: undefined,
-      modeState: {
-        currentModeId: undefined,
-        defaultModeId: undefined,
-        availableModes: [],
+    this.emitNotificationEvent(session, "session/configured", {
+      config: {
+        initialize: initializeResult,
       },
-      turns: [],
-      pendingPermissionRequests: new Map(),
-      suppressReplay: false,
-    };
+    });
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
     if (resumeSessionId) {
@@ -609,10 +697,8 @@ export class KiroAcpManager extends EventEmitter {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           mcpServers: [],
         });
-        const modeState = extractModeState(loadResult);
-        if (modeState) {
-          session.modeState = modeState;
-        }
+        this.applySessionBootstrap(session, loadResult);
+        console.log("kiro session/load response", loadResult);
       } catch (error) {
         process.kill();
         throw error;
@@ -626,14 +712,12 @@ export class KiroAcpManager extends EventEmitter {
           mcpServers: [],
         }),
       );
+      console.log("kiro session/new response", created);
       const sessionId = normalizeNonEmpty(asString(created?.sessionId));
       if (sessionId) {
         session.sessionId = sessionId;
       }
-      const modeState = extractModeState(created);
-      if (modeState) {
-        session.modeState = modeState;
-      }
+      this.applySessionBootstrap(session, created);
     }
 
     if (!session.sessionId) {
@@ -641,31 +725,34 @@ export class KiroAcpManager extends EventEmitter {
       throw new Error("Kiro ACP session did not return a sessionId.");
     }
 
+    session.status = "ready";
+    session.updatedAt = nowIso();
     this.sessions.set(session.threadId, session);
-    if (input.model) {
+    if (input.model && input.model !== session.model) {
       await this.setModel(session, input.model);
     }
 
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "session.started",
-        payload: {
-          message: "Kiro ACP session started",
-          resume: resumeCursorFromSessionId(session.sessionId),
-        },
-      }),
-    );
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "thread.started",
-        payload: {
-          providerThreadId: session.sessionId,
-        },
-      }),
-    );
-    this.emitModeMetadata(session);
+    const accountSnapshot = readKiroAccountSnapshot({
+      binaryPath,
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(input.remote ? { remote: input.remote } : {}),
+    });
+    if (accountSnapshot !== undefined) {
+      console.log("kiro account/read response", accountSnapshot);
+      this.emitNotificationEvent(session, "account/updated", accountSnapshot);
+    }
+
+    console.log("kiro model/list response", {
+      currentModelId: session.modelState.currentModelId ?? null,
+      availableModels: session.modelState.availableModels,
+    });
+    this.emitSessionEvent(session, "session/started", "Kiro ACP session started", {
+      resume: resumeCursorFromSessionId(session.sessionId),
+    });
+    this.emitNotificationEvent(session, "thread/started", {
+      threadId: session.sessionId,
+    });
+    this.emitMetadataSnapshot(session);
 
     return {
       provider: PROVIDER,
@@ -674,7 +761,7 @@ export class KiroAcpManager extends EventEmitter {
       ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(session.model ? { model: session.model } : {}),
       threadId: session.threadId,
-      resumeCursor: { sessionId: session.sessionId },
+      resumeCursor: resumeCursorFromSessionId(session.sessionId),
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };
@@ -698,13 +785,16 @@ export class KiroAcpManager extends EventEmitter {
       id: turnId,
       items: [],
     });
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "turn.started",
-        turnId,
-        payload: session.model ? { model: session.model } : {},
-      }),
+    this.emitNotificationEvent(
+      session,
+      "turn/started",
+      {
+        turn: {
+          id: turnId,
+          ...(session.model ? { model: session.model } : {}),
+        },
+      },
+      { turnId },
     );
 
     await session.rpc
@@ -739,7 +829,7 @@ export class KiroAcpManager extends EventEmitter {
     return {
       threadId: input.threadId,
       turnId,
-      resumeCursor: { sessionId: session.sessionId },
+      resumeCursor: resumeCursorFromSessionId(session.sessionId),
     };
   }
 
@@ -765,17 +855,20 @@ export class KiroAcpManager extends EventEmitter {
       pending.rpcRequestId,
       permissionDecisionForOptionKinds(pending.options, decision),
     );
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "request.resolved",
+    this.emitNotificationEvent(
+      session,
+      "item/requestApproval/decision",
+      {
+        requestId,
+        ...(pending.requestKind ? { requestKind: pending.requestKind } : {}),
+        decision,
+      },
+      {
         ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-        requestId: RuntimeRequestId.makeUnsafe(requestId),
-        payload: {
-          requestType: toCanonicalRequestType(undefined),
-          decision,
-        },
-      }),
+        ...(pending.toolCallId ? { itemId: ProviderItemId.makeUnsafe(pending.toolCallId) } : {}),
+        requestId: pending.requestId,
+        ...(pending.requestKind ? { requestKind: pending.requestKind } : {}),
+      },
     );
   }
 
@@ -815,8 +908,10 @@ export class KiroAcpManager extends EventEmitter {
   private spawnProcess(input: {
     readonly binaryPath: string;
     readonly cwd?: string;
+    readonly model?: string;
     readonly remote?: ProjectRemoteTarget;
   }): { readonly process: ChildProcessWithoutNullStreams; readonly command: string } {
+    const acpArgs = ["acp", ...(input.model ? ["--model", input.model] : [])];
     if (input.remote?.kind === "ssh") {
       return {
         process: spawn(
@@ -824,7 +919,7 @@ export class KiroAcpManager extends EventEmitter {
           buildSshExecArgs({
             hostAlias: input.remote.hostAlias,
             command: input.binaryPath,
-            args: ["acp"],
+            args: acpArgs,
             ...(input.cwd ? { cwd: input.cwd } : {}),
             localCwd: process.cwd(),
           }),
@@ -835,18 +930,18 @@ export class KiroAcpManager extends EventEmitter {
             shell: process.platform === "win32",
           },
         ),
-        command: `ssh ${input.remote.hostAlias} ${input.binaryPath} acp`,
+        command: `ssh ${input.remote.hostAlias} ${input.binaryPath} ${acpArgs.join(" ")}`,
       };
     }
 
     return {
-      process: spawn(input.binaryPath, ["acp"], {
+      process: spawn(input.binaryPath, acpArgs, {
         cwd: input.cwd ?? process.cwd(),
         env: process.env,
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
       }),
-      command: `${input.binaryPath} acp`,
+      command: `${input.binaryPath} ${acpArgs.join(" ")}`,
     };
   }
 
@@ -865,17 +960,24 @@ export class KiroAcpManager extends EventEmitter {
 
     session.activeTurnId = undefined;
     session.updatedAt = nowIso();
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "turn.completed",
-        turnId,
-        payload: {
-          state: payload.state,
+    this.emitNotificationEvent(
+      session,
+      "turn/completed",
+      {
+        turn: {
+          id: turnId,
+          status: payload.state,
           ...(payload.stopReason ? { stopReason: payload.stopReason } : {}),
-          ...(payload.errorMessage ? { errorMessage: payload.errorMessage } : {}),
+          ...(payload.errorMessage
+            ? {
+                error: {
+                  message: payload.errorMessage,
+                },
+              }
+            : {}),
         },
-      }),
+      },
+      { turnId },
     );
     return true;
   }
@@ -932,7 +1034,12 @@ export class KiroAcpManager extends EventEmitter {
       modelId: model,
     });
     session.model = model;
+    session.modelState = {
+      ...session.modelState,
+      currentModelId: model,
+    };
     session.updatedAt = nowIso();
+    this.emitMetadataSnapshot(session);
   }
 
   private async setInteractionMode(
@@ -953,7 +1060,7 @@ export class KiroAcpManager extends EventEmitter {
       defaultModeId: session.modeState.defaultModeId ?? defaultModeId(session.modeState),
     };
     session.updatedAt = nowIso();
-    this.emitModeMetadata(session);
+    this.emitMetadataSnapshot(session);
   }
 
   private async handleRequest(
@@ -967,7 +1074,10 @@ export class KiroAcpManager extends EventEmitter {
 
     const params = asRecord(message.params);
     const toolCall = asRecord(params?.toolCall);
-    const requestId = `kiro:${asString(toolCall?.toolCallId) ?? crypto.randomUUID()}`;
+    const requestKind = permissionRequestKind(normalizeNonEmpty(asString(toolCall?.kind)));
+    const requestId = ApprovalRequestId.makeUnsafe(
+      `kiro:${asString(toolCall?.toolCallId) ?? randomUUID()}`,
+    );
     const options = (asArray(params?.options) ?? []).reduce<
       Array<{ optionId: string; kind?: string }>
     >((acc, entry) => {
@@ -985,32 +1095,23 @@ export class KiroAcpManager extends EventEmitter {
       rpcRequestId: message.id,
       requestId,
       toolCallId,
+      requestKind,
+      method: permissionRequestMethod(normalizeNonEmpty(asString(toolCall?.kind))),
       options,
     });
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "request.opened",
-        ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-        requestId: RuntimeRequestId.makeUnsafe(requestId),
-        ...(toolCallId ? { itemId: RuntimeItemId.makeUnsafe(toolCallId) } : {}),
-        payload: {
-          requestType: toCanonicalRequestType(normalizeNonEmpty(asString(toolCall?.kind))),
-          ...(normalizeNonEmpty(asString(toolCall?.title))
-            ? { detail: normalizeNonEmpty(asString(toolCall?.title)) }
-            : {}),
-          args: params,
-        },
-        ...(toolCallId
-          ? {
-              providerRefs: {
-                providerItemId: ProviderItemId.makeUnsafe(toolCallId),
-                providerRequestId: requestId,
-              },
-            }
-          : {}),
-      }),
-    );
+    this.emit("event", {
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "request",
+      provider: PROVIDER,
+      threadId: session.threadId,
+      createdAt: nowIso(),
+      method: permissionRequestMethod(normalizeNonEmpty(asString(toolCall?.kind))),
+      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+      ...(toolCallId ? { itemId: ProviderItemId.makeUnsafe(toolCallId) } : {}),
+      requestId,
+      ...(requestKind ? { requestKind } : {}),
+      payload: params,
+    } satisfies ProviderEvent);
   }
 
   private async handleNotification(
@@ -1018,6 +1119,32 @@ export class KiroAcpManager extends EventEmitter {
     method: string,
     params: unknown,
   ): Promise<void> {
+    if (method === "_kiro.dev/metadata") {
+      const metadata = asRecord(params);
+      if (metadata) {
+        this.emitNotificationEvent(session, "thread/tokenUsage/updated", metadata);
+      }
+      return;
+    }
+
+    if (method === "_kiro.dev/commands/available") {
+      const commandsSnapshot = extractCommandsSnapshot(params);
+      if (commandsSnapshot) {
+        session.commandsSnapshot = commandsSnapshot;
+        console.log("kiro commands/available response", params);
+        this.emitNotificationEvent(session, "session/configured", {
+          config: {
+            commands: commandsSnapshot.commands,
+            prompts: commandsSnapshot.prompts,
+            tools: commandsSnapshot.tools,
+            mcpServers: commandsSnapshot.mcpServers,
+          },
+        });
+        this.emitMetadataSnapshot(session);
+      }
+      return;
+    }
+
     if (method !== "session/update") {
       return;
     }
@@ -1039,7 +1166,7 @@ export class KiroAcpManager extends EventEmitter {
           defaultModeId: session.modeState.defaultModeId ?? defaultModeId(session.modeState),
         };
         session.updatedAt = nowIso();
-        this.emitModeMetadata(session);
+        this.emitMetadataSnapshot(session);
       }
       return;
     }
@@ -1053,16 +1180,13 @@ export class KiroAcpManager extends EventEmitter {
         const content = asRecord(update?.content);
         const text = readKiroTextChunk(content?.text);
         if (!text) return;
-        this.emit(
-          "event",
-          this.runtimeEvent(session, {
-            type: "content.delta",
-            ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-            payload: {
-              streamKind: "assistant_text",
-              delta: text,
-            },
-          }),
+        this.emitNotificationEvent(
+          session,
+          "item/agentMessage/delta",
+          {
+            delta: text,
+          },
+          session.activeTurnId ? { turnId: session.activeTurnId } : undefined,
         );
         return;
       }
@@ -1096,42 +1220,36 @@ export class KiroAcpManager extends EventEmitter {
               entry !== undefined,
           );
         if (entries.length === 0) return;
-        this.emit(
-          "event",
-          this.runtimeEvent(session, {
-            type: "turn.plan.updated",
-            ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-            payload: {
-              plan: entries,
-            },
-          }),
+        this.emitNotificationEvent(
+          session,
+          "turn/plan/updated",
+          {
+            plan: entries,
+          },
+          session.activeTurnId ? { turnId: session.activeTurnId } : undefined,
         );
         return;
       }
       case "tool_call": {
         const toolCallId = normalizeNonEmpty(asString(update?.toolCallId));
         const kind = normalizeNonEmpty(asString(update?.kind));
-        this.emit(
-          "event",
-          this.runtimeEvent(session, {
-            type: "item.started",
-            ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-            ...(toolCallId ? { itemId: RuntimeItemId.makeUnsafe(toolCallId) } : {}),
-            payload: {
-              itemType: toCanonicalItemType(kind),
-              status: "inProgress",
+        this.emitNotificationEvent(
+          session,
+          "item/started",
+          {
+            item: {
+              ...(toolCallId ? { id: toolCallId } : {}),
+              type: toolItemType(kind),
+              status: "in_progress",
               ...(normalizeNonEmpty(asString(update?.title))
                 ? { title: normalizeNonEmpty(asString(update?.title)) }
                 : {}),
             },
-            ...(toolCallId
-              ? {
-                  providerRefs: {
-                    providerItemId: ProviderItemId.makeUnsafe(toolCallId),
-                  },
-                }
-              : {}),
-          }),
+          },
+          {
+            ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+            ...(toolCallId ? { itemId: ProviderItemId.makeUnsafe(toolCallId) } : {}),
+          },
         );
         return;
       }
@@ -1146,31 +1264,23 @@ export class KiroAcpManager extends EventEmitter {
             return normalizeNonEmpty(asString(innerContent?.text));
           })
           .find((value) => value !== undefined);
-        const baseEvent = {
-          ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-          ...(toolCallId ? { itemId: RuntimeItemId.makeUnsafe(toolCallId) } : {}),
-          ...(toolCallId
-            ? {
-                providerRefs: {
-                  providerItemId: ProviderItemId.makeUnsafe(toolCallId),
-                },
-              }
-            : {}),
-        };
-        this.emit(
-          "event",
-          this.runtimeEvent(session, {
-            type:
-              status === "completed" || status === "failed" || status === "cancelled"
-                ? "item.completed"
-                : "item.updated",
-            ...baseEvent,
-            payload: {
-              itemType: "dynamic_tool_call",
-              status: toItemStatus(status),
-              ...(detail ? { detail } : {}),
+        this.emitNotificationEvent(
+          session,
+          status === "completed" || status === "failed" || status === "cancelled"
+            ? "item/completed"
+            : "item/updated",
+          {
+            item: {
+              ...(toolCallId ? { id: toolCallId } : {}),
+              type: "dynamicToolCall",
+              ...(status ? { status } : {}),
+              ...(detail ? { summary: detail } : {}),
             },
-          }),
+          },
+          {
+            ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+            ...(toolCallId ? { itemId: ProviderItemId.makeUnsafe(toolCallId) } : {}),
+          },
         );
         return;
       }
@@ -1179,7 +1289,19 @@ export class KiroAcpManager extends EventEmitter {
     }
   }
 
-  private emitModeMetadata(session: KiroSessionState): void {
+  private applySessionBootstrap(session: KiroSessionState, value: unknown): void {
+    const modeState = extractModeState(value);
+    if (modeState) {
+      session.modeState = modeState;
+    }
+    const modelState = extractModelState(value);
+    if (modelState) {
+      session.modelState = modelState;
+      session.model = modelState.currentModelId ?? session.model;
+    }
+  }
+
+  private emitMetadataSnapshot(session: KiroSessionState): void {
     const interactionMode = resolveInteractionMode(session.modeState);
     const metadata: Record<string, unknown> = {};
     if (interactionMode) {
@@ -1191,34 +1313,129 @@ export class KiroAcpManager extends EventEmitter {
     if (session.modeState.availableModes.length > 0) {
       metadata.providerModes = session.modeState.availableModes;
     }
+    if (session.modelState.currentModelId) {
+      metadata.providerModelId = session.modelState.currentModelId;
+    }
+    if (session.modelState.availableModels.length > 0) {
+      metadata.providerModelsCatalog = session.modelState.availableModels;
+    }
+    if (session.commandsSnapshot.commands.length > 0) {
+      metadata.providerCommands = session.commandsSnapshot.commands;
+    }
+    if (session.commandsSnapshot.tools.length > 0) {
+      metadata.providerTools = session.commandsSnapshot.tools;
+    }
+    if (session.commandsSnapshot.mcpServers.length > 0) {
+      metadata.providerMcpServers = session.commandsSnapshot.mcpServers;
+    }
     if (Object.keys(metadata).length === 0) {
       return;
     }
-    this.emit(
-      "event",
-      this.runtimeEvent(session, {
-        type: "thread.metadata.updated",
-        payload: {
-          metadata,
-        },
-      }),
-    );
+    this.emitNotificationEvent(session, "thread/metadata/updated", {
+      metadata,
+    });
   }
 
-  private runtimeEvent(
+  private emitSessionEvent(
     session: KiroSessionState,
-    input: Omit<ProviderRuntimeEvent, "eventId" | "provider" | "threadId" | "createdAt" | "raw">,
-  ): ProviderRuntimeEvent {
-    return {
-      eventId: crypto.randomUUID(),
+    method: string,
+    message: string,
+    payload?: unknown,
+  ): void {
+    this.emit("event", {
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "session",
       provider: PROVIDER,
       threadId: session.threadId,
       createdAt: nowIso(),
-      ...input,
-      raw: {
-        source: "kiro-acp",
-        payload: input,
-      },
-    } as ProviderRuntimeEvent;
+      method,
+      message,
+      ...(payload !== undefined ? { payload } : {}),
+    } satisfies ProviderEvent);
   }
+
+  private emitNotificationEvent(
+    session: KiroSessionState,
+    method: string,
+    payload?: unknown,
+    route?: {
+      readonly turnId?: TurnId;
+      readonly itemId?: ProviderItemId;
+      readonly requestId?: ApprovalRequestId;
+      readonly requestKind?: ProviderRequestKind;
+    },
+  ): void {
+    this.emit("event", {
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: PROVIDER,
+      threadId: session.threadId,
+      createdAt: nowIso(),
+      method,
+      ...(route?.turnId ? { turnId: route.turnId } : {}),
+      ...(route?.itemId ? { itemId: route.itemId } : {}),
+      ...(route?.requestId ? { requestId: route.requestId } : {}),
+      ...(route?.requestKind ? { requestKind: route.requestKind } : {}),
+      ...(payload !== undefined ? { payload } : {}),
+    } satisfies ProviderEvent);
+  }
+}
+
+function parseFirstJsonLine(value: string): unknown {
+  for (const line of value.split(/\r?\n/g)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) {
+      continue;
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function readKiroAccountSnapshot(input: {
+  readonly binaryPath: string;
+  readonly cwd?: string;
+  readonly remote?: ProjectRemoteTarget;
+}): unknown {
+  const localCwd = process.cwd();
+  const result =
+    input.remote?.kind === "ssh"
+      ? spawnSync(
+          "ssh",
+          buildSshExecArgs({
+            hostAlias: input.remote.hostAlias,
+            command: input.binaryPath,
+            args: ["whoami", "--format", "json"],
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            localCwd,
+          }),
+          {
+            cwd: localCwd,
+            env: process.env,
+            encoding: "utf8",
+            shell: process.platform === "win32",
+            stdio: ["ignore", "pipe", "pipe"],
+            timeout: 5_000,
+            maxBuffer: 1024 * 1024,
+          },
+        )
+      : spawnSync(input.binaryPath, ["whoami", "--format", "json"], {
+          cwd: input.cwd ?? localCwd,
+          env: process.env,
+          encoding: "utf8",
+          shell: process.platform === "win32",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 5_000,
+          maxBuffer: 1024 * 1024,
+        });
+
+  if (result.error || result.status !== 0) {
+    return undefined;
+  }
+
+  return parseFirstJsonLine(result.stdout ?? "");
 }

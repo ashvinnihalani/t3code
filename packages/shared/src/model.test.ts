@@ -14,6 +14,9 @@ describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
     expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
     expect(normalizeModelSlug("gpt-5.3")).toBe("gpt-5.3-codex");
+    expect(normalizeModelSlug("claude-opus4.6", "kiro")).toBe("claude-opus-4.6");
+    expect(normalizeModelSlug("claude-sonnet4.0", "kiro")).toBe("claude-sonnet-4");
+    expect(normalizeModelSlug("minimax-2.5", "kiro")).toBe("minimax-m2.5");
   });
 
   it("returns null for empty or missing values", () => {
@@ -26,6 +29,7 @@ describe("normalizeModelSlug", () => {
   it("preserves non-aliased model slugs", () => {
     expect(normalizeModelSlug("gpt-5.2")).toBe("gpt-5.2");
     expect(normalizeModelSlug("gpt-5.2-codex")).toBe("gpt-5.2-codex");
+    expect(normalizeModelSlug("claude-opus-4.6", "kiro")).toBe("claude-opus-4.6");
   });
 
   it("does not leak prototype properties as aliases", () => {
@@ -48,6 +52,9 @@ describe("resolveModelSlug", () => {
   it("resolves only supported model options", () => {
     for (const model of MODEL_OPTIONS_BY_PROVIDER.codex) {
       expect(resolveModelSlug(model.slug)).toBe(model.slug);
+    }
+    for (const model of MODEL_OPTIONS_BY_PROVIDER.kiro) {
+      expect(resolveModelSlug(model.slug, "kiro")).toBe(model.slug);
     }
   });
   it("keeps codex defaults for backward compatibility", () => {
