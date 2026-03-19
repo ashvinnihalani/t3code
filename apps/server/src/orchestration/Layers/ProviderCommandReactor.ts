@@ -1,8 +1,8 @@
 import {
   type ChatAttachment,
   CommandId,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
   EventId,
+  type GitRequestSettings,
   type OrchestrationEvent,
   type ProjectRemoteTarget,
   type ProviderModelOptions,
@@ -416,6 +416,7 @@ const make = Effect.gen(function* () {
     readonly messageId: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly gitSettings?: GitRequestSettings;
   }) {
     if (!input.branch || !input.worktreePath) {
       return;
@@ -442,7 +443,12 @@ const make = Effect.gen(function* () {
         cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+        ...(input.gitSettings?.commitPrompt
+          ? { systemPrompt: input.gitSettings.commitPrompt }
+          : {}),
+        ...(input.gitSettings?.textGenerationModel
+          ? { model: input.gitSettings.textGenerationModel }
+          : {}),
       })
       .pipe(
         Effect.catch((error) =>
@@ -511,6 +517,9 @@ const make = Effect.gen(function* () {
       messageId: message.id,
       messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      ...(event.payload.gitSettings !== undefined
+        ? { gitSettings: event.payload.gitSettings }
+        : {}),
     }).pipe(Effect.forkScoped);
 
     yield* sendTurnForThread({

@@ -1,6 +1,7 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
 import { ProviderModelOptions } from "./model";
 import { ProjectRemoteTarget } from "./remote";
+import { GitRequestSettings } from "./git";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -395,6 +396,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
+  gitSettings: Schema.optional(GitRequestSettings),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
@@ -418,6 +420,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
+  gitSettings: Schema.optional(GitRequestSettings),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -702,6 +705,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
+  gitSettings: Schema.optional(GitRequestSettings),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
