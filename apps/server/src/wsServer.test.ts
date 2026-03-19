@@ -374,6 +374,14 @@ async function createProjectAndThread(input: {
   const createdAt = new Date().toISOString();
   const projectId = ProjectId.makeUnsafe(input.projectId);
   const threadId = ThreadId.makeUnsafe(input.threadId);
+  const workspaceRoot = input.workspaceRoot ?? `/tmp/${input.projectId.replace(/\s+/g, "-")}`;
+
+  if (input.remote?.kind !== "ssh") {
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    if (input.worktreePath) {
+      fs.mkdirSync(input.worktreePath, { recursive: true });
+    }
+  }
 
   const createProjectResponse = await sendRequest(
     input.ws,
@@ -383,7 +391,7 @@ async function createProjectAndThread(input: {
       commandId: CommandId.makeUnsafe(crypto.randomUUID()),
       projectId,
       title: input.projectId,
-      workspaceRoot: input.workspaceRoot ?? `/tmp/${input.projectId.replace(/\s+/g, "-")}`,
+      workspaceRoot,
       defaultModel: "gpt-5-codex",
       ...(input.remote !== undefined ? { remote: input.remote } : {}),
       createdAt,
@@ -436,6 +444,8 @@ async function createScopedAttachment(input: {
         {
           type: "image",
           name: input.attachmentName ?? "0.png",
+          mimeType: "image/png",
+          sizeBytes: 1,
           dataUrl: "data:image/png;base64,AA==",
         },
       ],
@@ -1144,6 +1154,8 @@ describe("WebSocket Server", () => {
   });
 
   it("routes project path editor opens through the project-aware resolver", async () => {
+    const workspaceRoot = makeTempDir("t3code-ws-project-open-");
+    const worktreePath = makeTempDir("t3code-ws-project-worktree-");
     const openCalls: Array<{ target: string; editor: string }> = [];
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
@@ -1163,8 +1175,8 @@ describe("WebSocket Server", () => {
       ws,
       projectId: "project-local-open",
       threadId: "thread-local-open",
-      workspaceRoot: "/my/workspace/project",
-      worktreePath: "/my/workspace/worktree",
+      workspaceRoot,
+      worktreePath,
     });
 
     const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
@@ -1178,13 +1190,14 @@ describe("WebSocket Server", () => {
     expect(response.error).toBeUndefined();
     expect(openCalls).toEqual([
       {
-        target: "/my/workspace/worktree/src/main.ts:12:3",
+        target: `${worktreePath}/src/main.ts:12:3`,
         editor: "cursor",
       },
     ]);
   });
 
   it("rejects project path editor opens that escape the project root", async () => {
+    const workspaceRoot = makeTempDir("t3code-ws-project-escape-");
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
       openInEditor: () => Effect.void,
@@ -1200,7 +1213,7 @@ describe("WebSocket Server", () => {
       ws,
       projectId: "project-local-escape",
       threadId: "thread-local-escape",
-      workspaceRoot: "/my/workspace/project",
+      workspaceRoot,
     });
 
     const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
@@ -1210,7 +1223,6 @@ describe("WebSocket Server", () => {
       editor: "cursor",
     });
     expect(response.error).toEqual({
-      code: 400,
       message: "Project path must stay within the project root.",
     });
   });
@@ -1317,7 +1329,6 @@ describe("WebSocket Server", () => {
         editor: "cursor",
       });
       expect(response.error).toEqual({
-        code: 400,
         message: "SSH host 'prod' is missing a concrete user or hostname.",
       });
     } finally {
@@ -1815,9 +1826,16 @@ describe("WebSocket Server", () => {
       expect(unhandledRejections).toHaveLength(0);
 
       const workspace = makeTempDir("t3code-ws-handler-still-usable-");
+      const projectId = "project-handler-still-usable";
       fs.writeFileSync(path.join(workspace, "file.txt"), "ok\n", "utf8");
+      await createProjectAndThread({
+        ws,
+        projectId,
+        threadId: "thread-handler-still-usable",
+        workspaceRoot: workspace,
+      });
       const response = await sendRequest(ws, WS_METHODS.projectsSearchEntries, {
-        cwd: workspace,
+        projectId,
         query: "file",
         limit: 5,
       });
@@ -1864,6 +1882,7 @@ describe("WebSocket Server", () => {
 
   it("supports projects.searchEntries", async () => {
     const workspace = makeTempDir("t3code-ws-workspace-entries-");
+    const projectId = "project-workspace-entries";
     fs.mkdirSync(path.join(workspace, "src", "components"), { recursive: true });
     fs.writeFileSync(
       path.join(workspace, "src", "components", "Composer.tsx"),
@@ -1880,9 +1899,15 @@ describe("WebSocket Server", () => {
 
     const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId,
+      threadId: "thread-workspace-entries",
+      workspaceRoot: workspace,
+    });
 
     const response = await sendRequest(ws, WS_METHODS.projectsSearchEntries, {
-      cwd: workspace,
+      projectId,
       query: "comp",
       limit: 10,
     });
@@ -1898,6 +1923,7 @@ describe("WebSocket Server", () => {
 
   it("supports projects.writeFile within the workspace root", async () => {
     const workspace = makeTempDir("t3code-ws-write-file-");
+    const projectId = "project-write-file";
 
     server = await createTestServer({ cwd: "/test" });
     const addr = server.address();
@@ -1905,9 +1931,15 @@ describe("WebSocket Server", () => {
 
     const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId,
+      threadId: "thread-write-file",
+      workspaceRoot: workspace,
+    });
 
     const response = await sendRequest(ws, WS_METHODS.projectsWriteFile, {
-      cwd: workspace,
+      projectId,
       relativePath: "plans/effect-rpc.md",
       contents: "# Plan\n\n- step 1\n",
     });
@@ -1923,6 +1955,7 @@ describe("WebSocket Server", () => {
 
   it("rejects projects.writeFile paths outside the workspace root", async () => {
     const workspace = makeTempDir("t3code-ws-write-file-reject-");
+    const projectId = "project-write-file-reject";
 
     server = await createTestServer({ cwd: "/test" });
     const addr = server.address();
@@ -1930,9 +1963,15 @@ describe("WebSocket Server", () => {
 
     const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId,
+      threadId: "thread-write-file-reject",
+      workspaceRoot: workspace,
+    });
 
     const response = await sendRequest(ws, WS_METHODS.projectsWriteFile, {
-      cwd: workspace,
+      projectId,
       relativePath: "../escape.md",
       contents: "# no\n",
     });
@@ -1990,7 +2029,7 @@ describe("WebSocket Server", () => {
     const pullResponse = await sendRequest(ws, WS_METHODS.gitPull, { cwd: "/repo/path" });
     expect(pullResponse.result).toBeUndefined();
     expect(pullResponse.error?.message).toContain("No upstream configured");
-    expect(pullCurrentBranch).toHaveBeenCalledWith("/repo/path");
+    expect(pullCurrentBranch).toHaveBeenCalledWith("/repo/path", null);
   });
 
   it("supports git.status over websocket", async () => {
