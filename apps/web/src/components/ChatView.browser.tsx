@@ -602,6 +602,13 @@ async function waitForComposerEditor(): Promise<HTMLElement> {
   );
 }
 
+async function waitForDraftThreadTitleInput(): Promise<HTMLInputElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLInputElement>('[data-testid="draft-thread-title-input"]'),
+    "Unable to find draft thread title input.",
+  );
+}
+
 async function waitForInteractionModeButton(
   expectedLabel: "Chat" | "Plan",
 ): Promise<HTMLButtonElement> {
@@ -1350,6 +1357,139 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .element(page.getByText("Send a message to start the conversation."))
         .toBeInTheDocument();
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("uses the draft title override when creating a new thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-new-thread-title-override" as MessageId,
+        targetText: "new thread title override",
+      }),
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID.",
+      );
+      const newThreadId = newThreadPath.slice(1) as ThreadId;
+
+      const titleInput = await waitForDraftThreadTitleInput();
+      titleInput.value = "Release planning";
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+      useComposerDraftStore
+        .getState()
+        .setPrompt(newThreadId, "Prepare the release checklist and rollout plan.");
+
+      const requestCountBeforeSend = wsRequests.length;
+      const sendButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find Send message button.",
+      );
+      sendButton.click();
+
+      let requestsAfterSend: WsRequestEnvelope["body"][] = [];
+      await vi.waitFor(
+        () => {
+          requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
+          expect(
+            requestsAfterSend.some((request) => {
+              if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+                return false;
+              }
+              const command = request.command;
+              return (
+                typeof command === "object" &&
+                command !== null &&
+                "type" in command &&
+                command.type === "thread.create"
+              );
+            }),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(
+        requestsAfterSend.find((request) => {
+          if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+            return false;
+          }
+          const command = request.command;
+          return (
+            typeof command === "object" &&
+            command !== null &&
+            "type" in command &&
+            command.type === "thread.create"
+          );
+        }),
+      ).toMatchObject({
+        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+        command: {
+          type: "thread.create",
+          threadId: newThreadId,
+          title: "Release planning",
+        },
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("resets the draft title override after navigating away from the new thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-reset-draft-title-override" as MessageId,
+        targetText: "reset draft title override",
+      }),
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID.",
+      );
+
+      const titleInput = await waitForDraftThreadTitleInput();
+      titleInput.value = "Temporary title";
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "Route should have changed back to the original thread.",
+      );
+
+      await newThreadButton.click();
+      await waitForURL(
+        mounted.router,
+        (path) => path === newThreadPath,
+        "New thread button should reopen the existing draft thread.",
+      );
+
+      const resetTitleInput = await waitForDraftThreadTitleInput();
+      expect(resetTitleInput.value).toBe("");
+      expect(resetTitleInput.placeholder).toBe("New thread");
     } finally {
       await mounted.cleanup();
     }

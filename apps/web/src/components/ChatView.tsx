@@ -271,6 +271,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
+  const [draftThreadTitleOverride, setDraftThreadTitleOverride] = useState("");
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -383,6 +384,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const trimmedDraftThreadTitleOverride = draftThreadTitleOverride.trim();
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
@@ -407,6 +409,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const closePullRequestDialog = useCallback(() => {
     setPullRequestDialogState(null);
   }, []);
+
+  useEffect(() => {
+    setDraftThreadTitleOverride("");
+  }, [threadId]);
 
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
@@ -2390,6 +2396,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
       let titleSeed = trimmed;
+      if (isLocalDraftThread && trimmedDraftThreadTitleOverride.length > 0) {
+        titleSeed = trimmedDraftThreadTitleOverride;
+      }
       if (!titleSeed) {
         if (firstComposerImageName) {
           titleSeed = `Image: ${firstComposerImageName}`;
@@ -3283,6 +3292,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         <ChatHeader
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
+          draftThreadTitleOverride={isLocalDraftThread ? draftThreadTitleOverride : null}
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           activeProjectRemote={activeProject?.remote ?? null}
@@ -3306,6 +3316,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleDiff={onToggleDiff}
+          onDraftThreadTitleOverrideChange={isLocalDraftThread ? setDraftThreadTitleOverride : null}
         />
       </header>
 
