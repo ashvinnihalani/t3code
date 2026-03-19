@@ -786,51 +786,6 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     };
   });
 
-  const resolveRemoteSshHost = Effect.fnUntraced(function* (hostAlias: string) {
-    const sshHosts = yield* Effect.tryPromise({
-      try: () => listSshHosts(),
-      catch: (cause) =>
-        new RouteRequestError({
-          message: `Failed to resolve SSH host metadata: ${String(cause)}`,
-        }),
-    });
-    const sshHost = sshHosts.find((host) => host.alias === hostAlias);
-    if (!sshHost) {
-      return yield* new RouteRequestError({
-        message: `SSH host '${hostAlias}' was not found in ~/.ssh/config.`,
-      });
-    }
-    const user = sshHost.user;
-    const hostname = sshHost.hostname;
-    if (!user || !hostname) {
-      return yield* new RouteRequestError({
-        message: `SSH host '${hostAlias}' is missing a concrete user or hostname.`,
-      });
-    }
-    return {
-      user,
-      hostname,
-      port: sshHost.port,
-    };
-  });
-
-  const buildRemoteSshEditorTarget = Effect.fnUntraced(function* (input: {
-    readonly hostAlias: string;
-    readonly absolutePath: string;
-  }) {
-    const sshHost = yield* resolveRemoteSshHost(input.hostAlias);
-    const username = sshHost.user;
-    const hostname = sshHost.hostname;
-    const targetUrl = new URL("ssh://placeholder");
-    targetUrl.username = username;
-    targetUrl.hostname = hostname;
-    if (sshHost.port !== null) {
-      targetUrl.port = String(sshHost.port);
-    }
-    targetUrl.pathname = input.absolutePath;
-    return targetUrl.toString();
-  });
-
   const resolveProjectEditorTarget = Effect.fnUntraced(function* (input: {
     readonly projectId: ProjectId;
     readonly threadId?: ThreadId;
@@ -850,10 +805,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         label: "Project path",
         allowWorkspaceRoot: true,
       });
-      return yield* buildRemoteSshEditorTarget({
+      return {
+        kind: "remote-ssh" as const,
         hostAlias: project.remote.hostAlias,
-        absolutePath: resolvedTarget.absolutePath,
-      });
+        path: resolvedTarget.absolutePath,
+        isDirectory: relativePath === ".",
+        ...(typeof input.line === "number" ? { line: input.line } : {}),
+        ...(typeof input.column === "number" ? { column: input.column } : {}),
+      };
     }
 
     const resolvedTarget = yield* resolveWorkspaceRelativePath({

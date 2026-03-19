@@ -21,6 +21,7 @@ describe("projectEditorTargets", () => {
       }),
     ).toEqual({
       kind: "project-path",
+      isRemoteProject: false,
       input: {
         projectId,
         threadId,
@@ -66,6 +67,7 @@ describe("projectEditorTargets", () => {
       }),
     ).toEqual({
       kind: "project-path",
+      isRemoteProject: false,
       input: {
         projectId,
         threadId,

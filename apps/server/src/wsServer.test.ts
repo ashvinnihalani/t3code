@@ -1133,7 +1133,10 @@ describe("WebSocket Server", () => {
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
       openInEditor: (input) => {
-        openCalls.push({ target: input.target, editor: input.editor });
+        openCalls.push({
+          target: typeof input.target === "string" ? input.target : JSON.stringify(input.target),
+          editor: input.editor,
+        });
         return Effect.void;
       },
     };
@@ -1160,7 +1163,10 @@ describe("WebSocket Server", () => {
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
       openInEditor: (input) => {
-        openCalls.push({ target: input.target, editor: input.editor });
+        openCalls.push({
+          target: typeof input.target === "string" ? input.target : JSON.stringify(input.target),
+          editor: input.editor,
+        });
         return Effect.void;
       },
     };
@@ -1227,117 +1233,67 @@ describe("WebSocket Server", () => {
     });
   });
 
-  it("builds ssh editor targets for remote project root and file opens", async () => {
-    const homeDir = makeTempDir("t3code-ssh-home-");
-    fs.mkdirSync(path.join(homeDir, ".ssh"), { recursive: true });
-    fs.writeFileSync(
-      path.join(homeDir, ".ssh", "config"),
-      ["Host prod", "  HostName prod.example.com", "  User alice"].join("\n"),
-      "utf8",
-    );
-    const previousHome = process.env.HOME;
-    process.env.HOME = homeDir;
-
+  it("builds structured ssh editor targets for remote project root and file opens", async () => {
     const openCalls: Array<{ target: string; editor: string }> = [];
     const openService: OpenShape = {
       openBrowser: () => Effect.void,
       openInEditor: (input) => {
-        openCalls.push({ target: input.target, editor: input.editor });
+        openCalls.push({ target: JSON.stringify(input.target), editor: input.editor });
         return Effect.void;
       },
     };
 
-    try {
-      server = await createTestServer({ cwd: "/my/workspace", open: openService });
-      const addr = server.address();
-      const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    server = await createTestServer({ cwd: "/my/workspace", open: openService });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-      const [ws] = await connectAndAwaitWelcome(port);
-      connections.push(ws);
-      await createProjectAndThread({
-        ws,
-        projectId: "project-remote-open",
-        threadId: "thread-remote-open",
-        workspaceRoot: "/srv/app",
-        remote: { kind: "ssh", hostAlias: "prod" },
-      });
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    await createProjectAndThread({
+      ws,
+      projectId: "project-remote-open",
+      threadId: "thread-remote-open",
+      workspaceRoot: "/srv/app",
+      remote: { kind: "ssh", hostAlias: "prod" },
+    });
 
-      const rootResponse = await sendRequest(ws, WS_METHODS.projectsOpenInEditor, {
-        projectId: "project-remote-open",
+    const rootResponse = await sendRequest(ws, WS_METHODS.projectsOpenInEditor, {
+      projectId: "project-remote-open",
+      editor: "cursor",
+    });
+    expect(rootResponse.error).toBeUndefined();
+
+    const fileResponse = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
+      projectId: "project-remote-open",
+      threadId: "thread-remote-open",
+      relativePath: "src/main.ts",
+      line: 12,
+      column: 3,
+      editor: "cursor",
+    });
+    expect(fileResponse.error).toBeUndefined();
+    expect(openCalls).toEqual([
+      {
+        target: JSON.stringify({
+          kind: "remote-ssh",
+          hostAlias: "prod",
+          path: "/srv/app",
+          isDirectory: true,
+        }),
         editor: "cursor",
-      });
-      expect(rootResponse.error).toBeUndefined();
-
-      const fileResponse = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
-        projectId: "project-remote-open",
-        threadId: "thread-remote-open",
-        relativePath: "src/main.ts",
-        line: 12,
-        column: 3,
+      },
+      {
+        target: JSON.stringify({
+          kind: "remote-ssh",
+          hostAlias: "prod",
+          path: "/srv/app/src/main.ts",
+          isDirectory: false,
+          line: 12,
+          column: 3,
+        }),
         editor: "cursor",
-      });
-      expect(fileResponse.error).toBeUndefined();
-      expect(openCalls).toEqual([
-        {
-          target: "ssh://alice@prod.example.com/srv/app",
-          editor: "cursor",
-        },
-        {
-          target: "ssh://alice@prod.example.com/srv/app/src/main.ts",
-          editor: "cursor",
-        },
-      ]);
-    } finally {
-      if (previousHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = previousHome;
-      }
-    }
-  });
-
-  it("returns a clear error when remote ssh metadata is incomplete", async () => {
-    const homeDir = makeTempDir("t3code-ssh-home-missing-");
-    fs.mkdirSync(path.join(homeDir, ".ssh"), { recursive: true });
-    fs.writeFileSync(
-      path.join(homeDir, ".ssh", "config"),
-      "Host prod\n  HostName prod.example.com\n",
-      "utf8",
-    );
-    const previousHome = process.env.HOME;
-    process.env.HOME = homeDir;
-
-    try {
-      server = await createTestServer({ cwd: "/my/workspace" });
-      const addr = server.address();
-      const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-
-      const [ws] = await connectAndAwaitWelcome(port);
-      connections.push(ws);
-      await createProjectAndThread({
-        ws,
-        projectId: "project-remote-missing",
-        threadId: "thread-remote-missing",
-        workspaceRoot: "/srv/app",
-        remote: { kind: "ssh", hostAlias: "prod" },
-      });
-
-      const response = await sendRequest(ws, WS_METHODS.projectsOpenPathInEditor, {
-        projectId: "project-remote-missing",
-        threadId: "thread-remote-missing",
-        relativePath: "src/main.ts",
-        editor: "cursor",
-      });
-      expect(response.error).toEqual({
-        message: "SSH host 'prod' is missing a concrete user or hostname.",
-      });
-    } finally {
-      if (previousHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = previousHome;
-      }
-    }
+      },
+    ]);
   });
 
   it("reads keybindings from the configured state directory", async () => {

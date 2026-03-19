@@ -11,6 +11,7 @@ import { accessSync, constants, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import { EDITORS, type EditorId } from "@t3tools/contracts";
+import { supportsRemoteSshEditor } from "@t3tools/shared/editor";
 import { ServiceMap, Schema, Effect, Layer } from "effect";
 
 // ==============================
@@ -22,8 +23,17 @@ export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError",
   cause: Schema.optional(Schema.Defect),
 }) {}
 
+export interface RemoteSshEditorTarget {
+  readonly kind: "remote-ssh";
+  readonly hostAlias: string;
+  readonly path: string;
+  readonly isDirectory: boolean;
+  readonly line?: number;
+  readonly column?: number;
+}
+
 export interface OpenInEditorInput {
-  readonly target: string;
+  readonly target: string | RemoteSshEditorTarget;
   readonly editor: EditorId;
 }
 
@@ -47,6 +57,60 @@ function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
 
 function isRemoteUriTarget(target: string): boolean {
   return target.startsWith("ssh://");
+}
+
+function isRemoteSshEditorTarget(
+  target: OpenInEditorInput["target"],
+): target is RemoteSshEditorTarget {
+  return typeof target !== "string" && target.kind === "remote-ssh";
+}
+
+function ensureTrailingSlash(pathValue: string): string {
+  return pathValue.endsWith("/") ? pathValue : `${pathValue}/`;
+}
+
+function formatLineAndColumnSuffix(line?: number, column?: number): string {
+  if (typeof line !== "number") {
+    return "";
+  }
+  return `:${line}${typeof column === "number" ? `:${column}` : ""}`;
+}
+
+function formatRemoteSshUri(target: RemoteSshEditorTarget): string {
+  return `ssh://${target.hostAlias}${target.path}${formatLineAndColumnSuffix(target.line, target.column)}`;
+}
+
+function resolveRemoteSshLaunch(
+  target: RemoteSshEditorTarget,
+  editorId: EditorId,
+  command: string,
+): Effect.Effect<EditorLaunch, OpenError> {
+  if (!supportsRemoteSshEditor(editorId)) {
+    return Effect.fail(
+      new OpenError({
+        message: `${EDITORS.find((editor) => editor.id === editorId)?.label ?? editorId} does not support remote SSH editor targets.`,
+      }),
+    );
+  }
+
+  if (editorId === "zed") {
+    return Effect.succeed({
+      command,
+      args: [formatRemoteSshUri(target)],
+    });
+  }
+
+  return Effect.succeed({
+    command,
+    args: target.isDirectory
+      ? ["--remote", `ssh-remote+${target.hostAlias}`, ensureTrailingSlash(target.path)]
+      : [
+          "--remote",
+          `ssh-remote+${target.hostAlias}`,
+          "--goto",
+          `${target.path}${formatLineAndColumnSuffix(target.line, target.column)}`,
+        ],
+  });
 }
 
 function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
@@ -217,6 +281,9 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   }
 
   if (editorDef.command) {
+    if (isRemoteSshEditorTarget(input.target)) {
+      return yield* resolveRemoteSshLaunch(input.target, editorDef.id, editorDef.command);
+    }
     return shouldUseGotoFlag(editorDef.id, input.target)
       ? { command: editorDef.command, args: ["--goto", input.target] }
       : { command: editorDef.command, args: [input.target] };
@@ -226,7 +293,7 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
     return yield* new OpenError({ message: `Unsupported editor: ${input.editor}` });
   }
 
-  if (isRemoteUriTarget(input.target)) {
+  if (typeof input.target !== "string" || isRemoteUriTarget(input.target)) {
     return yield* new OpenError({
       message: "File manager does not support remote SSH editor targets.",
     });
