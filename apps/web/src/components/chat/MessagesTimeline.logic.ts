@@ -27,3 +27,11 @@ export function computeMessageDurationStart(
 export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
 }
+
+export function appendThreadIdToMeta(meta: string, threadId: string | null | undefined): string {
+  const normalizedThreadId = threadId?.trim();
+  if (!normalizedThreadId) {
+    return meta;
+  }
+  return `${meta} • Thread ID ${normalizedThreadId}`;
+}

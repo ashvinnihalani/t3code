@@ -8,7 +8,9 @@ import {
   GIT_DEFAULT_ACTION_OPTIONS,
   type GitDefaultAction,
   getAppModelOptions,
+  type ThreadIdDisplayMode,
   MAX_CUSTOM_MODEL_LENGTH,
+  THREAD_ID_DISPLAY_MODE_OPTIONS,
   buildCodexHostOverridePatch,
   getCodexHostOverride,
   useAppSettings,
@@ -77,6 +79,15 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit: "Commit",
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
+const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
+  hidden: "Hidden",
+  composer: "Below input box",
+  message: "On each message",
+};
+const THREAD_ID_DISPLAY_MODE_DESCRIPTIONS: Record<ThreadIdDisplayMode, string> = {
+  hidden: "Do not show the provider thread ID.",
+  composer: "Show one thread ID centered below the composer.",
+  message: "Append the thread ID to every message timestamp.",
 };
 const LOCAL_CODEX_SETTINGS_SCOPE = "local";
 const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
@@ -817,29 +828,62 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Threads</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Choose the default workspace mode for newly created draft threads.
+                  Configure defaults for new threads and how conversation thread IDs are shown.
                 </p>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Default to New worktree</p>
-                  <p className="text-xs text-muted-foreground">
-                    New threads start in New worktree mode instead of Local.
-                  </p>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Default to New worktree</p>
+                    <p className="text-xs text-muted-foreground">
+                      New threads start in New worktree mode instead of Local.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.defaultThreadEnvMode === "worktree"}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        defaultThreadEnvMode: checked ? "worktree" : "local",
+                      })
+                    }
+                    aria-label="Default new threads to New worktree mode"
+                  />
                 </div>
-                <Switch
-                  checked={settings.defaultThreadEnvMode === "worktree"}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      defaultThreadEnvMode: checked ? "worktree" : "local",
-                    })
-                  }
-                  aria-label="Default new threads to New worktree mode"
-                />
+
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">Thread ID display</p>
+                    <p className="text-xs text-muted-foreground">
+                      {THREAD_ID_DISPLAY_MODE_DESCRIPTIONS[settings.threadIdDisplayMode]}
+                    </p>
+                  </div>
+                  <Select
+                    value={settings.threadIdDisplayMode}
+                    onValueChange={(value) =>
+                      updateSettings({
+                        threadIdDisplayMode: value as ThreadIdDisplayMode,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-44" aria-label="Thread ID display mode">
+                      <SelectValue>
+                        {THREAD_ID_DISPLAY_MODE_LABELS[settings.threadIdDisplayMode]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {THREAD_ID_DISPLAY_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {THREAD_ID_DISPLAY_MODE_LABELS[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
               </div>
 
-              {settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ? (
+              {settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ||
+              settings.threadIdDisplayMode !== defaults.threadIdDisplayMode ? (
                 <div className="mt-3 flex justify-end">
                   <Button
                     size="xs"
@@ -847,6 +891,7 @@ function SettingsRouteView() {
                     onClick={() =>
                       updateSettings({
                         defaultThreadEnvMode: defaults.defaultThreadEnvMode,
+                        threadIdDisplayMode: defaults.threadIdDisplayMode,
                       })
                     }
                   >
