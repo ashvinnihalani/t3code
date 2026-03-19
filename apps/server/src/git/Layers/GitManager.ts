@@ -308,9 +308,7 @@ function toTextGenerationModelOptions(settings: GitOperationSettings): {
   model?: string;
 } {
   const model = settings?.textGenerationModel?.trim();
-  return {
-    ...(model ? { model } : {}),
-  };
+  return model ? { model } : {};
 }
 
 function normalizePullRequestReference(reference: string): string {
