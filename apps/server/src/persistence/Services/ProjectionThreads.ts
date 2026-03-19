@@ -7,10 +7,12 @@
  * @module ProjectionThreadRepository
  */
 import {
+  DockerSandbox,
   IsoDateTime,
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadEnvMode,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -26,8 +28,10 @@ export const ProjectionThread = Schema.Struct({
   model: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  envMode: ThreadEnvMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  dockerSandbox: Schema.NullOr(DockerSandbox),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

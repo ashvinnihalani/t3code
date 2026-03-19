@@ -1,4 +1,5 @@
 import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import type { DraftThreadEnvMode } from "../composerDraftStore";
 import type { Thread } from "../types";
 import { cn } from "../lib/utils";
 import {
@@ -8,8 +9,9 @@ import {
 } from "../session-logic";
 import { resolveRequestedThreadEnvMode } from "../threadEnvMode";
 
-export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
-export type SidebarNewThreadEnvMode = "local" | "worktree";
+export const THREAD_SELECTION_SAFE_SELECTOR =
+  "[data-thread-item], [data-thread-selection-safe]";
+export type SidebarNewThreadEnvMode = DraftThreadEnvMode;
 
 export interface ThreadStatusPill {
   label:
@@ -27,7 +29,11 @@ export interface ThreadStatusPill {
 
 type ThreadStatusInput = Pick<
   Thread,
-  "interactionMode" | "latestTurn" | "lastVisitedAt" | "proposedPlans" | "session"
+  | "interactionMode"
+  | "latestTurn"
+  | "lastVisitedAt"
+  | "proposedPlans"
+  | "session"
 >;
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
@@ -41,7 +47,9 @@ export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   return completedAt > lastVisitedAt;
 }
 
-export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
+export function shouldClearThreadSelectionOnMouseDown(
+  target: HTMLElement | null,
+): boolean {
   if (target === null) return true;
   return !target.closest(THREAD_SELECTION_SAFE_SELECTOR);
 }
@@ -86,7 +94,10 @@ export function resolveThreadRowClassName(input: {
     );
   }
 
-  return cn(baseClassName, "text-muted-foreground hover:bg-accent hover:text-foreground");
+  return cn(
+    baseClassName,
+    "text-muted-foreground hover:bg-accent hover:text-foreground",
+  );
 }
 
 export function resolveThreadStatusPill(input: {
@@ -146,7 +157,10 @@ export function resolveThreadStatusPill(input: {
     thread.interactionMode === "plan" &&
     isLatestTurnSettled(thread.latestTurn, thread.session) &&
     hasActionableProposedPlan(
-      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+      findLatestProposedPlan(
+        thread.proposedPlans,
+        thread.latestTurn?.turnId ?? null,
+      ),
     );
   if (hasPlanReadyPrompt) {
     return {

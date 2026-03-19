@@ -425,8 +425,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             model: event.payload.model,
             runtimeMode: event.payload.runtimeMode,
             interactionMode: event.payload.interactionMode,
+            envMode: event.payload.envMode ?? (event.payload.worktreePath ? "worktree" : "local"),
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            dockerSandbox: event.payload.dockerSandbox ?? null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -445,9 +447,13 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             ...(event.payload.model !== undefined ? { model: event.payload.model } : {}),
+            ...(event.payload.envMode !== undefined ? { envMode: event.payload.envMode } : {}),
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.dockerSandbox !== undefined
+              ? { dockerSandbox: event.payload.dockerSandbox }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

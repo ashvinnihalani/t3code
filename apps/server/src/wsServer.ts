@@ -76,6 +76,8 @@ import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { listSshHosts } from "./sshHosts";
 import { validateRemoteProjectOverSsh } from "./remote/validateRemoteProject";
+import { buildHostExecutionTarget, resolveThreadExecutionTarget } from "./threadExecutionTarget";
+import { DevcontainerSandboxManager } from "./devcontainer/Services/DevcontainerSandboxManager";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -289,6 +291,7 @@ export type ServerRuntimeServices =
   | GitManager
   | GitCore
   | TerminalManager
+  | DevcontainerSandboxManager
   | Keybindings
   | Open
   | AnalyticsService;
@@ -963,6 +966,57 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     return project.remote ?? null;
   });
 
+  const resolveThreadExecution = Effect.fnUntraced(function* (input: {
+    readonly projectId: ProjectId;
+    readonly threadId?: ThreadId;
+    readonly dockerSandboxOverrides?: { containerName?: string; extraRunArgs?: string[] } | null;
+  }) {
+    const project = yield* resolveProject(input.projectId);
+    if (!input.threadId) {
+      return {
+        project,
+        remote: project.remote ?? null,
+        cwd: project.workspaceRoot,
+        executionTarget: buildHostExecutionTarget(project.remote ?? null),
+      };
+    }
+
+    const thread = yield* resolveThread(input.threadId);
+    if (thread.projectId !== project.id) {
+      return yield* new RouteRequestError({
+        message: `Thread '${input.threadId}' does not belong to project '${input.projectId}'.`,
+      });
+    }
+
+    const execution = yield* resolveThreadExecutionTarget({
+      thread,
+      project,
+      ...(input.dockerSandboxOverrides
+        ? { dockerSandboxOverrides: input.dockerSandboxOverrides }
+        : {}),
+    });
+
+    if (
+      thread.envMode === "docker" &&
+      JSON.stringify(thread.dockerSandbox) !== JSON.stringify(execution.dockerSandbox)
+    ) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+        threadId: thread.id,
+        dockerSandbox: execution.dockerSandbox,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return {
+      project,
+      remote: execution.remote,
+      cwd: execution.cwd,
+      executionTarget: execution.executionTarget,
+    };
+  });
+
   const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
     readonly projectId: ProjectId;
     readonly operation: string;
@@ -1042,8 +1096,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           model: bootstrapProjectDefaultModel,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
+          envMode: "local",
           branch: null,
           worktreePath: null,
+          dockerSandbox: null,
           createdAt,
         });
         welcomeBootstrapProjectId = bootstrapProjectId;
@@ -1196,25 +1252,51 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitStatus: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* gitManager.status({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
       case WS_METHODS.gitPull: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* git.pullCurrentBranch(body.cwd, remote);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
+        return yield* git.pullCurrentBranch(
+          body.threadId ? execution.cwd : body.cwd,
+          execution.remote,
+          body.threadId ? execution.executionTarget : undefined,
+        );
       }
 
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* gitManager.runStackedAction({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
@@ -1238,10 +1320,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitListBranches: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* git.listBranches({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
@@ -1256,48 +1346,88 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitRemoveWorktree: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* git.removeWorktree({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
       case WS_METHODS.gitCreateBranch: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* git.createBranch({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
       case WS_METHODS.gitCheckout: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* Effect.scoped(
           git.checkoutBranch({
             ...body,
-            ...(remote ? { remote } : {}),
+            cwd: body.threadId ? execution.cwd : body.cwd,
+            ...(execution.remote ? { remote: execution.remote } : {}),
+            ...(body.threadId ? { target: execution.executionTarget } : {}),
           }),
         );
       }
 
       case WS_METHODS.gitInit: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          ...(body.threadId ? { threadId: body.threadId } : {}),
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* git.initRepo({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: body.threadId ? execution.cwd : body.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          ...(body.threadId ? { target: execution.executionTarget } : {}),
         });
       }
 
       case WS_METHODS.terminalOpen: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          threadId: body.threadId,
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* terminalManager.open({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: execution.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          target: execution.executionTarget,
         });
       }
 
@@ -1318,10 +1448,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.terminalRestart: {
         const body = stripRequestTag(request.body);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const execution = yield* resolveThreadExecution({
+          projectId: body.projectId,
+          threadId: body.threadId,
+          ...(body.dockerSandboxOverrides
+            ? { dockerSandboxOverrides: body.dockerSandboxOverrides }
+            : {}),
+        });
         return yield* terminalManager.restart({
           ...body,
-          ...(remote ? { remote } : {}),
+          cwd: execution.cwd,
+          ...(execution.remote ? { remote: execution.remote } : {}),
+          target: execution.executionTarget,
         });
       }
 

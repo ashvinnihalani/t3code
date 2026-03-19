@@ -29,6 +29,7 @@ import Migration0014 from "./Migrations/014_ProjectionProjectsRemote.ts";
 import Migration0015 from "./Migrations/015_ProjectionTurnsCheckpointDiff.ts";
 import Migration0016 from "./Migrations/016_ProjectionThreadProposedPlanImplementation.ts";
 import Migration0017 from "./Migrations/017_ProjectionTurnsSourceProposedPlan.ts";
+import Migration0018 from "./Migrations/018_ProjectionThreadsDockerEnv.ts";
 import { Effect } from "effect";
 
 /**
@@ -59,6 +60,7 @@ const loader = Migrator.fromRecord({
   "15_ProjectionTurnsCheckpointDiff": Migration0015,
   "16_ProjectionThreadProposedPlanImplementation": Migration0016,
   "17_ProjectionTurnsSourceProposedPlan": Migration0017,
+  "18_ProjectionThreadsDockerEnv": Migration0018,
 });
 
 /**

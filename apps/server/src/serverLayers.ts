@@ -38,6 +38,7 @@ import { GitServiceLive } from "./git/Layers/GitService";
 import { BunPtyAdapterLive } from "./terminal/Layers/BunPTY";
 import { NodePtyAdapterLive } from "./terminal/Layers/NodePTY";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { DevcontainerSandboxManagerLive } from "./devcontainer/Layers/DevcontainerSandboxManager";
 
 export function makeServerProviderLayer(): Layer.Layer<
   ProviderService,
@@ -100,6 +101,7 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(gitCoreLayer),
     Layer.provideMerge(textGenerationLayer),
+    Layer.provideMerge(DevcontainerSandboxManagerLive),
   );
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -131,5 +133,6 @@ export function makeServerRuntimeServicesLayer() {
     gitManagerLayer,
     terminalLayer,
     KeybindingsLive,
+    DevcontainerSandboxManagerLive,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

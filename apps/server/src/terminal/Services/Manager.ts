@@ -21,6 +21,8 @@ import {
 import { PtyProcess } from "./PTY";
 import { Effect, Schema, ServiceMap } from "effect";
 
+import type { CommandTransportTarget } from "../../commandTransport";
+
 export class TerminalError extends Schema.TaggedErrorClass<TerminalError>()("TerminalError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect),
@@ -31,6 +33,7 @@ export interface TerminalSessionState {
   terminalId: string;
   cwd: string;
   remote: ProjectRemoteTarget | null;
+  target: CommandTransportTarget | null;
   status: TerminalSessionStatus;
   pid: number | null;
   history: string;
@@ -53,10 +56,12 @@ export interface ShellCandidate {
 
 export interface TerminalOpenExecutionInput extends TerminalOpenInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget | null;
 }
 
 export interface TerminalRestartExecutionInput extends TerminalRestartInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget | null;
 }
 
 export interface TerminalStartInput extends TerminalOpenExecutionInput {

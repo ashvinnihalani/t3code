@@ -1,4 +1,8 @@
-import type { GitResolvePullRequestResult, ProjectId } from "@t3tools/contracts";
+import type {
+  GitResolvePullRequestResult,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,16 +31,21 @@ interface PullRequestThreadDialogProps {
   open: boolean;
   cwd: string | null;
   projectId: ProjectId | null;
+  threadId?: ThreadId | null;
   isRemoteProject: boolean;
   initialReference: string | null;
   onOpenChange: (open: boolean) => void;
-  onPrepared: (input: { branch: string; worktreePath: string | null }) => Promise<void> | void;
+  onPrepared: (input: {
+    branch: string;
+    worktreePath: string | null;
+  }) => Promise<void> | void;
 }
 
 export function PullRequestThreadDialog({
   open,
   cwd,
   projectId,
+  threadId,
   isRemoteProject,
   initialReference,
   onOpenChange,
@@ -47,7 +56,9 @@ export function PullRequestThreadDialog({
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
   const [referenceDirty, setReferenceDirty] = useState(false);
-  const [preparingMode, setPreparingMode] = useState<"local" | "worktree" | null>(null);
+  const [preparingMode, setPreparingMode] = useState<
+    "local" | "worktree" | null
+  >(null);
   const [debouncedReference, referenceDebouncer] = useDebouncedValue(
     reference,
     { wait: 450 },
@@ -73,9 +84,16 @@ export function PullRequestThreadDialog({
   }, [open]);
 
   const parsedReference = parsePullRequestReference(reference);
-  const parsedDebouncedReference = parsePullRequestReference(debouncedReference);
-  const gitTarget = useMemo(() => ({ cwd, projectId }), [cwd, projectId]);
-  const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
+  const parsedDebouncedReference =
+    parsePullRequestReference(debouncedReference);
+  const gitTarget = useMemo(
+    () => ({ cwd, projectId, threadId }),
+    [cwd, projectId, threadId],
+  );
+  const gitRequestSettings = useMemo(
+    () => buildGitRequestSettings(settings),
+    [settings],
+  );
   const resolvePullRequestQuery = useQuery(
     gitResolvePullRequestQueryOptions({
       target: gitTarget,
@@ -91,12 +109,20 @@ export function PullRequestThreadDialog({
       "git",
       "pull-request",
       projectId,
+      threadId ?? null,
       cwd,
       parsedReference,
       gitRequestSettings?.githubBinaryPath ?? null,
     ]);
     return cached?.pullRequest ?? null;
-  }, [cwd, gitRequestSettings?.githubBinaryPath, parsedReference, projectId, queryClient]);
+  }, [
+    cwd,
+    gitRequestSettings?.githubBinaryPath,
+    parsedReference,
+    projectId,
+    queryClient,
+    threadId,
+  ]);
   const preparePullRequestThreadMutation = useMutation(
     gitPreparePullRequestThreadMutationOptions({
       target: gitTarget,
@@ -197,13 +223,15 @@ export function PullRequestThreadDialog({
         <DialogHeader>
           <DialogTitle>Checkout Pull Request</DialogTitle>
           <DialogDescription>
-            Resolve a GitHub pull request, then create the draft thread in the main repo or in a
-            dedicated worktree.
+            Resolve a GitHub pull request, then create the draft thread in the
+            main repo or in a dedicated worktree.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-4">
           <label className="grid gap-1.5">
-            <span className="text-xs font-medium text-foreground">Pull request</span>
+            <span className="text-xs font-medium text-foreground">
+              Pull request
+            </span>
             <Input
               ref={referenceInputRef}
               placeholder="https://github.com/owner/repo/pull/42 or #42"
@@ -217,7 +245,10 @@ export function PullRequestThreadDialog({
                   return;
                 }
                 event.preventDefault();
-                if (!isResolving && !preparePullRequestThreadMutation.isPending) {
+                if (
+                  !isResolving &&
+                  !preparePullRequestThreadMutation.isPending
+                ) {
                   void handleConfirm("local");
                 }
               }}
@@ -228,9 +259,12 @@ export function PullRequestThreadDialog({
             <div className="rounded-xl border border-border/70 bg-muted/24 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-sm">{resolvedPullRequest.title}</p>
+                  <p className="truncate font-medium text-sm">
+                    {resolvedPullRequest.title}
+                  </p>
                   <p className="truncate text-muted-foreground text-xs">
-                    #{resolvedPullRequest.number} · {resolvedPullRequest.headBranch} to{" "}
+                    #{resolvedPullRequest.number} ·{" "}
+                    {resolvedPullRequest.headBranch} to{" "}
                     {resolvedPullRequest.baseBranch}
                   </p>
                 </div>
@@ -248,7 +282,9 @@ export function PullRequestThreadDialog({
             </div>
           ) : null}
 
-          {errorMessage ? <p className="text-destructive text-xs">{errorMessage}</p> : null}
+          {errorMessage ? (
+            <p className="text-destructive text-xs">{errorMessage}</p>
+          ) : null}
         </DialogPanel>
         <DialogFooter>
           <Button

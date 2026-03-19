@@ -17,6 +17,7 @@ import {
 import { Effect, Encoding, Layer, Path, Schema } from "effect";
 
 import { createLogger } from "../../logger";
+import { buildCommandTransportInvocation } from "../../commandTransport";
 import { PtyAdapter, PtyAdapterShape, type PtyExitEvent, type PtyProcess } from "../Services/PTY";
 import { runProcess } from "../../processRunner";
 import { buildSshExecArgs } from "../../sshCommand";
@@ -44,10 +45,12 @@ const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECT
 const TerminalOpenExecutionInputSchema = Schema.Struct({
   ...TerminalOpenInput.fields,
   remote: Schema.optional(ProjectRemoteTarget),
+  target: Schema.optional(Schema.Unknown),
 });
 const TerminalRestartExecutionInputSchema = Schema.Struct({
   ...TerminalRestartInput.fields,
   remote: Schema.optional(ProjectRemoteTarget),
+  target: Schema.optional(Schema.Unknown),
 });
 
 const decodeTerminalOpenInput = Schema.decodeUnknownSync(TerminalOpenExecutionInputSchema);
@@ -327,6 +330,13 @@ function normalizeRemoteTarget(
   return remote ?? null;
 }
 
+function normalizeCommandTarget(value: unknown): TerminalSessionState["target"] {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return value as TerminalSessionState["target"];
+}
+
 function remoteTargetsEqual(
   left: ProjectRemoteTarget | null,
   right: ProjectRemoteTarget | null,
@@ -390,7 +400,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
   async open(raw: TerminalOpenExecutionInput): Promise<TerminalSessionSnapshot> {
     const input = decodeTerminalOpenInput(raw);
     return this.runWithThreadLock(input.threadId, async () => {
-      await this.assertValidCwd(input.cwd, input.remote);
+      await this.assertValidCwd(input.cwd, input.remote, input.target);
 
       const sessionKey = toSessionKey(input.threadId, input.terminalId);
       const existing = this.sessions.get(sessionKey);
@@ -405,6 +415,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           terminalId: input.terminalId,
           cwd: input.cwd,
           remote: normalizeRemoteTarget(input.remote),
+          target: normalizeCommandTarget(input.target),
           status: "starting",
           pid: null,
           history,
@@ -436,22 +447,26 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
 
       const nextRuntimeEnv = normalizedRuntimeEnv(input.env);
       const nextRemote = normalizeRemoteTarget(input.remote);
+      const nextTarget = normalizeCommandTarget(input.target);
       const currentRuntimeEnv = existing.runtimeEnv;
       const targetCols = input.cols ?? existing.cols;
       const targetRows = input.rows ?? existing.rows;
       const runtimeEnvChanged =
         JSON.stringify(currentRuntimeEnv) !== JSON.stringify(nextRuntimeEnv);
       const remoteChanged = !remoteTargetsEqual(existing.remote, nextRemote);
+      const targetChanged = JSON.stringify(existing.target) !== JSON.stringify(nextTarget);
 
-      if (existing.cwd !== input.cwd || runtimeEnvChanged || remoteChanged) {
+      if (existing.cwd !== input.cwd || runtimeEnvChanged || remoteChanged || targetChanged) {
         this.stopProcess(existing);
         existing.cwd = input.cwd;
         existing.remote = nextRemote;
+        existing.target = nextTarget;
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
       } else if (existing.status === "exited" || existing.status === "error") {
         existing.remote = nextRemote;
+        existing.target = nextTarget;
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
@@ -532,7 +547,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
   async restart(raw: TerminalRestartExecutionInput): Promise<TerminalSessionSnapshot> {
     const input = decodeTerminalRestartInput(raw);
     return this.runWithThreadLock(input.threadId, async () => {
-      await this.assertValidCwd(input.cwd, input.remote);
+      await this.assertValidCwd(input.cwd, input.remote, input.target);
 
       const sessionKey = toSessionKey(input.threadId, input.terminalId);
       let session = this.sessions.get(sessionKey);
@@ -544,6 +559,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           terminalId: input.terminalId,
           cwd: input.cwd,
           remote: normalizeRemoteTarget(input.remote),
+          target: normalizeCommandTarget(input.target),
           status: "starting",
           pid: null,
           history: "",
@@ -564,6 +580,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
         this.stopProcess(session);
         session.cwd = input.cwd;
         session.remote = normalizeRemoteTarget(input.remote);
+        session.target = normalizeCommandTarget(input.target);
         session.runtimeEnv = normalizedRuntimeEnv(input.env);
       }
 
@@ -643,6 +660,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     session.status = "starting";
     session.cwd = input.cwd;
     session.remote = normalizeRemoteTarget(input.remote);
+    session.target = normalizeCommandTarget(input.target);
     session.cols = input.cols;
     session.rows = input.rows;
     session.exitCode = null;
@@ -661,6 +679,27 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
       let lastSpawnError: unknown = null;
 
       const spawnWithCandidate = (candidate: ShellCandidate) => {
+        if (session.target) {
+          const invocation = buildCommandTransportInvocation({
+            target: session.target,
+            command: candidate.shell,
+            ...(candidate.args ? { args: candidate.args } : {}),
+            cwd: session.cwd,
+            ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
+            localCwd: process.cwd(),
+          });
+          return Effect.runPromise(
+            this.ptyAdapter.spawn({
+              shell: invocation.command,
+              ...(invocation.args.length > 0 ? { args: invocation.args } : {}),
+              cwd: invocation.cwd,
+              cols: session.cols,
+              rows: session.rows,
+              env: invocation.env,
+            }),
+          );
+        }
+
         if (session.remote?.kind === "ssh") {
           const sshArgs = buildSshExecArgs({
             hostAlias: session.remote.hostAlias,
@@ -711,8 +750,10 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           return {
             process,
             shellLabel:
-              session.remote?.kind === "ssh"
-                ? `ssh ${session.remote.hostAlias} (${formatShellCandidate(candidate)})`
+              session.target?.kind === "devcontainer"
+                ? `devcontainer (${formatShellCandidate(candidate)})`
+                : session.remote?.kind === "ssh"
+                  ? `ssh ${session.remote.hostAlias} (${formatShellCandidate(candidate)})`
                 : formatShellCandidate(candidate),
           };
         } catch (error) {
@@ -1145,7 +1186,37 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     }
   }
 
-  private async assertValidCwd(cwd: string, remote?: ProjectRemoteTarget | null): Promise<void> {
+  private async assertValidCwd(
+    cwd: string,
+    remote?: ProjectRemoteTarget | null,
+    target?: TerminalSessionState["target"],
+  ): Promise<void> {
+    if (target) {
+      const invocation = buildCommandTransportInvocation({
+        target,
+        command: "test",
+        args: ["-d", cwd],
+        localCwd: process.cwd(),
+      });
+      const result = await runProcess(invocation.command, invocation.args, {
+        cwd: invocation.cwd,
+        env: invocation.env,
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxBufferBytes: 4_096,
+      }).catch((error) => {
+        throw new Error(
+          `Failed to access terminal cwd: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
+      });
+
+      if (result.code !== 0) {
+        throw new Error(`Terminal cwd does not exist: ${cwd}`);
+      }
+      return;
+    }
+
     if (remote?.kind === "ssh") {
       const result = await runProcess(
         "ssh",

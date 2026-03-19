@@ -12,6 +12,7 @@ import { GitManager, type GitManagerShape } from "../Services/GitManager.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
+import type { CommandTransportTarget } from "../../commandTransport";
 
 type GitRemoteTarget = Parameters<GitCoreShape["statusDetails"]>[1];
 type GitOperationSettings =
@@ -385,6 +386,7 @@ export const makeGitManager = Effect.gen(function* () {
     pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo;
     localBranch?: string;
     remote?: GitRemoteTarget;
+    target?: CommandTransportTarget;
     settings?: GitOperationSettings;
   }) =>
     Effect.gen(function* () {
@@ -404,6 +406,7 @@ export const makeGitManager = Effect.gen(function* () {
         input.cwd,
         "remote.origin.url",
         input.remote,
+        input.target,
       );
       const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
       const preferredRemoteName =
@@ -415,6 +418,7 @@ export const makeGitManager = Effect.gen(function* () {
         preferredName: preferredRemoteName,
         url: remoteUrl,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
 
       yield* gitCore.setBranchUpstream({
@@ -423,6 +427,7 @@ export const makeGitManager = Effect.gen(function* () {
         remoteName,
         remoteBranch: input.pullRequest.headBranch,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
     }).pipe(
       Effect.catch((error) =>
@@ -437,6 +442,7 @@ export const makeGitManager = Effect.gen(function* () {
     pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo;
     localBranch?: string;
     remote?: GitRemoteTarget;
+    target?: CommandTransportTarget;
     settings?: GitOperationSettings;
   }) =>
     Effect.gen(function* () {
@@ -449,6 +455,7 @@ export const makeGitManager = Effect.gen(function* () {
           prNumber: input.pullRequest.number,
           branch: localBranch,
           ...(input.remote ? { remote: input.remote } : {}),
+          ...(input.target ? { target: input.target } : {}),
         });
         return;
       }
@@ -463,6 +470,7 @@ export const makeGitManager = Effect.gen(function* () {
         input.cwd,
         "remote.origin.url",
         input.remote,
+        input.target,
       );
       const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
       const preferredRemoteName =
@@ -474,6 +482,7 @@ export const makeGitManager = Effect.gen(function* () {
         preferredName: preferredRemoteName,
         url: remoteUrl,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
 
       yield* gitCore.fetchRemoteBranch({
@@ -482,6 +491,7 @@ export const makeGitManager = Effect.gen(function* () {
         remoteBranch: input.pullRequest.headBranch,
         localBranch,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
       yield* gitCore.setBranchUpstream({
         cwd: input.cwd,
@@ -489,6 +499,7 @@ export const makeGitManager = Effect.gen(function* () {
         remoteName,
         remoteBranch: input.pullRequest.headBranch,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
     }).pipe(
       Effect.catch(() =>
@@ -497,17 +508,23 @@ export const makeGitManager = Effect.gen(function* () {
           prNumber: input.pullRequest.number,
           branch: resolveLocalBranchName(input),
           ...(input.remote ? { remote: input.remote } : {}),
+          ...(input.target ? { target: input.target } : {}),
         }),
       ),
     );
 
-  const readConfigValueNullable = (cwd: string, key: string, remote?: GitRemoteTarget) =>
-    gitCore.readConfigValue(cwd, key, remote).pipe(Effect.catch(() => Effect.succeed(null)));
+  const readConfigValueNullable = (
+    cwd: string,
+    key: string,
+    remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
+  ) => gitCore.readConfigValue(cwd, key, remote, target).pipe(Effect.catch(() => Effect.succeed(null)));
 
   const resolveRemoteRepositoryContext = (
     cwd: string,
     remoteName: string | null,
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
   ) =>
     Effect.gen(function* () {
       if (!remoteName) {
@@ -517,7 +534,12 @@ export const makeGitManager = Effect.gen(function* () {
         };
       }
 
-      const remoteUrl = yield* readConfigValueNullable(cwd, `remote.${remoteName}.url`, remote);
+      const remoteUrl = yield* readConfigValueNullable(
+        cwd,
+        `remote.${remoteName}.url`,
+        remote,
+        target,
+      );
       const repositoryNameWithOwner = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
       return {
         repositoryNameWithOwner,
@@ -529,12 +551,14 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
   ) =>
     Effect.gen(function* () {
       const remoteName = yield* readConfigValueNullable(
         cwd,
         `branch.${details.branch}.remote`,
         remote,
+        target,
       );
       const headBranchFromUpstream = details.upstreamRef
         ? extractBranchFromRef(details.upstreamRef)
@@ -544,8 +568,8 @@ export const makeGitManager = Effect.gen(function* () {
 
       const [remoteRepository, originRepository] = yield* Effect.all(
         [
-          resolveRemoteRepositoryContext(cwd, remoteName),
-          resolveRemoteRepositoryContext(cwd, "origin", remote),
+          resolveRemoteRepositoryContext(cwd, remoteName, remote, target),
+          resolveRemoteRepositoryContext(cwd, "origin", remote, target),
         ],
         { concurrency: "unbounded" },
       );
@@ -636,10 +660,11 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
     settings?: GitOperationSettings,
   ) =>
     Effect.gen(function* () {
-      const headContext = yield* resolveBranchHeadContext(cwd, details, remote);
+      const headContext = yield* resolveBranchHeadContext(cwd, details, remote, target);
       const parsedByNumber = new Map<number, PullRequestInfo>();
 
       for (const headSelector of headContext.headSelectors) {
@@ -698,6 +723,7 @@ export const makeGitManager = Effect.gen(function* () {
     upstreamRef: string | null,
     headContext: Pick<BranchHeadContext, "isCrossRepository">,
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
     settings?: GitOperationSettings,
   ) =>
     Effect.gen(function* () {
@@ -705,6 +731,7 @@ export const makeGitManager = Effect.gen(function* () {
         cwd,
         `branch.${branch}.gh-merge-base`,
         remote,
+        target,
       );
       if (configured) return configured;
 
@@ -733,6 +760,7 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string;
     branch: string | null;
     remote?: GitRemoteTarget;
+    target?: CommandTransportTarget;
     commitMessage?: string;
     /** When true, also produce a semantic feature branch name. */
     includeBranch?: boolean;
@@ -740,7 +768,12 @@ export const makeGitManager = Effect.gen(function* () {
     settings?: GitOperationSettings;
   }) =>
     Effect.gen(function* () {
-      const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths, input.remote);
+      const context = yield* gitCore.prepareCommitContext(
+        input.cwd,
+        input.filePaths,
+        input.remote,
+        input.target,
+      );
       if (!context) {
         return null;
       }
@@ -781,6 +814,7 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string,
     branch: string | null,
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
     filePaths?: readonly string[],
@@ -793,6 +827,7 @@ export const makeGitManager = Effect.gen(function* () {
           cwd,
           branch,
           ...(remote ? { remote } : {}),
+          ...(target ? { target } : {}),
           ...(commitMessage ? { commitMessage } : {}),
           ...(filePaths ? { filePaths } : {}),
           ...(settings ? { settings } : {}),
@@ -801,7 +836,13 @@ export const makeGitManager = Effect.gen(function* () {
         return { status: "skipped_no_changes" as const };
       }
 
-      const { commitSha } = yield* gitCore.commit(cwd, suggestion.subject, suggestion.body, remote);
+      const { commitSha } = yield* gitCore.commit(
+        cwd,
+        suggestion.subject,
+        suggestion.body,
+        remote,
+        target,
+      );
       return {
         status: "created" as const,
         commitSha,
@@ -813,10 +854,11 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string,
     fallbackBranch: string | null,
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
     settings?: GitOperationSettings,
   ) =>
     Effect.gen(function* () {
-      const details = yield* gitCore.statusDetails(cwd, remote);
+      const details = yield* gitCore.statusDetails(cwd, remote, target);
       const branch = details.branch ?? fallbackBranch;
       if (!branch) {
         return yield* gitManagerError(
@@ -838,6 +880,7 @@ export const makeGitManager = Effect.gen(function* () {
           upstreamRef: details.upstreamRef,
         },
         remote,
+        target,
       );
 
       const existing = yield* findOpenPr(cwd, headContext.headSelectors, remote, settings);
@@ -858,9 +901,10 @@ export const makeGitManager = Effect.gen(function* () {
         details.upstreamRef,
         headContext,
         remote,
+        target,
         settings,
       );
-      const rangeContext = yield* gitCore.readRangeContext(cwd, baseBranch, remote);
+      const rangeContext = yield* gitCore.readRangeContext(cwd, baseBranch, remote, target);
 
       const generated = yield* textGeneration.generatePrContent({
         cwd,
@@ -908,7 +952,7 @@ export const makeGitManager = Effect.gen(function* () {
     });
 
   const status: GitManagerShape["status"] = Effect.fnUntraced(function* (input) {
-    const details = yield* gitCore.statusDetails(input.cwd, input.remote);
+    const details = yield* gitCore.statusDetails(input.cwd, input.remote, input.target);
 
     const pr =
       details.branch !== null
@@ -919,6 +963,7 @@ export const makeGitManager = Effect.gen(function* () {
               upstreamRef: details.upstreamRef,
             },
             input.remote,
+            input.target,
             input.settings,
           ).pipe(
             Effect.map((latest) => (latest ? toStatusPr(latest) : null)),
@@ -975,7 +1020,7 @@ export const makeGitManager = Effect.gen(function* () {
           ...toGitHubCliInputOptions(input.settings),
           ...(input.remote ? { remote: input.remote } : {}),
         });
-        const details = yield* gitCore.statusDetails(input.cwd, input.remote);
+        const details = yield* gitCore.statusDetails(input.cwd, input.remote, input.target);
         yield* configurePullRequestHeadUpstream({
           cwd: input.cwd,
           pullRequest: pullRequestWithRemoteInfo,
@@ -993,7 +1038,7 @@ export const makeGitManager = Effect.gen(function* () {
       const rootWorktreePath = canonicalizeExistingPath(input.cwd);
       const ensureExistingWorktreeUpstream = (worktreePath: string) =>
         Effect.gen(function* () {
-          const details = yield* gitCore.statusDetails(worktreePath, input.remote);
+          const details = yield* gitCore.statusDetails(worktreePath, input.remote, input.target);
           yield* configurePullRequestHeadUpstream({
             cwd: worktreePath,
             pullRequest: pullRequestWithRemoteInfo,
@@ -1011,6 +1056,7 @@ export const makeGitManager = Effect.gen(function* () {
           .listBranches({
             cwd,
             ...(input.remote ? { remote: input.remote } : {}),
+            ...(input.target ? { target: input.target } : {}),
           })
           .pipe(
             Effect.map((result) => {
@@ -1092,6 +1138,7 @@ export const makeGitManager = Effect.gen(function* () {
         branch: localPullRequestBranch,
         path: null,
         ...(input.remote ? { remote: input.remote } : {}),
+        ...(input.target ? { target: input.target } : {}),
       });
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
 
@@ -1107,6 +1154,7 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string,
     branch: string | null,
     remote?: GitRemoteTarget,
+    target?: CommandTransportTarget,
     commitMessage?: string,
     filePaths?: readonly string[],
     settings?: GitOperationSettings,
@@ -1116,6 +1164,7 @@ export const makeGitManager = Effect.gen(function* () {
         cwd,
         branch,
         ...(remote ? { remote } : {}),
+        ...(target ? { target } : {}),
         ...(commitMessage ? { commitMessage } : {}),
         ...(filePaths ? { filePaths } : {}),
         ...(settings ? { settings } : {}),
@@ -1129,19 +1178,21 @@ export const makeGitManager = Effect.gen(function* () {
       }
 
       const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
-      const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd, remote);
+      const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd, remote, target);
       const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
 
       yield* gitCore.createBranch({
         cwd,
         branch: resolvedBranch,
         ...(remote ? { remote } : {}),
+        ...(target ? { target } : {}),
       });
       yield* Effect.scoped(
         gitCore.checkoutBranch({
           cwd,
           branch: resolvedBranch,
           ...(remote ? { remote } : {}),
+          ...(target ? { target } : {}),
         }),
       );
 
@@ -1157,7 +1208,7 @@ export const makeGitManager = Effect.gen(function* () {
       const wantsPush = input.action !== "commit";
       const wantsPr = input.action === "commit_push_pr";
 
-      const initialStatus = yield* gitCore.statusDetails(input.cwd, input.remote);
+      const initialStatus = yield* gitCore.statusDetails(input.cwd, input.remote, input.target);
       if (!input.featureBranch && wantsPush && !initialStatus.branch) {
         return yield* gitManagerError("runStackedAction", "Cannot push from detached HEAD.");
       }
@@ -1177,6 +1228,7 @@ export const makeGitManager = Effect.gen(function* () {
           input.cwd,
           initialStatus.branch,
           input.remote,
+          input.target,
           input.commitMessage,
           input.filePaths,
           input.settings,
@@ -1194,6 +1246,7 @@ export const makeGitManager = Effect.gen(function* () {
         input.cwd,
         currentBranch,
         input.remote,
+        input.target,
         commitMessageForStep,
         preResolvedCommitSuggestion,
         input.filePaths,
@@ -1201,11 +1254,16 @@ export const makeGitManager = Effect.gen(function* () {
       );
 
       const push = wantsPush
-        ? yield* gitCore.pushCurrentBranch(input.cwd, currentBranch, input.remote)
+        ? yield* gitCore.pushCurrentBranch(
+            input.cwd,
+            currentBranch,
+            input.remote,
+            input.target,
+          )
         : { status: "skipped_not_requested" as const };
 
       const pr = wantsPr
-        ? yield* runPrStep(input.cwd, currentBranch, input.remote, input.settings)
+        ? yield* runPrStep(input.cwd, currentBranch, input.remote, input.target, input.settings)
         : { status: "skipped_not_requested" as const };
 
       return {

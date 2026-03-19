@@ -258,8 +258,10 @@ export function projectEvent(
             model: payload.model,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
+            envMode: payload.envMode ?? (payload.worktreePath ? "worktree" : "local"),
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            dockerSandbox: payload.dockerSandbox ?? null,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -299,8 +301,12 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
             ...(payload.model !== undefined ? { model: payload.model } : {}),
+            ...(payload.envMode !== undefined ? { envMode: payload.envMode } : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.dockerSandbox !== undefined
+              ? { dockerSandbox: payload.dockerSandbox }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

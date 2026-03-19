@@ -23,6 +23,7 @@ import type {
   ProjectRemoteTarget,
 } from "@t3tools/contracts";
 
+import type { CommandTransportTarget } from "../../commandTransport";
 import type { GitCommandError } from "../Errors.ts";
 
 export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
@@ -32,34 +33,42 @@ export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
 export interface GitExecutionContext {
   cwd: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitStatusExecutionInput extends GitStatusInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitListBranchesExecutionInput extends GitListBranchesInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitCreateWorktreeExecutionInput extends GitCreateWorktreeInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitRemoveWorktreeExecutionInput extends GitRemoveWorktreeInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitCreateBranchExecutionInput extends GitCreateBranchInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitCheckoutExecutionInput extends GitCheckoutInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitInitExecutionInput extends GitInitInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitPreparedCommitContext {
@@ -85,6 +94,7 @@ export interface GitRenameBranchInput {
   oldBranch: string;
   newBranch: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitRenameBranchResult {
@@ -96,6 +106,7 @@ export interface GitFetchPullRequestBranchInput {
   prNumber: number;
   branch: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitEnsureRemoteInput {
@@ -103,6 +114,7 @@ export interface GitEnsureRemoteInput {
   preferredName: string;
   url: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitFetchRemoteBranchInput {
@@ -111,6 +123,7 @@ export interface GitFetchRemoteBranchInput {
   remoteBranch: string;
   localBranch: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitSetBranchUpstreamInput {
@@ -119,6 +132,7 @@ export interface GitSetBranchUpstreamInput {
   remoteName: string;
   remoteBranch: string;
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 /**
@@ -138,6 +152,7 @@ export interface GitCoreShape {
   readonly statusDetails: (
     cwd: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<GitStatusDetails, GitCommandError>;
 
   /**
@@ -147,6 +162,7 @@ export interface GitCoreShape {
     cwd: string,
     filePaths?: readonly string[],
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
 
   /**
@@ -157,6 +173,7 @@ export interface GitCoreShape {
     subject: string,
     body: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
 
   /**
@@ -166,6 +183,7 @@ export interface GitCoreShape {
     cwd: string,
     fallbackBranch: string | null,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<GitPushResult, GitCommandError>;
 
   /**
@@ -175,6 +193,7 @@ export interface GitCoreShape {
     cwd: string,
     baseBranch: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<GitRangeContext, GitCommandError>;
 
   /**
@@ -184,6 +203,7 @@ export interface GitCoreShape {
     cwd: string,
     key: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<string | null, GitCommandError>;
 
   /**
@@ -199,6 +219,7 @@ export interface GitCoreShape {
   readonly pullCurrentBranch: (
     cwd: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<GitPullResult, GitCommandError>;
 
   /**
@@ -273,6 +294,7 @@ export interface GitCoreShape {
   readonly listLocalBranchNames: (
     cwd: string,
     remote?: ProjectRemoteTarget | null,
+    target?: CommandTransportTarget,
   ) => Effect.Effect<string[], GitCommandError>;
 }
 

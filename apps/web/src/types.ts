@@ -1,4 +1,5 @@
 import type {
+  DockerSandbox,
   OrchestrationLatestTurn,
   OrchestrationSessionReconnectState,
   OrchestrationProposedPlanId,
@@ -103,8 +104,10 @@ export interface Thread {
   createdAt: string;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
+  envMode: "local" | "worktree" | "docker";
   branch: string | null;
   worktreePath: string | null;
+  dockerSandbox: DockerSandbox | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

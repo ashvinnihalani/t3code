@@ -31,6 +31,24 @@ export const ORCHESTRATION_WS_CHANNELS = {
 
 export const ProviderKind = Schema.Literal("codex");
 export type ProviderKind = typeof ProviderKind.Type;
+export const ThreadEnvMode = Schema.Literals(["local", "worktree", "docker"]);
+export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+export const DockerSandboxHostKind = Schema.Literals(["local", "ssh"]);
+export type DockerSandboxHostKind = typeof DockerSandboxHostKind.Type;
+export const DockerSandbox = Schema.Struct({
+  hostKind: DockerSandboxHostKind,
+  workspaceFolder: TrimmedNonEmptyString,
+  containerName: TrimmedNonEmptyString,
+  configSource: TrimmedNonEmptyString,
+  runArgs: Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
+  containerId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+export type DockerSandbox = typeof DockerSandbox.Type;
+export const DockerSandboxOverrides = Schema.Struct({
+  containerName: Schema.optional(TrimmedNonEmptyString),
+  extraRunArgs: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+export type DockerSandboxOverrides = typeof DockerSandboxOverrides.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -49,6 +67,7 @@ const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   homePath: Schema.optional(TrimmedNonEmptyString),
   remote: Schema.optional(ProjectRemoteTarget),
+  dockerSandboxOverrides: Schema.optional(DockerSandboxOverrides),
 });
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
@@ -285,8 +304,10 @@ export const OrchestrationThread = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  envMode: ThreadEnvMode.pipe(Schema.withDecodingDefault(() => "local")),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  dockerSandbox: Schema.NullOr(DockerSandbox).pipe(Schema.withDecodingDefault(() => null)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -346,8 +367,10 @@ const ThreadCreateCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  envMode: ThreadEnvMode.pipe(Schema.withDecodingDefault(() => "local")),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  dockerSandbox: Schema.NullOr(DockerSandbox).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
 });
 
@@ -363,8 +386,10 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   model: Schema.optional(TrimmedNonEmptyString),
+  envMode: Schema.optional(ThreadEnvMode),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  dockerSandbox: Schema.optional(Schema.NullOr(DockerSandbox)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -666,8 +691,10 @@ export const ThreadCreatedPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  envMode: ThreadEnvMode.pipe(Schema.withDecodingDefault(() => "local")),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  dockerSandbox: Schema.NullOr(DockerSandbox).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -681,8 +708,10 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   model: Schema.optional(TrimmedNonEmptyString),
+  envMode: Schema.optional(ThreadEnvMode),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  dockerSandbox: Schema.optional(Schema.NullOr(DockerSandbox)),
   updatedAt: IsoDateTime,
 });
 

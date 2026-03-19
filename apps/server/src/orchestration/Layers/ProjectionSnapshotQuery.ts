@@ -1,5 +1,6 @@
 import {
   ChatAttachment,
+  DockerSandbox,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -57,7 +58,11 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
-const ProjectionThreadDbRowSchema = ProjectionThread;
+const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
+  Struct.assign({
+    dockerSandbox: Schema.NullOr(Schema.fromJsonString(DockerSandbox)),
+  }),
+);
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   Struct.assign({
     payload: Schema.fromJsonString(Schema.Unknown),
@@ -264,8 +269,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
+          env_mode AS "envMode",
           branch,
           worktree_path AS "worktreePath",
+          docker_sandbox_json AS "dockerSandbox",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -678,8 +685,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             model: row.model,
             runtimeMode: row.runtimeMode,
             interactionMode: row.interactionMode,
+            envMode: row.envMode ?? (row.worktreePath ? "worktree" : "local"),
             branch: row.branch,
             worktreePath: row.worktreePath,
+            dockerSandbox: row.dockerSandbox ?? null,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,

@@ -17,12 +17,12 @@ import {
 import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { readProviderThreadIdFromResumeCursor } from "../../provider/remoteSessionMetadata.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { resolveThreadExecutionTarget } from "../../threadExecutionTarget.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderCommandReactor,
@@ -129,6 +129,9 @@ function resolveProjectScopedProviderOptions(input: {
     ...(codex?.binaryPath ? { binaryPath: codex.binaryPath } : {}),
     ...(codex?.homePath ? { homePath: codex.homePath } : {}),
     ...(input.projectRemote ? { remote: input.projectRemote } : {}),
+    ...(codex?.dockerSandboxOverrides
+      ? { dockerSandboxOverrides: codex.dockerSandboxOverrides }
+      : {}),
   };
 
   return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
@@ -143,6 +146,7 @@ function providerOptionsRestartKey(input?: ProviderStartOptions): string {
     binaryPath: codex?.binaryPath ?? null,
     homePath: codex?.homePath ?? null,
     remote,
+    dockerSandboxOverrides: codex?.dockerSandboxOverrides ?? null,
   });
 }
 
@@ -247,18 +251,36 @@ const make = Effect.gen(function* () {
       thread.session?.providerName === "codex" ? thread.session.providerName : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
     const desiredModel = options?.model ?? thread.model;
-    const effectiveCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
-    });
-    const projectRemote =
-      readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+    const project = readModel.projects.find((entry) => entry.id === thread.projectId) ?? null;
+    if (!project) {
+      return yield* Effect.die(
+        new Error(`Project '${thread.projectId}' was not found in read model.`),
+      );
+    }
+    const projectRemote = project.remote ?? null;
     const effectiveProviderOptions = resolveProjectScopedProviderOptions({
       ...(options?.providerOptions !== undefined
         ? { providerOptions: options.providerOptions }
         : {}),
       projectRemote,
     });
+    const execution = yield* resolveThreadExecutionTarget({
+      thread,
+      project,
+      dockerSandboxOverrides: effectiveProviderOptions?.codex?.dockerSandboxOverrides ?? null,
+    });
+    if (
+      thread.envMode === "docker" &&
+      JSON.stringify(thread.dockerSandbox) !== JSON.stringify(execution.dockerSandbox)
+    ) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: serverCommandId("thread-docker-sandbox-update"),
+        threadId,
+        dockerSandbox: execution.dockerSandbox,
+        createdAt,
+      });
+    }
     const cachedProviderOptions = threadProviderOptions.get(threadId);
 
     const resolveActiveSession = (threadId: ThreadId) =>
@@ -275,12 +297,13 @@ const make = Effect.gen(function* () {
         ...((input?.provider ?? preferredProvider)
           ? { provider: input?.provider ?? preferredProvider }
           : {}),
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+        ...(execution.cwd ? { cwd: execution.cwd } : {}),
         ...(desiredModel ? { model: desiredModel } : {}),
         ...(options?.modelOptions !== undefined ? { modelOptions: options.modelOptions } : {}),
         ...(effectiveProviderOptions !== undefined
           ? { providerOptions: effectiveProviderOptions }
           : {}),
+        executionTarget: execution.executionTarget,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: desiredRuntimeMode,
       });

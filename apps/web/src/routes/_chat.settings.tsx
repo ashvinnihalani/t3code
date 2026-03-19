@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { Radio, RadioGroup } from "../components/ui/radio-group";
 import { Switch } from "../components/ui/switch";
 import { Textarea } from "../components/ui/textarea";
 import { APP_VERSION } from "../branding";
@@ -68,7 +69,8 @@ const MODEL_PROVIDER_SETTINGS: Array<{
   {
     provider: "codex",
     title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
+    description:
+      "Save additional Codex model slugs for the picker and `/model` command.",
     placeholder: "your-codex-model-slug",
     example: "gpt-6.7-codex-ultra-preview",
   },
@@ -85,32 +87,43 @@ const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
 };
-const DESKTOP_APP_CLOSE_BEHAVIOR_LABELS: Record<DesktopAppCloseBehavior, string> = {
+const DESKTOP_APP_CLOSE_BEHAVIOR_LABELS: Record<
+  DesktopAppCloseBehavior,
+  string
+> = {
   terminate_all_agents: "Stop all sessions",
   terminate_local_agents_only: "Stop local sessions only",
   terminate_no_agents: "Keep all sessions running",
 };
-const DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS: Record<DesktopAppCloseBehavior, string> = {
-  terminate_all_agents: "Quit the local threads server and stop every active Codex session.",
+const DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS: Record<
+  DesktopAppCloseBehavior,
+  string
+> = {
+  terminate_all_agents:
+    "Quit the local threads server and stop every active Codex session.",
   terminate_local_agents_only:
     "Keep the local threads server running, but stop sessions for local projects before exit.",
-  terminate_no_agents: "Leave the local threads server and existing sessions running.",
+  terminate_no_agents:
+    "Leave the local threads server and existing sessions running.",
 };
 const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Hidden",
   composer: "Below input box",
   message: "On each message",
 };
-const THREAD_ID_DISPLAY_MODE_DESCRIPTIONS: Record<ThreadIdDisplayMode, string> = {
-  hidden: "Do not show the provider thread ID.",
-  composer: "Show one thread ID centered below the composer.",
-  message: "Append the thread ID to every message timestamp.",
-};
+const THREAD_ID_DISPLAY_MODE_DESCRIPTIONS: Record<ThreadIdDisplayMode, string> =
+  {
+    hidden: "Do not show the provider thread ID.",
+    composer: "Show one thread ID centered below the composer.",
+    message: "Append the thread ID to every message timestamp.",
+  };
 const LOCAL_CODEX_SETTINGS_SCOPE = "local";
 const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
 
 function encodeCodexSettingsScope(hostAlias: string | null): string {
-  return hostAlias ? `${SSH_CODEX_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_CODEX_SETTINGS_SCOPE;
+  return hostAlias
+    ? `${SSH_CODEX_SETTINGS_SCOPE_PREFIX}${hostAlias}`
+    : LOCAL_CODEX_SETTINGS_SCOPE;
 }
 
 function decodeCodexSettingsScope(scope: string): string | null {
@@ -155,7 +168,9 @@ function SettingsRouteView() {
   const projects = useStore((store) => store.projects);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const [openKeybindingsError, setOpenKeybindingsError] = useState<
+    string | null
+  >(null);
   const [selectedCodexSettingsScope, setSelectedCodexSettingsScope] = useState(
     LOCAL_CODEX_SETTINGS_SCOPE,
   );
@@ -199,19 +214,30 @@ function SettingsRouteView() {
       return;
     }
 
-    if (!codexSettingsScopeOptions.some((option) => option.value === selectedCodexSettingsScope)) {
+    if (
+      !codexSettingsScopeOptions.some(
+        (option) => option.value === selectedCodexSettingsScope,
+      )
+    ) {
       setSelectedCodexSettingsScope(LOCAL_CODEX_SETTINGS_SCOPE);
     }
   }, [codexSettingsScopeOptions, selectedCodexSettingsScope]);
 
-  const selectedCodexHostAlias = decodeCodexSettingsScope(selectedCodexSettingsScope);
+  const selectedCodexHostAlias = decodeCodexSettingsScope(
+    selectedCodexSettingsScope,
+  );
   const selectedCodexSettingsOption =
-    codexSettingsScopeOptions.find((option) => option.value === selectedCodexSettingsScope) ??
-    codexSettingsScopeOptions[0];
-  const codexHostOverride = getCodexHostOverride(settings, selectedCodexHostAlias);
+    codexSettingsScopeOptions.find(
+      (option) => option.value === selectedCodexSettingsScope,
+    ) ?? codexSettingsScopeOptions[0];
+  const codexHostOverride = getCodexHostOverride(
+    settings,
+    selectedCodexHostAlias,
+  );
   const codexBinaryPath = codexHostOverride.binaryPath;
   const codexHomePath = codexHostOverride.homePath;
-  const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
+  const keybindingsConfigPath =
+    serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
   const gitTextGenerationModelOptions = getAppModelOptions(
@@ -222,7 +248,8 @@ function SettingsRouteView() {
   const selectedGitTextGenerationModelLabel =
     gitTextGenerationModelOptions.find(
       (option) =>
-        option.slug === (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
+        option.slug ===
+        (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
     )?.name ?? settings.textGenerationModel;
   const hasGitOverrides =
     settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
@@ -245,7 +272,9 @@ function SettingsRouteView() {
       .openInEditor(keybindingsConfigPath, editor)
       .catch((error) => {
         setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
+          error instanceof Error
+            ? error.message
+            : "Unable to open keybindings file.",
         );
       })
       .finally(() => {
@@ -265,7 +294,9 @@ function SettingsRouteView() {
         }));
         return;
       }
-      if (getModelOptions(provider).some((option) => option.slug === normalized)) {
+      if (
+        getModelOptions(provider).some((option) => option.slug === normalized)
+      ) {
         setCustomModelErrorByProvider((existing) => ({
           ...existing,
           [provider]: "That model is already built in.",
@@ -287,7 +318,9 @@ function SettingsRouteView() {
         return;
       }
 
-      updateSettings(patchCustomModels(provider, [...customModels, normalized]));
+      updateSettings(
+        patchCustomModels(provider, [...customModels, normalized]),
+      );
       setCustomModelInputByProvider((existing) => ({
         ...existing,
         [provider]: "",
@@ -331,7 +364,9 @@ function SettingsRouteView() {
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
             <header className="space-y-1">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Settings
+              </h1>
               <p className="text-sm text-muted-foreground">
                 Configure app-level preferences for this device.
               </p>
@@ -339,14 +374,20 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Appearance</h2>
+                <h2 className="text-sm font-medium text-foreground">
+                  Appearance
+                </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Choose how T3 Code looks across the app.
                 </p>
               </div>
 
               <div className="space-y-4">
-                <div className="space-y-2" role="radiogroup" aria-label="Theme preference">
+                <div
+                  className="space-y-2"
+                  role="radiogroup"
+                  aria-label="Theme preference"
+                >
                   {THEME_OPTIONS.map((option) => {
                     const selected = theme === option.value;
                     return (
@@ -363,7 +404,9 @@ function SettingsRouteView() {
                         onClick={() => setTheme(option.value)}
                       >
                         <span className="flex flex-col">
-                          <span className="text-sm font-medium">{option.label}</span>
+                          <span className="text-sm font-medium">
+                            {option.label}
+                          </span>
                           <span className="text-xs">{option.description}</span>
                         </span>
                         {selected ? (
@@ -377,33 +420,55 @@ function SettingsRouteView() {
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  Active theme: <span className="font-medium text-foreground">{resolvedTheme}</span>
+                  Active theme:{" "}
+                  <span className="font-medium text-foreground">
+                    {resolvedTheme}
+                  </span>
                 </p>
 
                 <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Timestamp format</p>
+                    <p className="text-sm font-medium text-foreground">
+                      Timestamp format
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      System default follows your browser or OS time format. <code>12-hour</code>{" "}
-                      and <code>24-hour</code> force the hour cycle.
+                      System default follows your browser or OS time format.{" "}
+                      <code>12-hour</code> and <code>24-hour</code> force the
+                      hour cycle.
                     </p>
                   </div>
                   <Select
                     value={settings.timestampFormat}
                     onValueChange={(value) => {
-                      if (value !== "locale" && value !== "12-hour" && value !== "24-hour") return;
+                      if (
+                        value !== "locale" &&
+                        value !== "12-hour" &&
+                        value !== "24-hour"
+                      )
+                        return;
                       updateSettings({
                         timestampFormat: value,
                       });
                     }}
                   >
-                    <SelectTrigger className="w-40" aria-label="Timestamp format">
-                      <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+                    <SelectTrigger
+                      className="w-40"
+                      aria-label="Timestamp format"
+                    >
+                      <SelectValue>
+                        {TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectPopup align="end">
-                      <SelectItem value="locale">{TIMESTAMP_FORMAT_LABELS.locale}</SelectItem>
-                      <SelectItem value="12-hour">{TIMESTAMP_FORMAT_LABELS["12-hour"]}</SelectItem>
-                      <SelectItem value="24-hour">{TIMESTAMP_FORMAT_LABELS["24-hour"]}</SelectItem>
+                      <SelectItem value="locale">
+                        {TIMESTAMP_FORMAT_LABELS.locale}
+                      </SelectItem>
+                      <SelectItem value="12-hour">
+                        {TIMESTAMP_FORMAT_LABELS["12-hour"]}
+                      </SelectItem>
+                      <SelectItem value="24-hour">
+                        {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                      </SelectItem>
                     </SelectPopup>
                   </Select>
                 </div>
@@ -430,25 +495,32 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Git</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Configure the default stacked git action and overrides used for auto-generated
-                  commits, PR workflows, and generated git content. These settings apply to both
-                  local and SSH projects; only the Codex App Server overrides below are host-scoped.
+                  Configure the default stacked git action and overrides used
+                  for auto-generated commits, PR workflows, and generated git
+                  content. These settings apply to both local and SSH projects;
+                  only the Codex App Server overrides below are host-scoped.
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">Default action</p>
+                    <p className="text-sm font-medium text-foreground">
+                      Default action
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      Auto preserves the original context-sensitive behavior. The other options
-                      force a preferred action when possible.
+                      Auto preserves the original context-sensitive behavior.
+                      The other options force a preferred action when possible.
                     </p>
                   </div>
                   <Select
                     value={settings.gitDefaultAction}
                     onValueChange={(value) => {
-                      if (!GIT_DEFAULT_ACTION_OPTIONS.includes(value as GitDefaultAction)) {
+                      if (
+                        !GIT_DEFAULT_ACTION_OPTIONS.includes(
+                          value as GitDefaultAction,
+                        )
+                      ) {
                         return;
                       }
                       updateSettings({
@@ -456,7 +528,10 @@ function SettingsRouteView() {
                       });
                     }}
                   >
-                    <SelectTrigger className="w-48" aria-label="Default git action">
+                    <SelectTrigger
+                      className="w-48"
+                      aria-label="Default git action"
+                    >
                       <SelectValue>
                         {GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}
                       </SelectValue>
@@ -473,22 +548,29 @@ function SettingsRouteView() {
 
                 <div className="space-y-4 rounded-lg border border-border bg-background px-3 py-3">
                   <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">Text generation</p>
+                    <p className="text-sm font-medium text-foreground">
+                      Text generation
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      Configure the model used for generating commit messages, PR titles, and branch
-                      names.
+                      Configure the model used for generating commit messages,
+                      PR titles, and branch names.
                     </p>
                   </div>
 
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-foreground">Model</p>
+                      <p className="text-xs font-medium text-foreground">
+                        Model
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         Select which model the Git prompter uses.
                       </p>
                     </div>
                     <Select
-                      value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
+                      value={
+                        settings.textGenerationModel ??
+                        DEFAULT_GIT_TEXT_GENERATION_MODEL
+                      }
                       onValueChange={(value) => {
                         if (value) {
                           updateSettings({
@@ -501,7 +583,9 @@ function SettingsRouteView() {
                         className="w-full shrink-0 sm:w-48"
                         aria-label="Git text generation model"
                       >
-                        <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
+                        <SelectValue>
+                          {selectedGitTextGenerationModelLabel}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectPopup align="end">
                         {gitTextGenerationModelOptions.map((option) => (
@@ -513,8 +597,13 @@ function SettingsRouteView() {
                     </Select>
                   </div>
 
-                  <label htmlFor="git-commit-prompt" className="block space-y-1">
-                    <span className="text-xs font-medium text-foreground">Prompt</span>
+                  <label
+                    htmlFor="git-commit-prompt"
+                    className="block space-y-1"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      Prompt
+                    </span>
                     <Textarea
                       id="git-commit-prompt"
                       value={settings.gitCommitPrompt}
@@ -533,7 +622,9 @@ function SettingsRouteView() {
                 </div>
 
                 <label htmlFor="github-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">GitHub binary path</span>
+                  <span className="text-xs font-medium text-foreground">
+                    GitHub binary path
+                  </span>
                   <Input
                     id="github-binary-path"
                     value={settings.gitHubBinaryPath}
@@ -546,8 +637,9 @@ function SettingsRouteView() {
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">
-                    Optional executable override for git status, PR actions, and PR checkout. For
-                    SSH projects, the same path must exist on the remote host.
+                    Optional executable override for git status, PR actions, and
+                    PR checkout. For SSH projects, the same path must exist on
+                    the remote host.
                   </span>
                 </label>
               </div>
@@ -574,9 +666,12 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Codex App Server</h2>
+                <h2 className="text-sm font-medium text-foreground">
+                  Codex App Server
+                </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  These overrides apply to new sessions and let you use a non-default Codex install.
+                  These overrides apply to new sessions and let you use a
+                  non-default Codex install.
                 </p>
               </div>
 
@@ -593,7 +688,9 @@ function SettingsRouteView() {
                     onValueChange={(value) => {
                       if (
                         value === null ||
-                        !codexSettingsScopeOptions.some((option) => option.value === value)
+                        !codexSettingsScopeOptions.some(
+                          (option) => option.value === value,
+                        )
                       ) {
                         return;
                       }
@@ -606,7 +703,9 @@ function SettingsRouteView() {
                       aria-label="Codex settings host"
                       disabled={!hasRemoteCodexHosts}
                     >
-                      <SelectValue>{selectedCodexSettingsOption?.label ?? "Local"}</SelectValue>
+                      <SelectValue>
+                        {selectedCodexSettingsOption?.label ?? "Local"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
                       {codexSettingsScopeOptions.map((option) => (
@@ -624,7 +723,9 @@ function SettingsRouteView() {
                 </div>
 
                 <label htmlFor="codex-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Codex binary path</span>
+                  <span className="text-xs font-medium text-foreground">
+                    Codex binary path
+                  </span>
                   <Input
                     id="codex-binary-path"
                     value={codexBinaryPath}
@@ -641,12 +742,15 @@ function SettingsRouteView() {
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>codex</code> from your PATH on the selected host.
+                    Leave blank to use <code>codex</code> from your PATH on the
+                    selected host.
                   </span>
                 </label>
 
                 <label htmlFor="codex-home-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
+                  <span className="text-xs font-medium text-foreground">
+                    CODEX_HOME path
+                  </span>
                   <Input
                     id="codex-home-path"
                     value={codexHomePath}
@@ -669,7 +773,10 @@ function SettingsRouteView() {
 
                 <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
-                    <p>Binary source for {selectedCodexSettingsOption?.label ?? "Local"}</p>
+                    <p>
+                      Binary source for{" "}
+                      {selectedCodexSettingsOption?.label ?? "Local"}
+                    </p>
                     <p className="mt-1 break-all font-mono text-[11px] text-foreground">
                       {codexBinaryPath || "PATH"}
                     </p>
@@ -698,9 +805,15 @@ function SettingsRouteView() {
                 {isElectron ? (
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground">On app close</p>
+                      <p className="text-sm font-medium text-foreground">
+                        On app close
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        {DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]}
+                        {
+                          DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[
+                            settings.desktopAppCloseBehavior
+                          ]
+                        }
                       </p>
                     </div>
 
@@ -708,11 +821,15 @@ function SettingsRouteView() {
                       <Select
                         value={settings.desktopAppCloseBehavior}
                         onValueChange={(value) => {
-                          if (value === null || !(value in DESKTOP_APP_CLOSE_BEHAVIOR_LABELS)) {
+                          if (
+                            value === null ||
+                            !(value in DESKTOP_APP_CLOSE_BEHAVIOR_LABELS)
+                          ) {
                             return;
                           }
                           updateSettings({
-                            desktopAppCloseBehavior: value as DesktopAppCloseBehavior,
+                            desktopAppCloseBehavior:
+                              value as DesktopAppCloseBehavior,
                           });
                         }}
                       >
@@ -722,27 +839,33 @@ function SettingsRouteView() {
                           aria-label="Codex app close behavior"
                         >
                           <SelectValue>
-                            {DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[settings.desktopAppCloseBehavior]}
+                            {
+                              DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[
+                                settings.desktopAppCloseBehavior
+                              ]
+                            }
                           </SelectValue>
                         </SelectTrigger>
                         <SelectPopup align="end">
-                          {Object.entries(DESKTOP_APP_CLOSE_BEHAVIOR_LABELS).map(
-                            ([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ),
-                          )}
+                          {Object.entries(
+                            DESKTOP_APP_CLOSE_BEHAVIOR_LABELS,
+                          ).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
                         </SelectPopup>
                       </Select>
 
-                      {settings.desktopAppCloseBehavior !== DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
+                      {settings.desktopAppCloseBehavior !==
+                      DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
                         <Button
                           size="xs"
                           variant="outline"
                           onClick={() =>
                             updateSettings({
-                              desktopAppCloseBehavior: DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
+                              desktopAppCloseBehavior:
+                                DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
                             })
                           }
                         >
@@ -759,17 +882,21 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Models</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Save additional provider model slugs so they appear in the chat model picker and
-                  `/model` command suggestions.
+                  Save additional provider model slugs so they appear in the
+                  chat model picker and `/model` command suggestions.
                 </p>
               </div>
 
               <div className="space-y-5">
                 {MODEL_PROVIDER_SETTINGS.map((providerSettings) => {
                   const provider = providerSettings.provider;
-                  const customModels = getCustomModelsForProvider(settings, provider);
+                  const customModels = getCustomModelsForProvider(
+                    settings,
+                    provider,
+                  );
                   const customModelInput = customModelInputByProvider[provider];
-                  const customModelError = customModelErrorByProvider[provider] ?? null;
+                  const customModelError =
+                    customModelErrorByProvider[provider] ?? null;
                   return (
                     <div
                       key={provider}
@@ -832,7 +959,9 @@ function SettingsRouteView() {
                         </div>
 
                         {customModelError ? (
-                          <p className="text-xs text-destructive">{customModelError}</p>
+                          <p className="text-xs text-destructive">
+                            {customModelError}
+                          </p>
                         ) : null}
 
                         <div className="space-y-2">
@@ -845,7 +974,10 @@ function SettingsRouteView() {
                                 onClick={() =>
                                   updateSettings(
                                     patchCustomModels(provider, [
-                                      ...getDefaultCustomModelsForProvider(defaults, provider),
+                                      ...getDefaultCustomModelsForProvider(
+                                        defaults,
+                                        provider,
+                                      ),
                                     ]),
                                   )
                                 }
@@ -868,7 +1000,9 @@ function SettingsRouteView() {
                                   <Button
                                     size="xs"
                                     variant="ghost"
-                                    onClick={() => removeCustomModel(provider, slug)}
+                                    onClick={() =>
+                                      removeCustomModel(provider, slug)
+                                    }
                                   >
                                     Remove
                                   </Button>
@@ -892,34 +1026,83 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Threads</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Configure defaults for new threads and how conversation thread IDs are shown.
+                  Configure defaults for new threads and how conversation thread
+                  IDs are shown.
                 </p>
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Default to New worktree</p>
-                    <p className="text-xs text-muted-foreground">
-                      New threads start in New worktree mode instead of Local.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={settings.defaultThreadEnvMode === "worktree"}
-                    onCheckedChange={(checked) =>
-                      updateSettings({
-                        defaultThreadEnvMode: checked ? "worktree" : "local",
-                      })
+                <RadioGroup
+                  value={settings.defaultThreadEnvMode}
+                  onValueChange={(value) => {
+                    if (
+                      value === "local" ||
+                      value === "worktree" ||
+                      value === "docker"
+                    ) {
+                      updateSettings({ defaultThreadEnvMode: value });
                     }
-                    aria-label="Default new threads to New worktree mode"
-                  />
-                </div>
+                  }}
+                  className="gap-2"
+                  aria-label="Default thread environment"
+                >
+                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3">
+                    <Radio
+                      value="local"
+                      aria-label="Default new threads to Local"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        Local
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Start new threads directly in the project workspace.
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3">
+                    <Radio
+                      value="worktree"
+                      aria-label="Default new threads to New worktree"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        New worktree
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Create a separate Git worktree for the thread before
+                        running.
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3">
+                    <Radio
+                      value="docker"
+                      aria-label="Default new threads to Docker sandbox"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        Docker sandbox
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Start new threads in a reusable devcontainer-backed
+                        sandbox.
+                      </p>
+                    </div>
+                  </label>
+                </RadioGroup>
 
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">Thread ID display</p>
+                    <p className="text-sm font-medium text-foreground">
+                      Thread ID display
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      {THREAD_ID_DISPLAY_MODE_DESCRIPTIONS[settings.threadIdDisplayMode]}
+                      {
+                        THREAD_ID_DISPLAY_MODE_DESCRIPTIONS[
+                          settings.threadIdDisplayMode
+                        ]
+                      }
                     </p>
                   </div>
                   <Select
@@ -930,9 +1113,16 @@ function SettingsRouteView() {
                       })
                     }
                   >
-                    <SelectTrigger className="w-44" aria-label="Thread ID display mode">
+                    <SelectTrigger
+                      className="w-44"
+                      aria-label="Thread ID display mode"
+                    >
                       <SelectValue>
-                        {THREAD_ID_DISPLAY_MODE_LABELS[settings.threadIdDisplayMode]}
+                        {
+                          THREAD_ID_DISPLAY_MODE_LABELS[
+                            settings.threadIdDisplayMode
+                          ]
+                        }
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
@@ -946,7 +1136,8 @@ function SettingsRouteView() {
                 </div>
               </div>
 
-              {settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ||
+              {settings.defaultThreadEnvMode !==
+                defaults.defaultThreadEnvMode ||
               settings.threadIdDisplayMode !== defaults.threadIdDisplayMode ? (
                 <div className="mt-3 flex justify-end">
                   <Button
@@ -967,7 +1158,9 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Responses</h2>
+                <h2 className="text-sm font-medium text-foreground">
+                  Responses
+                </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Control how assistant output is rendered during a turn.
                 </p>
@@ -975,7 +1168,9 @@ function SettingsRouteView() {
 
               <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Stream assistant messages</p>
+                  <p className="text-sm font-medium text-foreground">
+                    Stream assistant messages
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Show token-by-token output while a response is in progress.
                   </p>
@@ -991,14 +1186,16 @@ function SettingsRouteView() {
                 />
               </div>
 
-              {settings.enableAssistantStreaming !== defaults.enableAssistantStreaming ? (
+              {settings.enableAssistantStreaming !==
+              defaults.enableAssistantStreaming ? (
                 <div className="mt-3 flex justify-end">
                   <Button
                     size="xs"
                     variant="outline"
                     onClick={() =>
                       updateSettings({
-                        enableAssistantStreaming: defaults.enableAssistantStreaming,
+                        enableAssistantStreaming:
+                          defaults.enableAssistantStreaming,
                       })
                     }
                   >
@@ -1010,17 +1207,21 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Keybindings</h2>
+                <h2 className="text-sm font-medium text-foreground">
+                  Keybindings
+                </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Open the persisted <code>keybindings.json</code> file to edit advanced bindings
-                  directly.
+                  Open the persisted <code>keybindings.json</code> file to edit
+                  advanced bindings directly.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-foreground">Config file path</p>
+                    <p className="text-xs font-medium text-foreground">
+                      Config file path
+                    </p>
                     <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
                       {keybindingsConfigPath ?? "Resolving keybindings path..."}
                     </p>
@@ -1031,7 +1232,9 @@ function SettingsRouteView() {
                     disabled={!keybindingsConfigPath || isOpeningKeybindings}
                     onClick={openKeybindingsFile}
                   >
-                    {isOpeningKeybindings ? "Opening..." : "Open keybindings.json"}
+                    {isOpeningKeybindings
+                      ? "Opening..."
+                      : "Open keybindings.json"}
                   </Button>
                 </div>
 
@@ -1039,7 +1242,9 @@ function SettingsRouteView() {
                   Opens in your preferred editor selection.
                 </p>
                 {openKeybindingsError ? (
-                  <p className="text-xs text-destructive">{openKeybindingsError}</p>
+                  <p className="text-xs text-destructive">
+                    {openKeybindingsError}
+                  </p>
                 ) : null}
               </div>
             </section>
@@ -1054,9 +1259,12 @@ function SettingsRouteView() {
 
               <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Confirm thread deletion</p>
+                  <p className="text-sm font-medium text-foreground">
+                    Confirm thread deletion
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Ask for confirmation before deleting a thread and its chat history.
+                    Ask for confirmation before deleting a thread and its chat
+                    history.
                   </p>
                 </div>
                 <Switch
@@ -1101,7 +1309,9 @@ function SettingsRouteView() {
                     Current version of the application.
                   </p>
                 </div>
-                <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
+                <code className="text-xs font-medium text-muted-foreground">
+                  {APP_VERSION}
+                </code>
               </div>
             </section>
           </div>

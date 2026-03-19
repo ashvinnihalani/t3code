@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -26,8 +26,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model,
           runtime_mode,
           interaction_mode,
+          env_mode,
           branch,
           worktree_path,
+          docker_sandbox_json,
           latest_turn_id,
           created_at,
           updated_at,
@@ -40,8 +42,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.model},
           ${row.runtimeMode},
           ${row.interactionMode},
+          ${row.envMode},
           ${row.branch},
           ${row.worktreePath},
+          ${row.dockerSandbox === null ? null : JSON.stringify(row.dockerSandbox)},
           ${row.latestTurnId},
           ${row.createdAt},
           ${row.updatedAt},
@@ -54,8 +58,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model = excluded.model,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
+          env_mode = excluded.env_mode,
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
+          docker_sandbox_json = excluded.docker_sandbox_json,
           latest_turn_id = excluded.latest_turn_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -65,7 +71,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const getProjectionThreadRow = SqlSchema.findOneOption({
     Request: GetProjectionThreadInput,
-    Result: ProjectionThread,
+    Result: ProjectionThread.mapFields({
+      dockerSandbox: Schema.NullOr(Schema.fromJsonString(ProjectionThread.fields.dockerSandbox)),
+    }),
     execute: ({ threadId }) =>
       sql`
         SELECT
@@ -75,8 +83,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
+          env_mode AS "envMode",
           branch,
           worktree_path AS "worktreePath",
+          docker_sandbox_json AS "dockerSandbox",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -88,7 +98,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const listProjectionThreadRows = SqlSchema.findAll({
     Request: ListProjectionThreadsByProjectInput,
-    Result: ProjectionThread,
+    Result: ProjectionThread.mapFields({
+      dockerSandbox: Schema.NullOr(Schema.fromJsonString(ProjectionThread.fields.dockerSandbox)),
+    }),
     execute: ({ projectId }) =>
       sql`
         SELECT
@@ -98,8 +110,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
+          env_mode AS "envMode",
           branch,
           worktree_path AS "worktreePath",
+          docker_sandbox_json AS "dockerSandbox",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",

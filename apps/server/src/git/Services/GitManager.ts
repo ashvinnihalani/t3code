@@ -19,22 +19,28 @@ import {
 } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
+
+import type { CommandTransportTarget } from "../../commandTransport";
 import type { GitManagerServiceError } from "../Errors.ts";
 
 export interface GitStatusExecutionInput extends GitStatusInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitPullRequestRefExecutionInput extends GitPullRequestRefInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitPreparePullRequestThreadExecutionInput extends GitPreparePullRequestThreadInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 export interface GitRunStackedActionExecutionInput extends GitRunStackedActionInput {
   remote?: ProjectRemoteTarget | null;
+  target?: CommandTransportTarget;
 }
 
 /**

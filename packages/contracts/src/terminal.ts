@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
+import { DockerSandboxOverrides } from "./orchestration";
 
 export const DEFAULT_TERMINAL_ID = "default";
 
@@ -38,6 +39,7 @@ export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  dockerSandboxOverrides: Schema.optional(DockerSandboxOverrides),
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
@@ -64,6 +66,7 @@ export const TerminalRestartInput = Schema.Struct({
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  dockerSandboxOverrides: Schema.optional(DockerSandboxOverrides),
   cols: TerminalColsSchema,
   rows: TerminalRowsSchema,
   env: Schema.optional(TerminalEnvSchema),

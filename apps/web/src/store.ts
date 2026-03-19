@@ -369,8 +369,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         createdAt: thread.createdAt,
         latestTurn: thread.latestTurn,
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
+        envMode: thread.envMode,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        dockerSandbox: thread.dockerSandbox,
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
           turnId: checkpoint.turnId,
           completedAt: checkpoint.completedAt,

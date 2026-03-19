@@ -1,7 +1,7 @@
 import type { GitBranch, ProjectRemoteTarget } from "@t3tools/contracts";
 import { resolveEffectiveThreadEnvMode } from "../threadEnvMode";
 
-export type EnvMode = "local" | "worktree";
+export type EnvMode = "local" | "worktree" | "docker";
 
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
@@ -27,7 +27,7 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
   if (effectiveEnvMode === "worktree" && !currentWorktreePath) {
     return "worktree";
   }
-  return "local";
+  return effectiveEnvMode === "docker" ? "docker" : "local";
 }
 
 export function resolveBranchToolbarValue(input: {

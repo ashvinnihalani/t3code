@@ -20,7 +20,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
-export type DraftThreadEnvMode = "local" | "worktree";
+export type DraftThreadEnvMode = "local" | "worktree" | "docker";
 
 const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
 
@@ -423,8 +423,8 @@ function normalizeDraftThreadEnvMode(
   value: unknown,
   fallbackWorktreePath: string | null,
 ): DraftThreadEnvMode {
-  if (value === "local" || value === "worktree") {
-    return value;
+  if (value === "local" || value === "worktree" || value === "docker") {
+    return fallbackWorktreePath ? "worktree" : value;
   }
   return fallbackWorktreePath ? "worktree" : "local";
 }

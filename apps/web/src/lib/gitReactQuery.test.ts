@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 import {
   gitMutationKeys,
@@ -19,12 +20,31 @@ describe("gitMutationKeys", () => {
   });
 
   it("scopes pull keys by cwd", () => {
-    expect(gitMutationKeys.pull(repoATarget)).not.toEqual(gitMutationKeys.pull(repoBTarget));
+    expect(gitMutationKeys.pull(repoATarget)).not.toEqual(
+      gitMutationKeys.pull(repoBTarget),
+    );
   });
 
   it("scopes pull request thread preparation keys by cwd", () => {
     expect(gitMutationKeys.preparePullRequestThread(repoATarget)).not.toEqual(
       gitMutationKeys.preparePullRequestThread(repoBTarget),
+    );
+  });
+
+  it("scopes keys by threadId when present", () => {
+    const threadATarget: GitQueryTarget = {
+      cwd: "/repo/a",
+      projectId: null,
+      threadId: ThreadId.makeUnsafe("thread-a"),
+    };
+    const threadBTarget: GitQueryTarget = {
+      cwd: "/repo/a",
+      projectId: null,
+      threadId: ThreadId.makeUnsafe("thread-b"),
+    };
+
+    expect(gitMutationKeys.runStackedAction(threadATarget)).not.toEqual(
+      gitMutationKeys.runStackedAction(threadBTarget),
     );
   });
 });
@@ -35,7 +55,9 @@ describe("git mutation options", () => {
 
   it("attaches cwd-scoped mutation key for runStackedAction", () => {
     const options = gitRunStackedActionMutationOptions({ target, queryClient });
-    expect(options.mutationKey).toEqual(gitMutationKeys.runStackedAction(target));
+    expect(options.mutationKey).toEqual(
+      gitMutationKeys.runStackedAction(target),
+    );
   });
 
   it("attaches cwd-scoped mutation key for pull", () => {
@@ -48,6 +70,8 @@ describe("git mutation options", () => {
       target,
       queryClient,
     });
-    expect(options.mutationKey).toEqual(gitMutationKeys.preparePullRequestThread(target));
+    expect(options.mutationKey).toEqual(
+      gitMutationKeys.preparePullRequestThread(target),
+    );
   });
 });

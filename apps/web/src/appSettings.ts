@@ -53,7 +53,7 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some({})),
     Schema.withDecodingDefault(() => ({})),
   ),
-  defaultThreadEnvMode: Schema.Literals(["local", "worktree"]).pipe(
+  defaultThreadEnvMode: Schema.Literals(["local", "worktree", "docker"]).pipe(
     Schema.withConstructorDefault(() => Option.some("local")),
   ),
   gitDefaultAction: Schema.Literals(GIT_DEFAULT_ACTION_OPTIONS).pipe(

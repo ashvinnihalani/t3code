@@ -1,5 +1,14 @@
-import type { GitRequestSettings, GitStackedAction, ProjectId } from "@t3tools/contracts";
-import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
+import type {
+  GitRequestSettings,
+  GitStackedAction,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
+import {
+  mutationOptions,
+  queryOptions,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
@@ -10,43 +19,101 @@ const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 export interface GitQueryTarget {
   cwd: string | null;
   projectId: ProjectId | null;
+  threadId?: ThreadId | null;
 }
 
-function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: ProjectId } {
+function toGitApiTarget(target: GitQueryTarget): {
+  cwd: string;
+  projectId?: ProjectId;
+  threadId?: ThreadId;
+} {
   if (!target.cwd) {
     throw new Error("Git is unavailable.");
   }
   return {
     cwd: target.cwd,
     ...(target.projectId ? { projectId: target.projectId } : {}),
+    ...(target.threadId ? { threadId: target.threadId } : {}),
   };
 }
 
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (target: GitQueryTarget, settings?: GitRequestSettings) =>
-    ["git", "status", target.projectId, target.cwd, settings?.githubBinaryPath ?? null] as const,
-  branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "status",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+      settings?.githubBinaryPath ?? null,
+    ] as const,
+  branches: (target: GitQueryTarget) =>
+    [
+      "git",
+      "branches",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
 };
 
 export const gitMutationKeys = {
   init: (target: GitQueryTarget) =>
-    ["git", "mutation", "init", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "init",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
   checkout: (target: GitQueryTarget) =>
-    ["git", "mutation", "checkout", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "checkout",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
   runStackedAction: (target: GitQueryTarget) =>
-    ["git", "mutation", "run-stacked-action", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "run-stacked-action",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
   pull: (target: GitQueryTarget) =>
-    ["git", "mutation", "pull", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "pull",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
   preparePullRequestThread: (target: GitQueryTarget) =>
-    ["git", "mutation", "prepare-pull-request-thread", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "prepare-pull-request-thread",
+      target.projectId,
+      target.threadId ?? null,
+      target.cwd,
+    ] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
 }
 
-export function gitStatusQueryOptions(target: GitQueryTarget, settings?: GitRequestSettings) {
+export function gitStatusQueryOptions(
+  target: GitQueryTarget,
+  settings?: GitRequestSettings,
+) {
   return queryOptions({
     queryKey: gitQueryKeys.status(target, settings),
     queryFn: async () => {
@@ -89,6 +156,7 @@ export function gitResolvePullRequestQueryOptions(input: {
       "git",
       "pull-request",
       input.target.projectId,
+      input.target.threadId ?? null,
       input.target.cwd,
       input.reference,
       input.settings?.githubBinaryPath ?? null,
@@ -194,7 +262,9 @@ export function gitPullMutationOptions(input: {
   });
 }
 
-export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClient }) {
+export function gitCreateWorktreeMutationOptions(input: {
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationFn: async ({
       cwd,
@@ -225,7 +295,9 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
   });
 }
 
-export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClient }) {
+export function gitRemoveWorktreeMutationOptions(input: {
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationFn: async ({
       cwd,
@@ -259,7 +331,13 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
   settings?: GitRequestSettings;
 }) {
   return mutationOptions({
-    mutationFn: async ({ reference, mode }: { reference: string; mode: "local" | "worktree" }) => {
+    mutationFn: async ({
+      reference,
+      mode,
+    }: {
+      reference: string;
+      mode: "local" | "worktree";
+    }) => {
       const api = ensureNativeApi();
       return api.git.preparePullRequestThread({
         ...toGitApiTarget(input.target),

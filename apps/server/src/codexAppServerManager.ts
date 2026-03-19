@@ -21,12 +21,12 @@ import {
   ProviderInteractionMode,
 } from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
-import {
-  buildEnvironmentCaptureCommand,
-  extractEnvironmentFromShellOutput,
-} from "@t3tools/shared/shell";
 import { Effect, ServiceMap } from "effect";
 
+import {
+  buildCommandTransportInvocation,
+  buildHostCommandTransportTarget,
+} from "./commandTransport";
 import {
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
@@ -136,6 +136,7 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
+  readonly executionTarget?: ProviderSessionStartInput["executionTarget"];
   readonly runtimeMode: RuntimeMode;
 }
 
@@ -154,7 +155,6 @@ export interface CodexThreadSnapshot {
 }
 
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
-const SHELL_ENV_CAPTURE_TIMEOUT_MS = 5_000;
 const CODEX_DISABLE_WEB_SEARCH_CONFIG = "tools.web_search=false";
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
@@ -1563,77 +1563,41 @@ function readCodexProviderOptions(input: CodexAppServerStartSessionInput): {
   };
 }
 
+function resolveCodexExecutionTarget(input: {
+  readonly executionTarget?: ProviderSessionStartInput["executionTarget"];
+  readonly remote?: ProjectRemoteTarget;
+}) {
+  if (input.executionTarget) {
+    return input.executionTarget;
+  }
+  return buildHostCommandTransportTarget(input.remote);
+}
+
 function assertSupportedCodexCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd?: string;
   readonly localCwd?: string;
   readonly homePath?: string;
   readonly remote?: ProjectRemoteTarget;
+  readonly executionTarget?: ProviderSessionStartInput["executionTarget"];
 }): void {
   const localCwd = input.localCwd ?? process.cwd();
-  if (input.remote?.kind === "ssh") {
-    const remoteEnvironment = readRemoteEnvironmentFromLoginShell({
-      hostAlias: input.remote.hostAlias,
-      localCwd,
-      names: ["PATH"],
-    });
-    const result = spawnSync(
-      "ssh",
-      buildSshCodexCommandArgs({
-        hostAlias: input.remote.hostAlias,
-        binaryPath: input.binaryPath,
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        ...(input.homePath ? { homePath: input.homePath } : {}),
-        ...(remoteEnvironment.PATH ? { pathEnv: remoteEnvironment.PATH } : {}),
-        subcommand: ["--version"],
-      }),
-      {
-        cwd: localCwd,
-        env: process.env,
-        encoding: "utf8",
-        shell: process.platform === "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: CODEX_VERSION_CHECK_TIMEOUT_MS,
-        maxBuffer: 1024 * 1024,
-      },
-    );
+  const executionTarget = resolveCodexExecutionTarget({
+    executionTarget: input.executionTarget,
+    remote: input.remote,
+  });
+  const invocation = buildCommandTransportInvocation({
+    target: executionTarget,
+    command: input.binaryPath,
+    args: ["--version"],
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.homePath ? { env: { CODEX_HOME: input.homePath } } : {}),
+    localCwd,
+  });
 
-    if (result.error) {
-      const lower = result.error.message.toLowerCase();
-      if (
-        lower.includes("enoent") ||
-        lower.includes("command not found") ||
-        lower.includes("not found")
-      ) {
-        throw new Error("SSH is not installed or not executable.");
-      }
-      throw new Error(
-        `Failed to execute remote Codex CLI version check on ${input.remote.hostAlias}: ${result.error.message || String(result.error)}`,
-      );
-    }
-
-    const stdout = result.stdout ?? "";
-    const stderr = result.stderr ?? "";
-    if (result.status !== 0) {
-      const detail = stderr.trim() || stdout.trim() || `Command exited with code ${result.status}.`;
-      throw new Error(
-        `Remote Codex CLI version check failed on ${input.remote.hostAlias}. ${detail}`,
-      );
-    }
-
-    const parsedVersion = parseCodexCliVersion(`${stdout}\n${stderr}`);
-    if (parsedVersion && !isCodexCliVersionSupported(parsedVersion)) {
-      throw new Error(formatCodexCliUpgradeMessage(parsedVersion));
-    }
-    return;
-  }
-
-  const result = spawnSync(input.binaryPath, ["--version"], {
-    cwd: input.cwd ?? localCwd,
-    env: {
-      ...process.env,
-      ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
-    },
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: invocation.cwd,
+    env: invocation.env,
     encoding: "utf8",
     shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],
@@ -1674,110 +1638,27 @@ function spawnCodexAppServerProcess(input: {
   readonly localCwd: string;
   readonly homePath?: string;
   readonly remote?: ProjectRemoteTarget;
+  readonly executionTarget?: ProviderSessionStartInput["executionTarget"];
 }): ChildProcessWithoutNullStreams {
-  if (input.remote?.kind === "ssh") {
-    const remoteEnvironment = readRemoteEnvironmentFromLoginShell({
-      hostAlias: input.remote.hostAlias,
-      localCwd: input.localCwd,
-      names: ["PATH"],
-    });
-    return spawn(
-      "ssh",
-      buildSshCodexCommandArgs({
-        hostAlias: input.remote.hostAlias,
-        binaryPath: input.binaryPath,
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        ...(input.homePath ? { homePath: input.homePath } : {}),
-        ...(remoteEnvironment.PATH ? { pathEnv: remoteEnvironment.PATH } : {}),
-        subcommand: ["app-server", "-c", CODEX_DISABLE_WEB_SEARCH_CONFIG],
-      }),
-      {
-        cwd: input.localCwd,
-        env: process.env,
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      },
-    );
-  }
+  const executionTarget = resolveCodexExecutionTarget({
+    executionTarget: input.executionTarget,
+    remote: input.remote,
+  });
+  const invocation = buildCommandTransportInvocation({
+    target: executionTarget,
+    command: input.binaryPath,
+    args: ["app-server", "-c", CODEX_DISABLE_WEB_SEARCH_CONFIG],
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.homePath ? { env: { CODEX_HOME: input.homePath } } : {}),
+    localCwd: input.localCwd,
+  });
 
-  return spawn(input.binaryPath, ["app-server", "-c", CODEX_DISABLE_WEB_SEARCH_CONFIG], {
-    cwd: input.cwd ?? input.localCwd,
-    env: {
-      ...process.env,
-      ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
-    },
+  return spawn(invocation.command, invocation.args, {
+    cwd: invocation.cwd,
+    env: invocation.env,
     stdio: ["pipe", "pipe", "pipe"],
     shell: process.platform === "win32",
   });
-}
-
-function buildSshCodexCommandArgs(input: {
-  readonly hostAlias: string;
-  readonly binaryPath: string;
-  readonly cwd?: string;
-  readonly homePath?: string;
-  readonly pathEnv?: string;
-  readonly subcommand: ReadonlyArray<string>;
-}): string[] {
-  return ["-T", input.hostAlias, buildSshShellInvocation(buildRemoteCodexCommand(input))];
-}
-
-function buildSshShellInvocation(command: string): string {
-  return `sh -lc ${quotePosixShell(command)}`;
-}
-
-function readRemoteEnvironmentFromLoginShell(input: {
-  readonly hostAlias: string;
-  readonly localCwd: string;
-  readonly names: ReadonlyArray<string>;
-}): Partial<Record<string, string>> {
-  if (input.names.length === 0) {
-    return {};
-  }
-
-  const captureCommand = buildEnvironmentCaptureCommand(input.names);
-  const result = spawnSync(
-    "ssh",
-    [
-      "-T",
-      input.hostAlias,
-      buildSshShellInvocation(
-        `shell_bin=\${SHELL:-/bin/sh}; exec "$shell_bin" -ilc ${quotePosixShell(captureCommand)}`,
-      ),
-    ],
-    {
-      cwd: input.localCwd,
-      env: process.env,
-      encoding: "utf8",
-      shell: process.platform === "win32",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SHELL_ENV_CAPTURE_TIMEOUT_MS,
-      maxBuffer: 1024 * 1024,
-    },
-  );
-
-  if (result.error || result.status !== 0) {
-    return {};
-  }
-
-  return extractEnvironmentFromShellOutput(
-    `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
-    input.names,
-  );
-}
-
-function buildRemoteCodexExecCommand(
-  binaryPath: string,
-  subcommand: ReadonlyArray<string>,
-): string {
-  const commandArgs = subcommand.map(quotePosixShell).join(" ");
-  return commandArgs.length > 0
-    ? `exec ${quotePosixShell(binaryPath)} ${commandArgs}`
-    : `exec ${quotePosixShell(binaryPath)}`;
-}
-
-function quotePosixShell(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 function readResumeCursorThreadId(resumeCursor: unknown): string | undefined {

@@ -1,5 +1,5 @@
 import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
-import { FolderIcon, GitForkIcon } from "lucide-react";
+import { BoxIcon, FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { newCommandId } from "../lib/utils";
@@ -18,6 +18,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 const envModeItems = [
   { value: "local", label: "Local" },
   { value: "worktree", label: "New worktree" },
+  { value: "docker", label: "Docker sandbox" },
 ] as const;
 
 interface BranchToolbarProps {
@@ -57,6 +58,9 @@ export default function BranchToolbar({
     projectRemote,
   });
   const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
+  const selectableEnvModeItems = supportsWorktreeEnv
+    ? envModeItems
+    : envModeItems.filter((item) => item.value !== "worktree");
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -114,12 +118,17 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
-      {envLocked || activeWorktreePath || !supportsWorktreeEnv ? (
+      {envLocked || activeWorktreePath ? (
         <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
           {activeWorktreePath ? (
             <>
               <GitForkIcon className="size-3" />
               Worktree
+            </>
+          ) : effectiveEnvMode === "docker" ? (
+            <>
+              <BoxIcon className="size-3" />
+              Docker sandbox
             </>
           ) : (
             <>
@@ -132,11 +141,13 @@ export default function BranchToolbar({
         <Select
           value={effectiveEnvMode}
           onValueChange={(value) => onEnvModeChange(value as EnvMode)}
-          items={envModeItems}
+          items={selectableEnvModeItems}
         >
           <SelectTrigger variant="ghost" size="xs" className="font-medium">
             {effectiveEnvMode === "worktree" ? (
               <GitForkIcon className="size-3" />
+            ) : effectiveEnvMode === "docker" ? (
+              <BoxIcon className="size-3" />
             ) : (
               <FolderIcon className="size-3" />
             )}
@@ -149,10 +160,18 @@ export default function BranchToolbar({
                 Local
               </span>
             </SelectItem>
-            <SelectItem value="worktree">
+            {supportsWorktreeEnv ? (
+              <SelectItem value="worktree">
+                <span className="inline-flex items-center gap-1.5">
+                  <GitForkIcon className="size-3" />
+                  New worktree
+                </span>
+              </SelectItem>
+            ) : null}
+            <SelectItem value="docker">
               <span className="inline-flex items-center gap-1.5">
-                <GitForkIcon className="size-3" />
-                New worktree
+                <BoxIcon className="size-3" />
+                Docker sandbox
               </span>
             </SelectItem>
           </SelectPopup>

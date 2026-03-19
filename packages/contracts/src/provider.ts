@@ -12,6 +12,7 @@ import {
 } from "./baseSchemas";
 import {
   ChatAttachment,
+  DockerSandbox,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderApprovalDecision,
@@ -52,6 +53,12 @@ const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
   homePath: Schema.optional(TrimmedNonEmptyStringSchema),
   remote: Schema.optional(ProjectRemoteTarget),
+  dockerSandboxOverrides: Schema.optional(
+    Schema.Struct({
+      containerName: Schema.optional(TrimmedNonEmptyStringSchema),
+      extraRunArgs: Schema.optional(Schema.Array(TrimmedNonEmptyStringSchema)),
+    }),
+  ),
 });
 
 export const ProviderStartOptions = Schema.Struct({
@@ -69,6 +76,23 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
+  executionTarget: Schema.optional(
+    Schema.Union([
+      Schema.Struct({
+        kind: Schema.Literal("host"),
+        hostKind: Schema.Literals(["local", "ssh"]),
+        remote: Schema.optional(ProjectRemoteTarget),
+      }),
+      Schema.Struct({
+        kind: Schema.Literal("devcontainer"),
+        hostKind: Schema.Literals(["local", "ssh"]),
+        remote: Schema.optional(ProjectRemoteTarget),
+        projectWorkspaceRoot: TrimmedNonEmptyStringSchema,
+        threadIdLabel: TrimmedNonEmptyStringSchema,
+        dockerSandbox: DockerSandbox,
+      }),
+    ]),
+  ),
   runtimeMode: RuntimeMode,
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;

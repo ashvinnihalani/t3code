@@ -17,7 +17,16 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
 import { page } from "vitest/browser";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { render } from "vitest-browser-react";
 
 import { APP_SETTINGS_STORAGE_KEY, type AppSettings } from "../appSettings";
@@ -32,11 +41,13 @@ import { useStore } from "../store";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
-const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_ROUTE_RE =
+  /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
-const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
+const ATTACHMENT_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 
 interface WsRequestEnvelope {
   id: string;
@@ -73,14 +84,44 @@ const DEFAULT_VIEWPORT: ViewportSpec = {
 };
 const TEXT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "tablet", width: 720, height: 1_024, textTolerancePx: 44, attachmentTolerancePx: 56 },
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "tablet",
+    width: 720,
+    height: 1_024,
+    textTolerancePx: 44,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 const ATTACHMENT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 
 interface UserRowMeasurement {
@@ -143,7 +184,11 @@ function createUserMessage(options: {
   };
 }
 
-function createAssistantMessage(options: { id: MessageId; text: string; offsetSeconds: number }) {
+function createAssistantMessage(options: {
+  id: MessageId;
+  text: string;
+  offsetSeconds: number;
+}) {
   return {
     id: options.id,
     role: "assistant" as const,
@@ -180,7 +225,9 @@ function createSnapshotForTargetUser(options: {
   targetAttachmentCount?: number;
   sessionStatus?: OrchestrationSessionStatus;
 }): OrchestrationReadModel {
-  const messages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
+  const messages: Array<
+    OrchestrationReadModel["threads"][number]["messages"][number]
+  > = [];
 
   for (let index = 0; index < 22; index += 1) {
     const isTarget = index === 3;
@@ -188,13 +235,16 @@ function createSnapshotForTargetUser(options: {
     const assistantId = `msg-assistant-${index}` as MessageId;
     const attachments =
       isTarget && (options.targetAttachmentCount ?? 0) > 0
-        ? Array.from({ length: options.targetAttachmentCount ?? 0 }, (_, attachmentIndex) => ({
-            type: "image" as const,
-            id: `attachment-${attachmentIndex + 1}`,
-            name: `attachment-${attachmentIndex + 1}.png`,
-            mimeType: "image/png",
-            sizeBytes: 128,
-          }))
+        ? Array.from(
+            { length: options.targetAttachmentCount ?? 0 },
+            (_, attachmentIndex) => ({
+              type: "image" as const,
+              id: `attachment-${attachmentIndex + 1}`,
+              name: `attachment-${attachmentIndex + 1}.png`,
+              mimeType: "image/png",
+              sizeBytes: 128,
+            }),
+          )
         : undefined;
 
     messages.push(
@@ -237,7 +287,9 @@ function createSnapshotForTargetUser(options: {
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
+        envMode: "local",
         worktreePath: null,
+        dockerSandbox: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -319,7 +371,9 @@ function addThreadToSnapshot(
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
+        envMode: "local",
         worktreePath: null,
+        dockerSandbox: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -454,7 +508,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return fixture.serverConfig;
   }
   if (tag === WS_METHODS.gitCreateWorktree) {
-    const branch = typeof body.newBranch === "string" ? body.newBranch : "t3code/browser-worktree";
+    const branch =
+      typeof body.newBranch === "string"
+        ? body.newBranch
+        : "t3code/browser-worktree";
     return {
       worktree: {
         path: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
@@ -500,7 +557,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.terminalOpen) {
     return {
       threadId: typeof body.threadId === "string" ? body.threadId : THREAD_ID,
-      terminalId: typeof body.terminalId === "string" ? body.terminalId : "default",
+      terminalId:
+        typeof body.terminalId === "string" ? body.terminalId : "default",
       cwd: typeof body.cwd === "string" ? body.cwd : "/repo/project",
       status: "running",
       pid: 123,
@@ -543,14 +601,19 @@ const worker = setupWorker(
       );
     });
   }),
-  http.get("*/api/projects/:projectId/threads/:threadId/attachments/:attachmentId", () =>
-    HttpResponse.text(ATTACHMENT_SVG, {
-      headers: {
-        "Content-Type": "image/svg+xml",
-      },
-    }),
+  http.get(
+    "*/api/projects/:projectId/threads/:threadId/attachments/:attachmentId",
+    () =>
+      HttpResponse.text(ATTACHMENT_SVG, {
+        headers: {
+          "Content-Type": "image/svg+xml",
+        },
+      }),
   ),
-  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
+  http.get(
+    "*/api/project-favicon",
+    () => new HttpResponse(null, { status: 204 }),
+  ),
 );
 
 async function nextFrame(): Promise<void> {
@@ -574,7 +637,9 @@ async function waitForProductionStyles(): Promise<void> {
   await vi.waitFor(
     () => {
       expect(
-        getComputedStyle(document.documentElement).getPropertyValue("--background").trim(),
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--background")
+          .trim(),
       ).not.toBe("");
       expect(getComputedStyle(document.body).marginTop).toBe("0px");
     },
@@ -631,21 +696,30 @@ async function waitForComposerEditor(): Promise<HTMLElement> {
 
 async function waitForDraftThreadTitleInput(): Promise<HTMLInputElement> {
   return waitForElement(
-    () => document.querySelector<HTMLInputElement>('[data-testid="draft-thread-title-input"]'),
+    () =>
+      document.querySelector<HTMLInputElement>(
+        '[data-testid="draft-thread-title-input"]',
+      ),
     "Unable to find draft thread title input.",
   );
 }
 
 async function waitForSendButton(): Promise<HTMLButtonElement> {
   return waitForElement(
-    () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+    () =>
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Send message"]',
+      ),
     "Unable to find send button.",
   );
 }
 
 async function waitForDraftThreadTitleTrigger(): Promise<HTMLButtonElement> {
   return waitForElement(
-    () => document.querySelector<HTMLButtonElement>('[data-testid="draft-thread-title-trigger"]'),
+    () =>
+      document.querySelector<HTMLButtonElement>(
+        '[data-testid="draft-thread-title-trigger"]',
+      ),
     "Unable to find draft thread title trigger.",
   );
 }
@@ -691,7 +765,10 @@ async function measureUserRow(options: {
   const rowSelector = `[data-message-id="${targetMessageId}"][data-message-role="user"]`;
 
   const scrollContainer = await waitForElement(
-    () => host.querySelector<HTMLDivElement>("div.overflow-y-auto.overscroll-y-contain"),
+    () =>
+      host.querySelector<HTMLDivElement>(
+        "div.overflow-y-auto.overscroll-y-contain",
+      ),
     "Unable to find ChatView message scroll container.",
   );
 
@@ -731,12 +808,22 @@ async function measureUserRow(options: {
       scrollContainer.dispatchEvent(new Event("scroll"));
       await nextFrame();
       const measuredRow = host.querySelector<HTMLElement>(rowSelector);
-      expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
+      expect(
+        measuredRow,
+        "Unable to measure targeted user row height.",
+      ).toBeTruthy();
       timelineWidthMeasuredPx = timelineRoot.getBoundingClientRect().width;
       measuredRowHeightPx = measuredRow!.getBoundingClientRect().height;
-      renderedInVirtualizedRegion = measuredRow!.closest("[data-index]") instanceof HTMLElement;
-      expect(timelineWidthMeasuredPx, "Unable to measure timeline width.").toBeGreaterThan(0);
-      expect(measuredRowHeightPx, "Unable to measure targeted user row height.").toBeGreaterThan(0);
+      renderedInVirtualizedRegion =
+        measuredRow!.closest("[data-index]") instanceof HTMLElement;
+      expect(
+        timelineWidthMeasuredPx,
+        "Unable to measure timeline width.",
+      ).toBeGreaterThan(0);
+      expect(
+        measuredRowHeightPx,
+        "Unable to measure targeted user row height.",
+      ).toBeGreaterThan(0);
     },
     {
       timeout: 4_000,
@@ -744,7 +831,11 @@ async function measureUserRow(options: {
     },
   );
 
-  return { measuredRowHeightPx, timelineWidthMeasuredPx, renderedInVirtualizedRegion };
+  return {
+    measuredRowHeightPx,
+    timelineWidthMeasuredPx,
+    renderedInVirtualizedRegion,
+  };
 }
 
 async function mountChatView(options: {
@@ -783,7 +874,8 @@ async function mountChatView(options: {
       await screen.unmount();
       host.remove();
     },
-    measureUserRow: async (targetMessageId: MessageId) => measureUserRow({ host, targetMessageId }),
+    measureUserRow: async (targetMessageId: MessageId) =>
+      measureUserRow({ host, targetMessageId }),
     setViewport: async (viewport: ViewportSpec) => {
       await setViewport(viewport);
       await waitForProductionStyles();
@@ -883,15 +975,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await vi.waitFor(() => {
-        expect(document.body.textContent).toContain("Local Codex provider status");
+        expect(document.body.textContent).toContain(
+          "Local Codex provider status",
+        );
         expect(document.body.textContent).toContain(localError);
       });
 
-      dispatchAppSettingsChange(buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }));
+      dispatchAppSettingsChange(
+        buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }),
+      );
 
       await vi.waitFor(() => {
-        expect(useStore.getState().localCodexErrorsDismissedAfter).not.toBeNull();
-        expect(document.body.textContent).not.toContain("Local Codex provider status");
+        expect(
+          useStore.getState().localCodexErrorsDismissedAfter,
+        ).not.toBeNull();
+        expect(document.body.textContent).not.toContain(
+          "Local Codex provider status",
+        );
         expect(document.body.textContent).not.toContain(localError);
       });
     } finally {
@@ -931,10 +1031,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(document.body.textContent).toContain(remoteError);
       });
 
-      dispatchAppSettingsChange(buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }));
+      dispatchAppSettingsChange(
+        buildAppSettings({ codexBinaryPath: "/usr/local/bin/codex" }),
+      );
 
       await vi.waitFor(() => {
-        expect(useStore.getState().localCodexErrorsDismissedAfter).not.toBeNull();
+        expect(
+          useStore.getState().localCodexErrorsDismissedAfter,
+        ).not.toBeNull();
       });
       expect(document.body.textContent).toContain(remoteError);
     } finally {
@@ -946,7 +1050,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     "keeps long user message estimate close at the $name viewport",
     async (viewport) => {
       const userText = "x".repeat(3_200);
-      const targetMessageId = `msg-user-target-long-${viewport.name}` as MessageId;
+      const targetMessageId =
+        `msg-user-target-long-${viewport.name}` as MessageId;
       const mounted = await mountChatView({
         viewport,
         snapshot: createSnapshotForTargetUser({
@@ -956,8 +1061,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       try {
-        const { measuredRowHeightPx, timelineWidthMeasuredPx, renderedInVirtualizedRegion } =
-          await mounted.measureUserRow(targetMessageId);
+        const {
+          measuredRowHeightPx,
+          timelineWidthMeasuredPx,
+          renderedInVirtualizedRegion,
+        } = await mounted.measureUserRow(targetMessageId);
 
         expect(renderedInVirtualizedRegion).toBe(true);
 
@@ -966,9 +1074,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           { timelineWidthPx: timelineWidthMeasuredPx },
         );
 
-        expect(Math.abs(measuredRowHeightPx - estimatedHeightPx)).toBeLessThanOrEqual(
-          viewport.textTolerancePx,
-        );
+        expect(
+          Math.abs(measuredRowHeightPx - estimatedHeightPx),
+        ).toBeLessThanOrEqual(viewport.textTolerancePx);
       } finally {
         await mounted.cleanup();
       }
@@ -988,7 +1096,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const measurements: Array<
-        UserRowMeasurement & { viewport: ViewportSpec; estimatedHeightPx: number }
+        UserRowMeasurement & {
+          viewport: ViewportSpec;
+          estimatedHeightPx: number;
+        }
       > = [];
 
       for (const viewport of TEXT_VIEWPORT_MATRIX) {
@@ -1000,25 +1111,35 @@ describe("ChatView timeline estimator parity (full app)", () => {
         );
 
         expect(measurement.renderedInVirtualizedRegion).toBe(true);
-        expect(Math.abs(measurement.measuredRowHeightPx - estimatedHeightPx)).toBeLessThanOrEqual(
-          viewport.textTolerancePx,
-        );
+        expect(
+          Math.abs(measurement.measuredRowHeightPx - estimatedHeightPx),
+        ).toBeLessThanOrEqual(viewport.textTolerancePx);
         measurements.push({ ...measurement, viewport, estimatedHeightPx });
       }
 
       expect(
-        new Set(measurements.map((measurement) => Math.round(measurement.timelineWidthMeasuredPx)))
-          .size,
+        new Set(
+          measurements.map((measurement) =>
+            Math.round(measurement.timelineWidthMeasuredPx),
+          ),
+        ).size,
       ).toBeGreaterThanOrEqual(3);
 
       const byMeasuredWidth = measurements.toSorted(
-        (left, right) => left.timelineWidthMeasuredPx - right.timelineWidthMeasuredPx,
+        (left, right) =>
+          left.timelineWidthMeasuredPx - right.timelineWidthMeasuredPx,
       );
       const narrowest = byMeasuredWidth[0]!;
       const widest = byMeasuredWidth.at(-1)!;
-      expect(narrowest.timelineWidthMeasuredPx).toBeLessThan(widest.timelineWidthMeasuredPx);
-      expect(narrowest.measuredRowHeightPx).toBeGreaterThan(widest.measuredRowHeightPx);
-      expect(narrowest.estimatedHeightPx).toBeGreaterThan(widest.estimatedHeightPx);
+      expect(narrowest.timelineWidthMeasuredPx).toBeLessThan(
+        widest.timelineWidthMeasuredPx,
+      );
+      expect(narrowest.measuredRowHeightPx).toBeGreaterThan(
+        widest.measuredRowHeightPx,
+      );
+      expect(narrowest.estimatedHeightPx).toBeGreaterThan(
+        widest.estimatedHeightPx,
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -1052,7 +1173,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     );
 
     const measuredDeltaPx =
-      mobileMeasurement.measuredRowHeightPx - desktopMeasurement.measuredRowHeightPx;
+      mobileMeasurement.measuredRowHeightPx -
+      desktopMeasurement.measuredRowHeightPx;
     const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
     expect(measuredDeltaPx).toBeGreaterThan(0);
     expect(estimatedDeltaPx).toBeGreaterThan(0);
@@ -1064,7 +1186,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it.each(ATTACHMENT_VIEWPORT_MATRIX)(
     "keeps user attachment estimate close at the $name viewport",
     async (viewport) => {
-      const targetMessageId = `msg-user-target-attachments-${viewport.name}` as MessageId;
+      const targetMessageId =
+        `msg-user-target-attachments-${viewport.name}` as MessageId;
       const userText = "message with image attachments";
       const mounted = await mountChatView({
         viewport,
@@ -1076,8 +1199,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       try {
-        const { measuredRowHeightPx, timelineWidthMeasuredPx, renderedInVirtualizedRegion } =
-          await mounted.measureUserRow(targetMessageId);
+        const {
+          measuredRowHeightPx,
+          timelineWidthMeasuredPx,
+          renderedInVirtualizedRegion,
+        } = await mounted.measureUserRow(targetMessageId);
 
         expect(renderedInVirtualizedRegion).toBe(true);
 
@@ -1085,14 +1211,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
           {
             role: "user",
             text: userText,
-            attachments: [{ id: "attachment-1" }, { id: "attachment-2" }, { id: "attachment-3" }],
+            attachments: [
+              { id: "attachment-1" },
+              { id: "attachment-2" },
+              { id: "attachment-3" },
+            ],
           },
           { timelineWidthPx: timelineWidthMeasuredPx },
         );
 
-        expect(Math.abs(measuredRowHeightPx - estimatedHeightPx)).toBeLessThanOrEqual(
-          viewport.attachmentTolerancePx,
-        );
+        expect(
+          Math.abs(measuredRowHeightPx - estimatedHeightPx),
+        ).toBeLessThanOrEqual(viewport.attachmentTolerancePx);
       } finally {
         await mounted.cleanup();
       }
@@ -1193,7 +1323,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "remote draft send");
+      useComposerDraftStore
+        .getState()
+        .setPrompt(THREAD_ID, "remote draft send");
       await vi.waitFor(
         () => {
           const sendButton = document.querySelector<HTMLButtonElement>(
@@ -1206,7 +1338,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       const requestCountBeforeSend = wsRequests.length;
       const sendButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          ),
         "Unable to find Send message button.",
       );
       sendButton.click();
@@ -1234,7 +1369,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
 
       expect(
-        requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
+        requestsAfterSend.some(
+          (request) => request._tag === WS_METHODS.gitCreateWorktree,
+        ),
       ).toBe(true);
       const createWorktreeRequest = requestsAfterSend.find(
         (request) => request._tag === WS_METHODS.gitCreateWorktree,
@@ -1244,7 +1381,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         newBranch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
       });
       const createdWorktreeBranch =
-        typeof createWorktreeRequest?.newBranch === "string" ? createWorktreeRequest.newBranch : "";
+        typeof createWorktreeRequest?.newBranch === "string"
+          ? createWorktreeRequest.newBranch
+          : "";
       const createdThreadRequest = requestsAfterSend.find((request) => {
         if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
           return false;
@@ -1293,7 +1432,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await waitForLayout();
 
-      expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+      expect((await waitForInteractionModeButton("Chat")).title).toContain(
+        "enter plan mode",
+      );
 
       const composerEditor = await waitForComposerEditor();
       composerEditor.focus();
@@ -1326,7 +1467,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         async () => {
-          expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+          expect((await waitForInteractionModeButton("Chat")).title).toContain(
+            "enter plan mode",
+          );
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -1377,7 +1520,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toBeUndefined();
+          expect(
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID],
+          ).toBeUndefined();
           expect(document.body.textContent).not.toContain(removedLabel);
         },
         { timeout: 8_000, interval: 16 },
@@ -1396,8 +1541,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-          expect(draft?.terminalContexts.map((context) => context.id)).toEqual(["ctx-added"]);
+          const draft =
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(draft?.terminalContexts.map((context) => context.id)).toEqual([
+            "ctx-added",
+          ]);
           expect(document.body.textContent).toContain(addedLabel);
           expect(document.body.textContent).not.toContain(removedLabel);
         },
@@ -1507,7 +1655,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const stopButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Stop generation"]',
+          ),
         "Unable to find stop generation button.",
       );
 
@@ -1565,7 +1716,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect
         .element(page.getByText("Send a message to start the conversation."))
         .toBeInTheDocument();
-      await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
+      await expect
+        .element(page.getByTestId("composer-editor"))
+        .toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -1600,11 +1753,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       useComposerDraftStore
         .getState()
-        .setPrompt(newThreadId, "Prepare the release checklist and rollout plan.");
+        .setPrompt(
+          newThreadId,
+          "Prepare the release checklist and rollout plan.",
+        );
 
       const requestCountBeforeSend = wsRequests.length;
       const sendButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          ),
         "Unable to find Send message button.",
       );
       sendButton.click();
@@ -1700,7 +1859,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "New thread button should reopen the existing draft thread.",
       );
 
-      expect(document.querySelector('[data-testid="draft-thread-title-input"]')).toBeNull();
+      expect(
+        document.querySelector('[data-testid="draft-thread-title-input"]'),
+      ).toBeNull();
       const resetTitleTrigger = await waitForDraftThreadTitleTrigger();
       resetTitleTrigger.click();
       const resetTitleInput = await waitForDraftThreadTitleInput();
@@ -1809,7 +1970,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const promotedThreadId = promotedThreadPath.slice(1) as ThreadId;
 
       const { syncServerReadModel } = useStore.getState();
-      syncServerReadModel(addThreadToSnapshot(fixture.snapshot, promotedThreadId));
+      syncServerReadModel(
+        addThreadToSnapshot(fixture.snapshot, promotedThreadId),
+      );
       useComposerDraftStore.getState().clearDraftThread(promotedThreadId);
 
       const useMetaForMod = isMacPlatform(navigator.platform);
@@ -1850,7 +2013,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find Expand plan button.",
       );
 
-      expect(document.body.textContent).not.toContain("deep hidden detail only after expand");
+      expect(document.body.textContent).not.toContain(
+        "deep hidden detail only after expand",
+      );
 
       const expandButton = await waitForElement(
         () =>
@@ -1863,7 +2028,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(document.body.textContent).toContain("deep hidden detail only after expand");
+          expect(document.body.textContent).toContain(
+            "deep hidden detail only after expand",
+          );
         },
         { timeout: 8_000, interval: 16 },
       );
