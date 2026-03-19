@@ -365,6 +365,80 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("applies global git settings when renaming a remote worktree branch", async () => {
+    const harness = await createHarness({
+      projectWorkspaceRoot: "/srv/provider-project",
+      projectRemote: {
+        kind: "ssh",
+        hostAlias: "prod-box",
+      },
+    });
+    const now = new Date().toISOString();
+
+    harness.generateBranchName.mockImplementation((input: unknown) =>
+      Effect.succeed({
+        branch:
+          typeof input === "object" && input !== null && "message" in input
+            ? "feature/remote-settings-aware-branch"
+            : "feature/fallback-branch",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-remote-worktree"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        branch: "t3code/def67890",
+        worktreePath: "/srv/provider-project/.worktrees/thread-1",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-remote-git-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-remote-git-settings"),
+          role: "user",
+          text: "rename this remote worktree branch",
+          attachments: [],
+        },
+        gitSettings: {
+          commitPrompt: "Prefer concise remote branch names.",
+          textGenerationModel: "gpt-5.4-mini",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+
+    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/srv/provider-project/.worktrees/thread-1",
+      remote: {
+        kind: "ssh",
+        hostAlias: "prod-box",
+      },
+      message: "rename this remote worktree branch",
+      systemPrompt: "Prefer concise remote branch names.",
+      model: "gpt-5.4-mini",
+    });
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/srv/provider-project/.worktrees/thread-1",
+      oldBranch: "t3code/def67890",
+      newBranch: "t3code/feature/remote-settings-aware-branch",
+      remote: {
+        kind: "ssh",
+        hostAlias: "prod-box",
+      },
+    });
+  });
+
   it("forwards codex model options through session start and turn send", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

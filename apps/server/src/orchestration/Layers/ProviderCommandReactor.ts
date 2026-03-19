@@ -217,6 +217,15 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const resolveProjectRemoteForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    if (!thread) {
+      return null;
+    }
+    return readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+  });
+
   const ensureSessionForThread = Effect.fnUntraced(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -429,6 +438,7 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    const projectRemote = yield* resolveProjectRemoteForThread(input.threadId);
 
     const userMessages = thread.messages.filter((message) => message.role === "user");
     if (userMessages.length !== 1 || userMessages[0]?.id !== input.messageId) {
@@ -442,6 +452,7 @@ const make = Effect.gen(function* () {
       .generateBranchName({
         cwd,
         message: input.messageText,
+        ...(projectRemote ? { remote: projectRemote } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(input.gitSettings?.commitPrompt
           ? { systemPrompt: input.gitSettings.commitPrompt }
@@ -464,7 +475,12 @@ const make = Effect.gen(function* () {
           if (targetBranch === oldBranch) return Effect.void;
 
           return Effect.flatMap(
-            git.renameBranch({ cwd, oldBranch, newBranch: targetBranch }),
+            git.renameBranch({
+              cwd,
+              oldBranch,
+              newBranch: targetBranch,
+              ...(projectRemote ? { remote: projectRemote } : {}),
+            }),
             (renamed) =>
               orchestrationEngine.dispatch({
                 type: "thread.meta.update",
