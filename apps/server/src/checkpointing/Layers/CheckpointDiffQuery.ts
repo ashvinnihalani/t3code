@@ -103,6 +103,17 @@ const make = Effect.gen(function* () {
         });
       }
 
+      if (toCheckpoint && isProviderDiffCheckpointRef(toCheckpoint.checkpointRef)) {
+        const supportedFromTurnCount = Math.max(0, input.toTurnCount - 1);
+        if (input.fromTurnCount !== supportedFromTurnCount) {
+          return yield* new CheckpointUnavailableError({
+            threadId: input.threadId,
+            turnCount: input.toTurnCount,
+            detail: `Only the per-turn diff for turn ${input.toTurnCount} is available for this checkpoint source. Select that turn instead of viewing all turns.`,
+          });
+        }
+      }
+
       if (
         toCheckpoint &&
         isProviderDiffCheckpointRef(toCheckpoint.checkpointRef) &&
@@ -135,6 +146,15 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           turnCount: input.toTurnCount,
           detail: `Provider diff is unavailable for turn ${input.toTurnCount}.`,
+        });
+      }
+
+      const isGitRepository = yield* checkpointStore.isGitRepository(workspaceCwd);
+      if (!isGitRepository) {
+        return yield* new CheckpointUnavailableError({
+          threadId: input.threadId,
+          turnCount: input.toTurnCount,
+          detail: `Turn diffs are unavailable because workspace '${workspaceCwd}' is missing or is not a git repository.`,
         });
       }
 
