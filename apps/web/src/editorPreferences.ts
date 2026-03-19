@@ -4,6 +4,7 @@ import {
   NativeApi,
   type ProjectOpenPathInEditorInput,
 } from "@t3tools/contracts";
+import { filterRemoteSshEditors } from "@t3tools/shared/editor";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 
@@ -22,8 +23,12 @@ export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
 
 export function resolveAndPersistPreferredEditor(
   availableEditors: readonly EditorId[],
+  options?: { requireRemoteSsh?: boolean },
 ): EditorId | null {
-  const availableEditorIds = new Set(availableEditors);
+  const eligibleEditors = options?.requireRemoteSsh
+    ? filterRemoteSshEditors(availableEditors)
+    : availableEditors;
+  const availableEditorIds = new Set(eligibleEditors);
   const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
   if (stored && availableEditorIds.has(stored)) return stored;
   const editor = EDITORS.find((editor) => availableEditorIds.has(editor.id))?.id ?? null;
@@ -33,11 +38,18 @@ export function resolveAndPersistPreferredEditor(
 
 export type PreferredEditorTarget =
   | { kind: "shell"; target: string }
-  | { kind: "project-path"; input: Omit<ProjectOpenPathInEditorInput, "editor"> };
+  | {
+      kind: "project-path";
+      input: Omit<ProjectOpenPathInEditorInput, "editor">;
+      isRemoteProject: boolean;
+    };
 
-async function resolvePreferredEditor(api: NativeApi): Promise<EditorId> {
+async function resolvePreferredEditor(
+  api: NativeApi,
+  options?: { requireRemoteSsh?: boolean },
+): Promise<EditorId> {
   const { availableEditors } = await api.server.getConfig();
-  const editor = resolveAndPersistPreferredEditor(availableEditors);
+  const editor = resolveAndPersistPreferredEditor(availableEditors, options);
   if (!editor) throw new Error("No available editors found.");
   return editor;
 }
@@ -46,7 +58,9 @@ export async function openResolvedEditorTargetInPreferredEditor(
   api: NativeApi,
   target: PreferredEditorTarget,
 ): Promise<EditorId> {
-  const editor = await resolvePreferredEditor(api);
+  const editor = await resolvePreferredEditor(api, {
+    requireRemoteSsh: target.kind === "project-path" && target.isRemoteProject,
+  });
   if (target.kind === "project-path") {
     await api.projects.openPathInEditor({
       ...target.input,

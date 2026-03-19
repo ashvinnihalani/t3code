@@ -131,6 +131,104 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       assert.equal(result._tag, "Failure");
     }),
   );
+
+  it.effect("maps remote SSH folders for VS Code compatible editors", () =>
+    Effect.gen(function* () {
+      const cursorLaunch = yield* resolveEditorLaunch(
+        {
+          target: {
+            kind: "remote-ssh",
+            hostAlias: "prod",
+            path: "/srv/app",
+            isDirectory: true,
+          },
+          editor: "cursor",
+        },
+        "darwin",
+      );
+      assert.deepEqual(cursorLaunch, {
+        command: "cursor",
+        args: ["--remote", "ssh-remote+prod", "/srv/app/"],
+      });
+
+      const vscodeLaunch = yield* resolveEditorLaunch(
+        {
+          target: {
+            kind: "remote-ssh",
+            hostAlias: "prod",
+            path: "/srv/app",
+            isDirectory: true,
+          },
+          editor: "vscode",
+        },
+        "darwin",
+      );
+      assert.deepEqual(vscodeLaunch, {
+        command: "code",
+        args: ["--remote", "ssh-remote+prod", "/srv/app/"],
+      });
+    }),
+  );
+
+  it.effect("maps remote SSH files for supported editors", () =>
+    Effect.gen(function* () {
+      const cursorLaunch = yield* resolveEditorLaunch(
+        {
+          target: {
+            kind: "remote-ssh",
+            hostAlias: "prod",
+            path: "/srv/app/src/main.ts",
+            isDirectory: false,
+            line: 12,
+            column: 3,
+          },
+          editor: "cursor",
+        },
+        "darwin",
+      );
+      assert.deepEqual(cursorLaunch, {
+        command: "cursor",
+        args: ["--remote", "ssh-remote+prod", "--goto", "/srv/app/src/main.ts:12:3"],
+      });
+
+      const zedLaunch = yield* resolveEditorLaunch(
+        {
+          target: {
+            kind: "remote-ssh",
+            hostAlias: "prod",
+            path: "/srv/app/src/main.ts",
+            isDirectory: false,
+            line: 12,
+            column: 3,
+          },
+          editor: "zed",
+        },
+        "darwin",
+      );
+      assert.deepEqual(zedLaunch, {
+        command: "zed",
+        args: ["ssh://prod/srv/app/src/main.ts:12:3"],
+      });
+    }),
+  );
+
+  it.effect("rejects unsupported editors for remote SSH targets", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveEditorLaunch(
+        {
+          target: {
+            kind: "remote-ssh",
+            hostAlias: "prod",
+            path: "/srv/app",
+            isDirectory: true,
+          },
+          editor: "antigravity",
+        },
+        "darwin",
+      ).pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
+    }),
+  );
 });
 
 it.layer(NodeServices.layer)("launchDetached", (it) => {

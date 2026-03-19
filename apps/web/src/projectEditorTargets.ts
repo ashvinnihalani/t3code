@@ -15,7 +15,11 @@ export interface ProjectLinkContext {
 }
 
 export type ResolvedEditorTarget =
-  | { kind: "project-path"; input: Omit<ProjectOpenPathInEditorInput, "editor"> }
+  | {
+      kind: "project-path";
+      input: Omit<ProjectOpenPathInEditorInput, "editor">;
+      isRemoteProject: boolean;
+    }
   | { kind: "shell"; target: string };
 
 function isWindowsPathStyle(value: string): boolean {
@@ -141,7 +145,11 @@ function resolveEditorTargetFromResolvedPath(
 
   const projectInput = toProjectPathInput(resolvedTarget, context);
   if (projectInput) {
-    return { kind: "project-path", input: projectInput };
+    return {
+      kind: "project-path",
+      input: projectInput,
+      isRemoteProject: Boolean(context.remote),
+    };
   }
 
   if (context.remote) {
