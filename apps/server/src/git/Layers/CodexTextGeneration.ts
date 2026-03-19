@@ -3,10 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Effect, Exit, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
-  type ProjectRemoteTarget,
-} from "@t3tools/contracts";
+import { DEFAULT_GIT_TEXT_GENERATION_MODEL, type ProjectRemoteTarget } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";

@@ -16,7 +16,6 @@ import { Cache, Cause, Duration, Effect, Layer, Option, Ref, Stream } from "effe
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
