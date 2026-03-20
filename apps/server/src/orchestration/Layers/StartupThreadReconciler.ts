@@ -183,8 +183,6 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      yield* setThreadSession(thread, "starting");
-
       const inspectedExit = yield* Effect.exit(
         providerService
           .inspectRecoverableThread({ threadId })
