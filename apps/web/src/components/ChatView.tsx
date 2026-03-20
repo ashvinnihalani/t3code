@@ -24,12 +24,8 @@ import {
 } from "@t3tools/contracts";
 import {
   getDefaultModel,
-  isClaudeUltrathinkPrompt,
-  normalizeClaudeModelOptions,
-  normalizeCodexModelOptions,
   normalizeModelSlug,
   resolveModelSlugForProvider,
-  supportsClaudeUltrathinkKeyword,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -126,6 +122,8 @@ import {
   buildGitRequestSettings,
   getCodexHostOverride,
   getKiroHostOverride,
+  getCustomModelOptionsByProvider,
+  getCustomModelsByProvider,
   resolveAppModelSelection,
   useAppSettings,
 } from "../appSettings";
@@ -155,12 +153,15 @@ import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/Expanded
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
-import { ClaudeTraitsMenuContent, ClaudeTraitsPicker } from "./chat/ClaudeTraitsPicker";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
-import { CodexTraitsMenuContent, CodexTraitsPicker } from "./chat/CodexTraitsPicker";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import {
+  getComposerProviderState,
+  renderProviderTraitsMenuContent,
+  renderProviderTraitsPicker,
+} from "./chat/composerProviderRegistry";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
@@ -170,7 +171,6 @@ import {
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
-  getCustomModelOptionsByProvider,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
   PullRequestDialogState,
@@ -241,6 +241,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const localCodexErrorsDismissedAfter = useStore((store) => store.localCodexErrorsDismissedAfter);
   const { settings } = useAppSettings();
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
+  const setStickyComposerModel = useComposerDraftStore((store) => store.setStickyModel);
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
   const rawSearch = useSearch({
@@ -605,45 +606,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
-  const customModelsForSelectedProvider =
-    selectedProvider === "claudeAgent"
-      ? settings.customClaudeModels
-      : selectedProvider === "kiro"
-        ? settings.customKiroModels
-        : settings.customCodexModels;
+  const customModelsByProvider = useMemo(() => getCustomModelsByProvider(settings), [settings]);
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
       return baseThreadModel;
     }
-    return resolveAppModelSelection(
-      selectedProvider,
-      customModelsForSelectedProvider,
-      draftModel,
-    ) as ModelSlug;
-  }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
+    return resolveAppModelSelection(selectedProvider, customModelsByProvider, draftModel);
+  }, [baseThreadModel, composerDraft.model, customModelsByProvider, selectedProvider]);
   const draftModelOptions = composerDraft.modelOptions;
-  const isClaudeUltrathink =
-    selectedProvider === "claudeAgent" &&
-    supportsClaudeUltrathinkKeyword(selectedModel) &&
-    isClaudeUltrathinkPrompt(prompt);
-  const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider === "codex") {
-      const codexOptions = normalizeCodexModelOptions(draftModelOptions?.codex);
-      return codexOptions ? { codex: codexOptions } : undefined;
-    }
-    if (selectedProvider === "claudeAgent") {
-      const claudeOptions = normalizeClaudeModelOptions(
-        selectedModel,
-        draftModelOptions?.claudeAgent,
-      );
-      return claudeOptions ? { claudeAgent: claudeOptions } : undefined;
-    }
-    if (selectedProvider === "kiro") {
-      return undefined;
-    }
-    return undefined;
-  }, [draftModelOptions, selectedModel, selectedProvider]);
   const activeProjectCodexHostAlias =
     activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
   const activeProjectKiroHostAlias = activeProjectCodexHostAlias;
@@ -655,6 +626,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => getKiroHostOverride(settings, activeProjectKiroHostAlias),
     [activeProjectKiroHostAlias, settings],
   );
+  const composerProviderState = useMemo(
+    () =>
+      getComposerProviderState({
+        provider: selectedProvider,
+        model: selectedModel,
+        prompt,
+        modelOptions: draftModelOptions,
+      }),
+    [draftModelOptions, prompt, selectedModel, selectedProvider],
+  );
+  const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
   const providerOptionsForDispatch = useMemo(() => {
     if (selectedProvider === "kiro") {
       if (!activeProjectKiroOverride.binaryPath) {
@@ -3224,17 +3206,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
-      const customModels =
-        provider === "claudeAgent"
-          ? settings.customClaudeModels
-          : provider === "kiro"
-            ? settings.customKiroModels
-            : settings.customCodexModels;
+      const resolvedModel = resolveAppModelSelection(provider, customModelsByProvider, model);
       setComposerDraftProvider(activeThread.id, provider);
-      setComposerDraftModel(
-        activeThread.id,
-        resolveAppModelSelection(provider, customModels, model),
-      );
+      setComposerDraftModel(activeThread.id, resolvedModel);
+      setStickyComposerModel(resolvedModel);
       const providerInteractionModes = SUPPORTED_INTERACTION_MODES_BY_PROVIDER[
         provider
       ] as ReadonlyArray<ProviderInteractionMode>;
@@ -3251,9 +3226,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftModel,
       setComposerDraftInteractionMode,
       setComposerDraftProvider,
-      settings.customClaudeModels,
-      settings.customCodexModels,
-      settings.customKiroModels,
+      setStickyComposerModel,
+      customModelsByProvider,
     ],
   );
   const setPromptFromTraits = useCallback(
@@ -3263,6 +3237,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [scheduleComposerFocus, setPrompt],
   );
+  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+    provider: selectedProvider,
+    threadId,
+    model: selectedModel,
+    onPromptChange: setPromptFromTraits,
+  });
+  const providerTraitsPicker = renderProviderTraitsPicker({
+    provider: selectedProvider,
+    threadId,
+    model: selectedModel,
+    onPromptChange: setPromptFromTraits,
+  });
   const onEnvModeChange = useCallback(
     (mode: DraftThreadEnvMode) => {
       if (isLocalDraftThread) {
@@ -3702,9 +3688,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
               data-chat-composer-form="true"
             >
               <div
-                className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
-                  isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
-                }`}
+                className={cn(
+                  "group rounded-[22px] p-px transition-colors duration-200",
+                  composerProviderState.composerFrameClassName,
+                )}
                 onDragEnter={onComposerDragEnter}
                 onDragOver={onComposerDragOver}
                 onDragLeave={onComposerDragLeave}
@@ -3742,6 +3729,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   className={cn(
                     "relative px-3 pb-2 sm:px-4",
                     hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                    "rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45",
+                    isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
+                    composerProviderState.composerSurfaceClassName,
                   )}
                 >
                   {composerMenuOpen && !isComposerApprovalState && (
@@ -3888,7 +3878,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         "flex min-w-0 flex-1 items-center",
                         isComposerFooterCompact
                           ? "gap-1 overflow-hidden"
-                          : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                          : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                       )}
                     >
                       {/* Provider/model picker */}
@@ -3898,7 +3888,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         model={selectedModelForPickerWithCustomFallback}
                         lockedProvider={lockedProvider}
                         modelOptionsByProvider={modelOptionsByProvider}
-                        ultrathinkActive={isClaudeUltrathink}
+                        {...(composerProviderState.modelPickerIconClassName
+                          ? {
+                              activeProviderIconClassName:
+                                composerProviderState.modelPickerIconClassName,
+                            }
+                          : {})}
                         onProviderModelChange={onProviderModelSelect}
                       />
 
@@ -3906,46 +3901,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         <CompactComposerControlsMenu
                           activePlan={Boolean(activePlan || activeProposedPlan || planSidebarOpen)}
                           interactionMode={interactionMode}
-                          supportedInteractionModes={supportedInteractionModes}
                           planSidebarOpen={planSidebarOpen}
                           runtimeMode={runtimeMode}
-                          traitsMenuContent={
-                            selectedProvider === "codex" ? (
-                              <CodexTraitsMenuContent threadId={threadId} />
-                            ) : selectedProvider === "claudeAgent" ? (
-                              <ClaudeTraitsMenuContent
-                                threadId={threadId}
-                                model={selectedModel}
-                                onPromptChange={setPromptFromTraits}
-                              />
-                            ) : null
-                          }
-                          onInteractionModeSelect={handleInteractionModeChange}
+                          traitsMenuContent={providerTraitsMenuContent}
                           onToggleInteractionMode={toggleInteractionMode}
                           onTogglePlanSidebar={togglePlanSidebar}
                           onToggleRuntimeMode={toggleRuntimeMode}
                         />
                       ) : (
                         <>
-                          {selectedProvider === "codex" ? (
+                          {providerTraitsPicker ? (
                             <>
                               <Separator
                                 orientation="vertical"
                                 className="mx-0.5 hidden h-4 sm:block"
                               />
-                              <CodexTraitsPicker threadId={threadId} />
-                            </>
-                          ) : selectedProvider === "claudeAgent" ? (
-                            <>
-                              <Separator
-                                orientation="vertical"
-                                className="mx-0.5 hidden h-4 sm:block"
-                              />
-                              <ClaudeTraitsPicker
-                                threadId={threadId}
-                                model={selectedModel}
-                                onPromptChange={setPromptFromTraits}
-                              />
+                              {providerTraitsPicker}
                             </>
                           ) : null}
 

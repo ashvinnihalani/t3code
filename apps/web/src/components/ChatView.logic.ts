@@ -1,13 +1,11 @@
 import {
   ProjectId,
   type ProjectRemoteTarget,
-  type ProviderKind,
   type ServerProviderStatus,
   type ThreadId,
 } from "@t3tools/contracts";
 import { type ChatMessage, type Thread, type ThreadSession } from "../types";
 import { randomUUID } from "~/lib/utils";
-import { getAppModelOptions } from "../appSettings";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
 import {
@@ -125,18 +123,6 @@ export function cloneComposerImageForRetry(
   } catch {
     return image;
   }
-}
-
-export function getCustomModelOptionsByProvider(settings: {
-  customCodexModels: readonly string[];
-  customClaudeModels: readonly string[];
-  customKiroModels: readonly string[];
-}): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
-  return {
-    codex: getAppModelOptions("codex", settings.customCodexModels),
-    claudeAgent: getAppModelOptions("claudeAgent", settings.customClaudeModels),
-    kiro: getAppModelOptions("kiro", settings.customKiroModels),
-  };
 }
 
 export function deriveComposerSendState(options: {

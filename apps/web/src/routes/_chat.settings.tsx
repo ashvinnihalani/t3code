@@ -12,14 +12,18 @@ import {
   DEFAULT_GIT_DEFAULT_ACTION,
   GIT_DEFAULT_ACTION_OPTIONS,
   type GitDefaultAction,
-  getAppModelOptions,
   type ThreadIdDisplayMode,
-  MAX_CUSTOM_MODEL_LENGTH,
-  THREAD_ID_DISPLAY_MODE_OPTIONS,
   buildCodexHostOverridePatch,
   buildKiroHostOverridePatch,
   getCodexHostOverride,
+  getAppModelOptions,
+  getCustomModelsForProvider,
+  getDefaultCustomModelsForProvider,
   getKiroHostOverride,
+  MODEL_PROVIDER_SETTINGS,
+  MAX_CUSTOM_MODEL_LENGTH,
+  patchCustomModels,
+  THREAD_ID_DISPLAY_MODE_OPTIONS,
   useAppSettings,
 } from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -57,36 +61,6 @@ const THEME_OPTIONS = [
     value: "dark",
     label: "Dark",
     description: "Always use the dark theme.",
-  },
-] as const;
-
-const MODEL_PROVIDER_SETTINGS: Array<{
-  provider: ProviderKind;
-  title: string;
-  description: string;
-  placeholder: string;
-  example: string;
-}> = [
-  {
-    provider: "codex",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-  {
-    provider: "claudeAgent",
-    title: "Claude",
-    description: "Save additional Claude model slugs for the picker and `/model` command.",
-    placeholder: "your-claude-model-slug",
-    example: "claude-opus-4-6-20251117",
-  },
-  {
-    provider: "kiro",
-    title: "Kiro CLI",
-    description: "Save additional Kiro model slugs for the picker and `/model` command.",
-    placeholder: "your-kiro-model-slug",
-    example: "claude-sonnet4.6",
   },
 ] as const;
 
@@ -145,45 +119,6 @@ function decodeKiroSettingsScope(scope: string): string | null {
   return scope.startsWith(SSH_KIRO_SETTINGS_SCOPE_PREFIX)
     ? scope.slice(SSH_KIRO_SETTINGS_SCOPE_PREFIX.length)
     : null;
-}
-
-function getCustomModelsForProvider(
-  settings: ReturnType<typeof useAppSettings>["settings"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-      return settings.customCodexModels;
-    case "claudeAgent":
-      return settings.customClaudeModels;
-    case "kiro":
-      return settings.customKiroModels;
-  }
-}
-
-function getDefaultCustomModelsForProvider(
-  defaults: ReturnType<typeof useAppSettings>["defaults"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-      return defaults.customCodexModels;
-    case "claudeAgent":
-      return defaults.customClaudeModels;
-    case "kiro":
-      return defaults.customKiroModels;
-  }
-}
-
-function patchCustomModels(provider: ProviderKind, models: string[]) {
-  switch (provider) {
-    case "codex":
-      return { customCodexModels: models };
-    case "claudeAgent":
-      return { customClaudeModels: models };
-    case "kiro":
-      return { customKiroModels: models };
-  }
 }
 
 function SettingsRouteView() {

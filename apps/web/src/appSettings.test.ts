@@ -1,17 +1,25 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  AppSettingsSchema,
   DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
   DEFAULT_GIT_DEFAULT_ACTION,
   DEFAULT_THREAD_ID_DISPLAY_MODE,
   DEFAULT_TIMESTAMP_FORMAT,
+  MODEL_PROVIDER_SETTINGS,
   buildCodexHostOverridePatch,
-  buildKiroHostOverridePatch,
   buildGitRequestSettings,
+  buildKiroHostOverridePatch,
   getAppModelOptions,
   getCodexHostOverride,
+  getCustomModelOptionsByProvider,
+  getCustomModelsByProvider,
+  getCustomModelsForProvider,
+  getDefaultCustomModelsForProvider,
   getKiroHostOverride,
   normalizeCustomModelSlugs,
+  patchCustomModels,
   resolveAppModelSelection,
 } from "./appSettings";
 
@@ -69,17 +77,47 @@ describe("getAppModelOptions", () => {
 
 describe("resolveAppModelSelection", () => {
   it("preserves saved custom model slugs instead of falling back to the default", () => {
-    expect(resolveAppModelSelection("codex", ["galapagos-alpha"], "galapagos-alpha")).toBe(
-      "galapagos-alpha",
-    );
+    expect(
+      resolveAppModelSelection(
+        "codex",
+        { codex: ["galapagos-alpha"], claudeAgent: [], kiro: [] },
+        "galapagos-alpha",
+      ),
+    ).toBe("galapagos-alpha");
   });
 
   it("falls back to the provider default when no model is selected", () => {
-    expect(resolveAppModelSelection("codex", [], "")).toBe("gpt-5.4");
+    expect(resolveAppModelSelection("codex", { codex: [], claudeAgent: [], kiro: [] }, "")).toBe(
+      "gpt-5.4",
+    );
+  });
+
+  it("resolves display names through the shared resolver", () => {
+    expect(
+      resolveAppModelSelection("codex", { codex: [], claudeAgent: [], kiro: [] }, "GPT-5.3 Codex"),
+    ).toBe("gpt-5.3-codex");
+  });
+
+  it("resolves aliases through the shared resolver", () => {
+    expect(
+      resolveAppModelSelection("claudeAgent", { codex: [], claudeAgent: [], kiro: [] }, "sonnet"),
+    ).toBe("claude-sonnet-4-6");
+  });
+
+  it("resolves transient selected custom models included in app model options", () => {
+    expect(
+      resolveAppModelSelection(
+        "codex",
+        { codex: [], claudeAgent: [], kiro: [] },
+        "custom/selected-model",
+      ),
+    ).toBe("custom/selected-model");
   });
 
   it("falls back to the Kiro provider default when no model is selected", () => {
-    expect(resolveAppModelSelection("kiro", [], "")).toBe("auto");
+    expect(resolveAppModelSelection("kiro", { codex: [], claudeAgent: [], kiro: [] }, "")).toBe(
+      "auto",
+    );
   });
 });
 
@@ -98,6 +136,130 @@ describe("desktop app close behavior defaults", () => {
 describe("git settings defaults", () => {
   it("defaults the primary git action to auto", () => {
     expect(DEFAULT_GIT_DEFAULT_ACTION).toBe("auto");
+  });
+});
+
+describe("provider-indexed custom model settings", () => {
+  const settings = {
+    customCodexModels: ["custom/codex-model"],
+    customClaudeModels: ["claude/custom-opus"],
+    customKiroModels: ["custom/kiro-model"],
+  } as const;
+
+  it("exports one provider config per provider", () => {
+    expect(MODEL_PROVIDER_SETTINGS.map((config) => config.provider)).toEqual([
+      "codex",
+      "claudeAgent",
+      "kiro",
+    ]);
+  });
+
+  it("reads custom models for each provider", () => {
+    expect(getCustomModelsForProvider(settings, "codex")).toEqual(["custom/codex-model"]);
+    expect(getCustomModelsForProvider(settings, "claudeAgent")).toEqual(["claude/custom-opus"]);
+    expect(getCustomModelsForProvider(settings, "kiro")).toEqual(["custom/kiro-model"]);
+  });
+
+  it("reads default custom models for each provider", () => {
+    const defaults = {
+      customCodexModels: ["default/codex-model"],
+      customClaudeModels: ["claude/default-opus"],
+      customKiroModels: ["default/kiro-model"],
+    } as const;
+
+    expect(getDefaultCustomModelsForProvider(defaults, "codex")).toEqual(["default/codex-model"]);
+    expect(getDefaultCustomModelsForProvider(defaults, "claudeAgent")).toEqual([
+      "claude/default-opus",
+    ]);
+    expect(getDefaultCustomModelsForProvider(defaults, "kiro")).toEqual(["default/kiro-model"]);
+  });
+
+  it("patches custom models for codex", () => {
+    expect(patchCustomModels("codex", ["custom/codex-model"])).toEqual({
+      customCodexModels: ["custom/codex-model"],
+    });
+  });
+
+  it("patches custom models for claude", () => {
+    expect(patchCustomModels("claudeAgent", ["claude/custom-opus"])).toEqual({
+      customClaudeModels: ["claude/custom-opus"],
+    });
+  });
+
+  it("patches custom models for kiro", () => {
+    expect(patchCustomModels("kiro", ["custom/kiro-model"])).toEqual({
+      customKiroModels: ["custom/kiro-model"],
+    });
+  });
+
+  it("builds a complete provider-indexed custom model record", () => {
+    expect(getCustomModelsByProvider(settings)).toEqual({
+      codex: ["custom/codex-model"],
+      claudeAgent: ["claude/custom-opus"],
+      kiro: ["custom/kiro-model"],
+    });
+  });
+
+  it("builds provider-indexed model options including custom models", () => {
+    const modelOptionsByProvider = getCustomModelOptionsByProvider(settings);
+
+    expect(
+      modelOptionsByProvider.codex.some((option) => option.slug === "custom/codex-model"),
+    ).toBe(true);
+    expect(
+      modelOptionsByProvider.claudeAgent.some((option) => option.slug === "claude/custom-opus"),
+    ).toBe(true);
+    expect(modelOptionsByProvider.kiro.some((option) => option.slug === "custom/kiro-model")).toBe(
+      true,
+    );
+  });
+
+  it("normalizes and deduplicates custom model options per provider", () => {
+    const modelOptionsByProvider = getCustomModelOptionsByProvider({
+      customCodexModels: ["  custom/codex-model ", "gpt-5.4", "custom/codex-model"],
+      customClaudeModels: [" sonnet ", "claude/custom-opus", "claude/custom-opus"],
+      customKiroModels: [" auto ", "custom/kiro-model", "custom/kiro-model"],
+    });
+
+    expect(
+      modelOptionsByProvider.codex.filter((option) => option.slug === "custom/codex-model"),
+    ).toHaveLength(1);
+    expect(modelOptionsByProvider.codex.some((option) => option.slug === "gpt-5.4")).toBe(true);
+    expect(
+      modelOptionsByProvider.claudeAgent.filter((option) => option.slug === "claude/custom-opus"),
+    ).toHaveLength(1);
+    expect(
+      modelOptionsByProvider.claudeAgent.some((option) => option.slug === "claude-sonnet-4-6"),
+    ).toBe(true);
+    expect(
+      modelOptionsByProvider.kiro.filter((option) => option.slug === "custom/kiro-model"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("AppSettingsSchema", () => {
+  it("fills decoding defaults for persisted settings that predate newer keys", () => {
+    const decode = (value: string) =>
+      Schema.decodeUnknownSync(AppSettingsSchema)(JSON.parse(value));
+
+    expect(
+      decode(
+        JSON.stringify({
+          codexBinaryPath: "/usr/local/bin/codex",
+          confirmThreadDelete: false,
+        }),
+      ),
+    ).toMatchObject({
+      codexBinaryPath: "/usr/local/bin/codex",
+      codexHomePath: "",
+      defaultThreadEnvMode: "local",
+      confirmThreadDelete: false,
+      enableAssistantStreaming: false,
+      timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
+      customCodexModels: [],
+      customClaudeModels: [],
+      customKiroModels: [],
+    });
   });
 });
 
