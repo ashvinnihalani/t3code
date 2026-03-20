@@ -97,7 +97,12 @@ function toRuntimeStatus(session: ProviderSession): "starting" | "running" | "st
 
 function toRuntimePayloadFromSession(
   session: ProviderSession,
-  extra?: { readonly providerOptions?: unknown },
+  extra?: {
+    readonly modelOptions?: unknown;
+    readonly providerOptions?: unknown;
+    readonly lastRuntimeEvent?: string;
+    readonly lastRuntimeEventAt?: string;
+  },
 ): Record<string, unknown> {
   const providerThreadId = readProviderThreadIdFromResumeCursor(session.resumeCursor);
   return {
@@ -107,8 +112,24 @@ function toRuntimePayloadFromSession(
     lastError: session.lastError ?? null,
     ...(providerThreadId ? { providerThreadId } : {}),
     ...(session.resumeCursor !== undefined ? { resumeAvailable: true } : {}),
+    ...(extra?.modelOptions !== undefined ? { modelOptions: extra.modelOptions } : {}),
     ...(extra?.providerOptions !== undefined ? { providerOptions: extra.providerOptions } : {}),
+    ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
+    ...(extra?.lastRuntimeEventAt !== undefined
+      ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
+      : {}),
   };
+}
+
+function readPersistedModelOptions(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): Record<string, unknown> | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw = "modelOptions" in runtimePayload ? runtimePayload.modelOptions : undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  return raw as Record<string, unknown>;
 }
 
 function readPersistedProviderOptions(
@@ -187,6 +208,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       session: ProviderSession,
       threadId: ThreadId,
       extra?: {
+        readonly modelOptions?: unknown;
         readonly providerOptions?: unknown;
         readonly runtimePayload?: Record<string, unknown>;
       },
@@ -289,11 +311,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
 
         const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
+        const persistedModelOptions = readPersistedModelOptions(input.binding.runtimePayload);
         const persistedProviderOptions = readPersistedProviderOptions(input.binding.runtimePayload);
         const startSessionInput = {
           threadId: input.binding.threadId,
           provider: input.binding.provider,
           ...(persistedCwd ? { cwd: persistedCwd } : {}),
+          ...(persistedModelOptions ? { modelOptions: persistedModelOptions } : {}),
           ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         } satisfies ProviderSessionStartInput;
@@ -445,8 +469,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           threadId,
           provider: parsed.provider ?? "codex",
         };
+        const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        const effectiveResumeCursor =
+          input.resumeCursor ??
+          (persistedBinding?.provider === input.provider
+            ? persistedBinding.resumeCursor
+            : undefined);
         const adapter = yield* registry.getByProvider(input.provider);
-        const session = yield* adapter.startSession(input);
+        const session = yield* adapter.startSession({
+          ...input,
+          ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+        });
 
         if (session.provider !== adapter.provider) {
           return yield* toValidationError(
@@ -456,6 +489,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
 
         yield* upsertSessionBinding(session, threadId, {
+          modelOptions: input.modelOptions,
           providerOptions: input.providerOptions,
           runtimePayload: buildRemoteSessionRuntimeMetadataPatch({
             session,

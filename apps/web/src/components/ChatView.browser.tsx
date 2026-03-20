@@ -291,6 +291,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
     customCodexModels: [],
+    customClaudeModels: [],
     customKiroModels: [],
     ...overrides,
   };

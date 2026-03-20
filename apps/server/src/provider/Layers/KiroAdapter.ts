@@ -12,11 +12,14 @@ import { KiroAdapter, type KiroAdapterShape } from "../Services/KiroAdapter.ts";
 import { KiroAcpManager, type KiroAcpStartSessionInput } from "../../kiroAcpManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "kiro" as const;
 
 export interface KiroAdapterLiveOptions {
   readonly manager?: KiroAcpManager;
+  readonly nativeEventLogPath?: string;
+  readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -65,6 +68,13 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const serverConfig = yield* Effect.service(ServerConfig);
+    const nativeEventLogger =
+      options?.nativeEventLogger ??
+      (options?.nativeEventLogPath !== undefined
+        ? yield* makeEventNdjsonLogger(options.nativeEventLogPath, {
+            stream: "native",
+          })
+        : undefined);
     const manager = yield* Effect.acquireRelease(
       Effect.sync(() => options?.manager ?? new KiroAcpManager()),
       (manager) =>
@@ -222,7 +232,14 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
     const runtimeEventQueue =
       yield* Queue.unbounded<import("@t3tools/contracts").ProviderRuntimeEvent>();
     const listener = (event: import("@t3tools/contracts").ProviderRuntimeEvent) => {
-      void Effect.runPromise(Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid));
+      void Effect.runPromise(
+        Effect.gen(function* () {
+          if (nativeEventLogger) {
+            yield* nativeEventLogger.write(event, event.threadId);
+          }
+          yield* Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
+        }),
+      );
     };
     manager.on("event", listener);
 

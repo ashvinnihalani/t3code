@@ -125,6 +125,19 @@ function resolveProjectScopedProviderOptions(input: {
   readonly provider?: ProviderKind;
   readonly projectRemote?: ProjectRemoteTarget | null;
 }): ProviderStartOptions | undefined {
+  if (input.provider === "claudeAgent") {
+    const claude = input.providerOptions?.claudeAgent;
+    const claudeOptions = {
+      ...(claude?.binaryPath ? { binaryPath: claude.binaryPath } : {}),
+      ...(claude?.permissionMode ? { permissionMode: claude.permissionMode } : {}),
+      ...(claude?.maxThinkingTokens !== undefined
+        ? { maxThinkingTokens: claude.maxThinkingTokens }
+        : {}),
+    };
+
+    return Object.keys(claudeOptions).length > 0 ? { claudeAgent: claudeOptions } : undefined;
+  }
+
   if (input.provider === "kiro") {
     const kiro = input.providerOptions?.kiro;
     const kiroOptions = {
@@ -146,6 +159,7 @@ function resolveProjectScopedProviderOptions(input: {
 }
 
 function providerOptionsRestartKey(input?: ProviderStartOptions): string {
+  const claude = input?.claudeAgent;
   const kiro = input?.kiro;
   const kiroRemote =
     kiro?.remote?.kind === "ssh" ? `${kiro.remote.kind}:${kiro.remote.hostAlias}` : null;
@@ -154,6 +168,9 @@ function providerOptionsRestartKey(input?: ProviderStartOptions): string {
     codex?.remote?.kind === "ssh" ? `${codex.remote.kind}:${codex.remote.hostAlias}` : null;
 
   return JSON.stringify({
+    claudeBinaryPath: claude?.binaryPath ?? null,
+    claudePermissionMode: claude?.permissionMode ?? null,
+    claudeMaxThinkingTokens: claude?.maxThinkingTokens ?? null,
     kiroBinaryPath: kiro?.binaryPath ?? null,
     kiroRemote,
     binaryPath: codex?.binaryPath ?? null,
@@ -260,7 +277,9 @@ const make = Effect.gen(function* () {
 
     const desiredRuntimeMode = thread.runtimeMode;
     const currentProvider: ProviderKind | undefined =
-      thread.session?.providerName === "codex" || thread.session?.providerName === "kiro"
+      thread.session?.providerName === "codex" ||
+      thread.session?.providerName === "claudeAgent" ||
+      thread.session?.providerName === "kiro"
         ? thread.session.providerName
         : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
