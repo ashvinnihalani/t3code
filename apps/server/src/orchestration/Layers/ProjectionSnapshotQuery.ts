@@ -112,6 +112,8 @@ function runtimeStatusToSessionStatus(input: {
   switch (input.status) {
     case "starting":
       return "starting";
+    case "ready":
+      return input.fallbackStatus === "interrupted" ? "interrupted" : "ready";
     case "error":
       return "error";
     case "stopped":
