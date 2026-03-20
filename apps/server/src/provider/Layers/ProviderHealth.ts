@@ -297,10 +297,16 @@ function parseKiroAuthStatusFromOutput(result: CommandResult): {
     };
   }
 
-  const trimmed = result.stdout.trim();
-  if (trimmed.startsWith("{")) {
+  // `kiro-cli whoami --format json` may print extra text after the JSON
+  // object (e.g. profile info).  Extract only the first `{…}` line so
+  // `JSON.parse` doesn't choke on trailing output.
+  const firstJsonLine = result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("{"));
+  if (firstJsonLine) {
     try {
-      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const parsed = JSON.parse(firstJsonLine) as Record<string, unknown>;
       const hasIdentity =
         typeof parsed.email === "string" ||
         typeof parsed.username === "string" ||
