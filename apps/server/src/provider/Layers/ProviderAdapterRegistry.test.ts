@@ -4,6 +4,7 @@ import { assertFailure } from "@effect/vitest/utils";
 
 import { Effect, Layer, Stream } from "effect";
 
+import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { KiroAdapter, type KiroAdapterShape } from "../Services/KiroAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -14,6 +15,23 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 const fakeCodexAdapter: CodexAdapterShape = {
   provider: "codex",
   capabilities: { sessionModelSwitch: "in-session" },
+  startSession: vi.fn(),
+  sendTurn: vi.fn(),
+  interruptTurn: vi.fn(),
+  respondToRequest: vi.fn(),
+  respondToUserInput: vi.fn(),
+  stopSession: vi.fn(),
+  listSessions: vi.fn(),
+  hasSession: vi.fn(),
+  readThread: vi.fn(),
+  rollbackThread: vi.fn(),
+  stopAll: vi.fn(),
+  streamEvents: Stream.empty,
+};
+
+const fakeClaudeAdapter: ClaudeAdapterShape = {
+  provider: "claudeAgent",
+  capabilities: { sessionModelSwitch: "restart-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -51,6 +69,7 @@ const layer = it.layer(
       ProviderAdapterRegistryLive,
       Layer.mergeAll(
         Layer.succeed(CodexAdapter, fakeCodexAdapter),
+        Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
         Layer.succeed(KiroAdapter, fakeKiroAdapter),
       ),
     ),
@@ -63,10 +82,14 @@ layer("ProviderAdapterRegistryLive", (it) => {
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry;
       const codex = yield* registry.getByProvider("codex");
+      const claude = yield* registry.getByProvider("claudeAgent");
+      const kiro = yield* registry.getByProvider("kiro");
       assert.equal(codex, fakeCodexAdapter);
+      assert.equal(claude, fakeClaudeAdapter);
+      assert.equal(kiro, fakeKiroAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex", "kiro"]);
+      assert.deepEqual(providers, ["codex", "claudeAgent", "kiro"]);
     }),
   );
 

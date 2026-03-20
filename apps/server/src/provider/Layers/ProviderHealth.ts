@@ -26,6 +26,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
+const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 const KIRO_PROVIDER = "kiro" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
@@ -257,6 +258,7 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
   );
 
 const runCodexCommand = (args: ReadonlyArray<string>) => runCliCommand("codex", args);
+const runClaudeCommand = (args: ReadonlyArray<string>) => runCliCommand("claude", args);
 
 const runCliCommand = (binary: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
@@ -337,6 +339,87 @@ function parseKiroAuthStatusFromOutput(result: CommandResult): {
     message: detail
       ? `Could not verify Kiro authentication status. ${detail}`
       : "Could not verify Kiro authentication status.",
+  };
+}
+
+export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
+  readonly status: ServerProviderStatusState;
+  readonly authStatus: ServerProviderAuthStatus;
+  readonly message?: string;
+} {
+  const lowerOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
+
+  if (
+    lowerOutput.includes("unknown command") ||
+    lowerOutput.includes("unrecognized command") ||
+    lowerOutput.includes("unexpected argument")
+  ) {
+    return {
+      status: "warning",
+      authStatus: "unknown",
+      message:
+        "Claude Agent authentication status command is unavailable in this version of Claude.",
+    };
+  }
+
+  if (
+    lowerOutput.includes("not logged in") ||
+    lowerOutput.includes("login required") ||
+    lowerOutput.includes("authentication required") ||
+    lowerOutput.includes("run `claude login`") ||
+    lowerOutput.includes("run claude login")
+  ) {
+    return {
+      status: "error",
+      authStatus: "unauthenticated",
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
+    };
+  }
+
+  const parsedAuth = (() => {
+    const trimmed = result.stdout.trim();
+    if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+    }
+    try {
+      return {
+        attemptedJsonParse: true as const,
+        auth: extractAuthBoolean(JSON.parse(trimmed)),
+      };
+    } catch {
+      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+    }
+  })();
+
+  if (parsedAuth.auth === true) {
+    return { status: "ready", authStatus: "authenticated" };
+  }
+  if (parsedAuth.auth === false) {
+    return {
+      status: "error",
+      authStatus: "unauthenticated",
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
+    };
+  }
+  if (parsedAuth.attemptedJsonParse) {
+    return {
+      status: "warning",
+      authStatus: "unknown",
+      message:
+        "Could not verify Claude authentication status from JSON output (missing auth marker).",
+    };
+  }
+  if (result.code === 0) {
+    return { status: "ready", authStatus: "authenticated" };
+  }
+
+  const detail = detailFromResult(result);
+  return {
+    status: "warning",
+    authStatus: "unknown",
+    message: detail
+      ? `Could not verify Claude authentication status. ${detail}`
+      : "Could not verify Claude authentication status.",
   };
 }
 
@@ -560,18 +643,115 @@ export const checkKiroProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkClaudeProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const checkedAt = new Date().toISOString();
+
+  const versionProbe = yield* runClaudeCommand(["--version"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(versionProbe)) {
+    const error = versionProbe.failure;
+    return {
+      provider: CLAUDE_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: isGenericCommandMissingCause("claude", error)
+        ? "Claude Agent CLI (`claude`) is not installed or not on PATH."
+        : `Failed to execute Claude Agent CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+    };
+  }
+
+  if (Option.isNone(versionProbe.success)) {
+    return {
+      provider: CLAUDE_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Claude Agent CLI is installed but failed to run. Timed out while running command.",
+    };
+  }
+
+  const version = versionProbe.success.value;
+  if (version.code !== 0) {
+    const detail = detailFromResult(version);
+    return {
+      provider: CLAUDE_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: detail
+        ? `Claude Agent CLI is installed but failed to run. ${detail}`
+        : "Claude Agent CLI is installed but failed to run.",
+    };
+  }
+
+  const authProbe = yield* runClaudeCommand(["auth", "status"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(authProbe)) {
+    const error = authProbe.failure;
+    return {
+      provider: CLAUDE_AGENT_PROVIDER,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message:
+        error instanceof Error
+          ? `Could not verify Claude authentication status: ${error.message}.`
+          : "Could not verify Claude authentication status.",
+    };
+  }
+
+  if (Option.isNone(authProbe.success)) {
+    return {
+      provider: CLAUDE_AGENT_PROVIDER,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Could not verify Claude authentication status. Timed out while running command.",
+    };
+  }
+
+  const parsed = parseClaudeAuthStatusFromOutput(authProbe.success.value);
+  return {
+    provider: CLAUDE_AGENT_PROVIDER,
+    status: parsed.status,
+    available: true,
+    authStatus: parsed.authStatus,
+    checkedAt,
+    ...(parsed.message ? { message: parsed.message } : {}),
+  } satisfies ServerProviderStatus;
+});
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
     const codexStatusFiber = yield* checkCodexProviderStatus.pipe(Effect.forkScoped);
+    const claudeStatusFiber = yield* checkClaudeProviderStatus.pipe(Effect.forkScoped);
     const kiroStatusFiber = yield* checkKiroProviderStatus.pipe(Effect.forkScoped);
 
     return {
-      getStatuses: Effect.all([Fiber.join(codexStatusFiber), Fiber.join(kiroStatusFiber)]).pipe(
-        Effect.map(([codexStatus, kiroStatus]) => [codexStatus, kiroStatus]),
-      ),
+      getStatuses: Effect.all([
+        Fiber.join(codexStatusFiber),
+        Fiber.join(claudeStatusFiber),
+        Fiber.join(kiroStatusFiber),
+      ]).pipe(Effect.map(([codexStatus, claudeStatus, kiroStatus]) => [codexStatus, claudeStatus, kiroStatus])),
     } satisfies ProviderHealthShape;
   }),
 );
