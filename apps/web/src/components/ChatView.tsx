@@ -1164,7 +1164,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
   const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
-  const activeProvider = activeThread?.session?.provider ?? "codex";
+  const activeProvider = activeThread?.session?.provider ?? selectedProvider;
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
     [activeProvider, providerStatuses],
@@ -2735,7 +2735,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
         ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
         provider: selectedProvider,
-        assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+        assistantDeliveryMode:
+          selectedProvider === "kiro" || settings.enableAssistantStreaming
+            ? "streaming"
+            : "buffered",
         runtimeMode,
         interactionMode,
         createdAt: messageCreatedAt,
@@ -3016,7 +3019,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
             : {}),
           ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
           ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          assistantDeliveryMode:
+            selectedProvider === "kiro" || settings.enableAssistantStreaming
+              ? "streaming"
+              : "buffered",
           runtimeMode,
           interactionMode: nextInteractionMode,
           ...(nextInteractionMode === "default" && activeProposedPlan
@@ -3136,7 +3142,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
             : {}),
           ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
           ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          assistantDeliveryMode:
+            selectedProvider === "kiro" || settings.enableAssistantStreaming
+              ? "streaming"
+              : "buffered",
           runtimeMode,
           interactionMode: "default",
           createdAt,

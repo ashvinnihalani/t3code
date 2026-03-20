@@ -61,6 +61,8 @@ interface KiroSessionState {
   turns: Array<KiroTurnSnapshot>;
   pendingPermissionRequests: Map<string, PendingPermissionRequest>;
   suppressReplay: boolean;
+  /** Tracks the ACP `kind` for each tool call so updates/completions can reuse it. */
+  toolCallKinds: Map<string, string>;
 }
 
 interface JsonRpcRequestMessage {
@@ -248,6 +250,8 @@ function toCanonicalItemType(
     case "move":
     case "delete":
       return "file_change";
+    case "read":
+      return "image_view";
     case "search":
     case "fetch":
       return "web_search";
@@ -597,6 +601,7 @@ export class KiroAcpManager extends EventEmitter {
       turns: [],
       pendingPermissionRequests: new Map(),
       suppressReplay: false,
+      toolCallKinds: new Map(),
     };
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
@@ -1111,6 +1116,9 @@ export class KiroAcpManager extends EventEmitter {
       case "tool_call": {
         const toolCallId = normalizeNonEmpty(asString(update?.toolCallId));
         const kind = normalizeNonEmpty(asString(update?.kind));
+        if (toolCallId && kind) {
+          session.toolCallKinds.set(toolCallId, kind);
+        }
         this.emit(
           "event",
           this.runtimeEvent(session, {
@@ -1138,6 +1146,7 @@ export class KiroAcpManager extends EventEmitter {
       case "tool_call_update": {
         const toolCallId = normalizeNonEmpty(asString(update?.toolCallId));
         const status = normalizeNonEmpty(asString(update?.status));
+        const trackedKind = toolCallId ? session.toolCallKinds.get(toolCallId) : undefined;
         const content = asArray(update?.content);
         const detail = content
           ?.map((entry) => {
@@ -1157,21 +1166,22 @@ export class KiroAcpManager extends EventEmitter {
               }
             : {}),
         };
+        const isTerminal = status === "completed" || status === "failed" || status === "cancelled";
         this.emit(
           "event",
           this.runtimeEvent(session, {
-            type:
-              status === "completed" || status === "failed" || status === "cancelled"
-                ? "item.completed"
-                : "item.updated",
+            type: isTerminal ? "item.completed" : "item.updated",
             ...baseEvent,
             payload: {
-              itemType: "dynamic_tool_call",
+              itemType: toCanonicalItemType(trackedKind),
               status: toItemStatus(status),
               ...(detail ? { detail } : {}),
             },
           }),
         );
+        if (isTerminal && toolCallId) {
+          session.toolCallKinds.delete(toolCallId);
+        }
         return;
       }
       default:
