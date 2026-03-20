@@ -25,6 +25,7 @@ import {
 import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHealth";
 
 const DEFAULT_TIMEOUT_MS = 4_000;
+const KIRO_AUTH_TIMEOUT_MS = 10_000;
 const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 const KIRO_PROVIDER = "kiro" as const;
@@ -280,6 +281,18 @@ const runCliCommand = (binary: string, args: ReadonlyArray<string>) =>
 
     return { stdout, stderr, code: exitCode } satisfies CommandResult;
   }).pipe(Effect.scoped);
+
+function shouldRetryKiroWhoamiWithoutFormat(result: CommandResult): boolean {
+  const combinedOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  return (
+    combinedOutput.includes("unknown command") ||
+    combinedOutput.includes("unrecognized command") ||
+    combinedOutput.includes("unexpected argument") ||
+    combinedOutput.includes("unknown option") ||
+    combinedOutput.includes("unsupported option") ||
+    combinedOutput.includes("invalid option")
+  );
+}
 
 function parseKiroAuthStatusFromOutput(result: CommandResult): {
   readonly status: ServerProviderStatusState;
@@ -601,10 +614,23 @@ export const checkKiroProviderStatus: Effect.Effect<
     };
   }
 
-  const authProbe = yield* runCliCommand("kiro-cli", ["whoami", "--format", "json"]).pipe(
-    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+  let authProbe = yield* runCliCommand("kiro-cli", ["whoami", "--format", "json"]).pipe(
+    Effect.timeoutOption(KIRO_AUTH_TIMEOUT_MS),
     Effect.result,
   );
+
+  const shouldRetryWithoutFormat =
+    !Result.isFailure(authProbe) &&
+    (Option.isNone(authProbe.success) ||
+      (Option.isSome(authProbe.success) &&
+        shouldRetryKiroWhoamiWithoutFormat(authProbe.success.value)));
+
+  if (shouldRetryWithoutFormat) {
+    authProbe = yield* runCliCommand("kiro-cli", ["whoami"]).pipe(
+      Effect.timeoutOption(KIRO_AUTH_TIMEOUT_MS),
+      Effect.result,
+    );
+  }
 
   if (Result.isFailure(authProbe)) {
     const error = authProbe.failure;

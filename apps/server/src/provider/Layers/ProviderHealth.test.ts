@@ -5,6 +5,7 @@ import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  checkKiroProviderStatus,
   checkClaudeProviderStatus,
   checkCodexProviderStatus,
   hasCustomModelProvider,
@@ -32,6 +33,21 @@ function mockHandle(result: { stdout: string; stderr: string; code: number }) {
   });
 }
 
+function hangingHandle() {
+  return ChildProcessSpawner.makeHandle({
+    pid: ChildProcessSpawner.ProcessId(1),
+    exitCode: Effect.never,
+    isRunning: Effect.succeed(true),
+    kill: () => Effect.void,
+    stdin: Sink.drain,
+    stdout: Stream.empty,
+    stderr: Stream.empty,
+    all: Stream.empty,
+    getInputFd: () => Sink.drain,
+    getOutputFd: () => Stream.empty,
+  });
+}
+
 function mockSpawnerLayer(
   handler: (args: ReadonlyArray<string>) => { stdout: string; stderr: string; code: number },
 ) {
@@ -40,6 +56,20 @@ function mockSpawnerLayer(
     ChildProcessSpawner.make((command) => {
       const cmd = command as unknown as { args: ReadonlyArray<string> };
       return Effect.succeed(mockHandle(handler(cmd.args)));
+    }),
+  );
+}
+
+function mockSpawnerLayerWithEffects(
+  handler: (
+    args: ReadonlyArray<string>,
+  ) => Effect.Effect<ReturnType<typeof mockHandle>, PlatformError.PlatformError>,
+) {
+  return Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make((command) => {
+      const cmd = command as unknown as { args: ReadonlyArray<string> };
+      return handler(cmd.args);
     }),
   );
 }
@@ -591,6 +621,95 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
             if (joined === "auth status")
               return { stdout: "", stderr: "error: unknown command 'auth'", code: 2 };
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+  });
+
+  describe("checkKiroProviderStatus", () => {
+    it.effect("returns ready when kiro is installed and authenticated", () =>
+      Effect.gen(function* () {
+        const status = yield* checkKiroProviderStatus;
+        assert.strictEqual(status.provider, "kiro");
+        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.available, true);
+        assert.strictEqual(status.authStatus, "authenticated");
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayer((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") return { stdout: "kiro-cli 1.27.3\n", stderr: "", code: 0 };
+            if (joined === "whoami --format json") {
+              return {
+                stdout: '{"email":"user@example.com","region":"us-east-1"}\n',
+                stderr: "",
+                code: 0,
+              };
+            }
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("falls back to plain whoami when the json auth probe times out", () =>
+      Effect.gen(function* () {
+        const status = yield* checkKiroProviderStatus;
+        assert.strictEqual(status.provider, "kiro");
+        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.available, true);
+        assert.strictEqual(status.authStatus, "authenticated");
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayerWithEffects((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") {
+              return Effect.succeed(
+                mockHandle({ stdout: "kiro-cli 1.27.3\n", stderr: "", code: 0 }),
+              );
+            }
+            if (joined === "whoami --format json") {
+              return Effect.succeed(hangingHandle());
+            }
+            if (joined === "whoami") {
+              return Effect.succeed(
+                mockHandle({
+                  stdout: "Logged in with IAM Identity Center\nEmail: user@example.com\n",
+                  stderr: "",
+                  code: 0,
+                }),
+              );
+            }
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("falls back to plain whoami when the json flag is unsupported", () =>
+      Effect.gen(function* () {
+        const status = yield* checkKiroProviderStatus;
+        assert.strictEqual(status.provider, "kiro");
+        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.available, true);
+        assert.strictEqual(status.authStatus, "authenticated");
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayer((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") return { stdout: "kiro-cli 1.27.3\n", stderr: "", code: 0 };
+            if (joined === "whoami --format json") {
+              return { stdout: "", stderr: "error: unknown option '--format'", code: 2 };
+            }
+            if (joined === "whoami") {
+              return {
+                stdout: "Logged in with IAM Identity Center\nEmail: user@example.com\n",
+                stderr: "",
+                code: 0,
+              };
+            }
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
