@@ -12,25 +12,28 @@ export const ProviderHealthBanner = memo(function ProviderHealthBanner({
     return null;
   }
 
+<<<<<<< HEAD
   if (status.kind === "local") {
     if (status.status.status === "ready") {
       return null;
     }
 
+    const providerLabel =
+      status.status.provider === "codex"
+        ? "Codex"
+        : status.status.provider === "claudeAgent"
+          ? "Claude"
+          : "Kiro";
     const defaultMessage =
       status.status.status === "error"
-        ? `${status.status.provider} provider is unavailable.`
-        : `${status.status.provider} provider has limited availability.`;
+        ? `${providerLabel} provider is unavailable.`
+        : `${providerLabel} provider has limited availability.`;
 
     return (
       <div className="pt-3 mx-auto max-w-3xl">
         <Alert variant={status.status.status === "error" ? "error" : "warning"}>
           <CircleAlertIcon />
-          <AlertTitle>
-            {status.status.provider === "codex"
-              ? "Local Codex provider status"
-              : `Local ${status.status.provider} status`}
-          </AlertTitle>
+          <AlertTitle>{`Local ${providerLabel} provider status`}</AlertTitle>
           <AlertDescription
             className="line-clamp-3"
             title={status.status.message ?? defaultMessage}
