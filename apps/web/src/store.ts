@@ -223,7 +223,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "kiro") {
+  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "kiro") {
     return providerName;
   }
   return DEFAULT_PROVIDER_KIND;
@@ -231,6 +231,7 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
 
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set<string>(getModelOptions("codex").map((option) => option.slug)),
+  claudeAgent: new Set<string>(getModelOptions("claudeAgent").map((option) => option.slug)),
   kiro: new Set<string>(getModelOptions("kiro").map((option) => option.slug)),
 };
 
@@ -238,7 +239,11 @@ function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "kiro") {
+  if (
+    input.sessionProviderName === "codex" ||
+    input.sessionProviderName === "claudeAgent" ||
+    input.sessionProviderName === "kiro"
+  ) {
     return input.sessionProviderName;
   }
   for (const provider of Object.keys(BUILT_IN_MODEL_SLUGS_BY_PROVIDER) as ProviderKind[]) {

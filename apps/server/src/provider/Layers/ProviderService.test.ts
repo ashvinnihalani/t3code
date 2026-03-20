@@ -419,6 +419,93 @@ it.effect(
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect(
+  "ProviderServiceLive reuses persisted resume cursor when startSession is called after restart",
+  () =>
+    Effect.gen(function* () {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-service-start-"));
+      const dbPath = path.join(tempDir, "orchestration.sqlite");
+      const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+        Layer.provide(persistenceLayer),
+      );
+
+      const firstCodex = makeFakeCodexAdapter();
+      const firstRegistry: typeof ProviderAdapterRegistry.Service = {
+        getByProvider: (provider) =>
+          provider === "codex"
+            ? Effect.succeed(firstCodex.adapter)
+            : Effect.fail(new ProviderUnsupportedError({ provider })),
+        listProviders: () => Effect.succeed(["codex"]),
+      };
+      const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+        Layer.provide(runtimeRepositoryLayer),
+      );
+      const firstProviderLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry, firstRegistry)),
+        Layer.provide(firstDirectoryLayer),
+        Layer.provide(AnalyticsService.layerTest),
+      );
+
+      const initial = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        return yield* provider.startSession(asThreadId("thread-start-reuse"), {
+          provider: "codex",
+          threadId: asThreadId("thread-start-reuse"),
+          cwd: "/tmp/project-start-reuse",
+          runtimeMode: "full-access",
+        });
+      }).pipe(Effect.provide(firstProviderLayer));
+
+      const secondCodex = makeFakeCodexAdapter();
+      const secondRegistry: typeof ProviderAdapterRegistry.Service = {
+        getByProvider: (provider) =>
+          provider === "codex"
+            ? Effect.succeed(secondCodex.adapter)
+            : Effect.fail(new ProviderUnsupportedError({ provider })),
+        listProviders: () => Effect.succeed(["codex"]),
+      };
+      const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+        Layer.provide(runtimeRepositoryLayer),
+      );
+      const secondProviderLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry, secondRegistry)),
+        Layer.provide(secondDirectoryLayer),
+        Layer.provide(AnalyticsService.layerTest),
+      );
+
+      secondCodex.startSession.mockClear();
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        yield* provider.startSession(initial.threadId, {
+          provider: "codex",
+          threadId: initial.threadId,
+          cwd: "/tmp/project-start-reuse",
+          runtimeMode: "full-access",
+        });
+      }).pipe(Effect.provide(secondProviderLayer));
+
+      assert.equal(secondCodex.startSession.mock.calls.length, 1);
+      const resumedStartInput = secondCodex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+      if (resumedStartInput && typeof resumedStartInput === "object") {
+        const startPayload = resumedStartInput as {
+          provider?: string;
+          cwd?: string;
+          resumeCursor?: unknown;
+          threadId?: string;
+        };
+        assert.equal(startPayload.provider, "codex");
+        assert.equal(startPayload.cwd, "/tmp/project-start-reuse");
+        assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
+        assert.equal(startPayload.threadId, initial.threadId);
+      }
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("ProviderServiceLive falls back to a fresh Kiro session when resume state is gone", () =>
   (() => {
     const kiro = makeFakeCodexAdapter("kiro");
@@ -653,65 +740,92 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect("recovers stale sessions for sendTurn using persisted cwd", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+  it.effect(
+    "recovers stale sessions for sendTurn using persisted cwd, model options, and provider options",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
-      const initial = yield* provider.startSession(asThreadId("thread-1"), {
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        cwd: "/tmp/project-send-turn",
-        runtimeMode: "full-access",
-      });
+        const initial = yield* provider.startSession(asThreadId("thread-1"), {
+          provider: "codex",
+          threadId: asThreadId("thread-1"),
+          cwd: "/tmp/project-send-turn",
+          model: "gpt-5.3-codex",
+          modelOptions: {
+            codex: {
+              reasoningEffort: "high",
+              fastMode: true,
+            },
+          },
+          providerOptions: {
+            codex: {
+              binaryPath: "/usr/local/bin/codex",
+            },
+          },
+          runtimeMode: "full-access",
+        });
 
-      yield* routing.codex.stopAll();
-      routing.codex.startSession.mockClear();
-      routing.codex.sendTurn.mockClear();
+        yield* routing.codex.stopAll();
+        routing.codex.startSession.mockClear();
+        routing.codex.sendTurn.mockClear();
 
-      yield* provider.sendTurn({
-        threadId: initial.threadId,
-        input: "resume",
-        attachments: [],
-      });
+        yield* provider.sendTurn({
+          threadId: initial.threadId,
+          input: "resume",
+          attachments: [],
+        });
 
-      assert.equal(routing.codex.startSession.mock.calls.length, 1);
-      const resumedStartInput = routing.codex.startSession.mock.calls[0]?.[0];
-      assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
-      if (resumedStartInput && typeof resumedStartInput === "object") {
-        const startPayload = resumedStartInput as {
-          provider?: string;
-          cwd?: string;
-          resumeCursor?: unknown;
-          threadId?: string;
-        };
-        assert.equal(startPayload.provider, "codex");
-        assert.equal(startPayload.cwd, "/tmp/project-send-turn");
-        assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
-        assert.equal(startPayload.threadId, initial.threadId);
-      }
-      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
-
-      const recoveredRuntime = yield* runtimeRepository.getByThreadId({
-        threadId: initial.threadId,
-      });
-      assert.equal(Option.isSome(recoveredRuntime), true);
-      if (Option.isSome(recoveredRuntime)) {
-        const payload = recoveredRuntime.value.runtimePayload;
-        assert.equal(payload !== null && typeof payload === "object", true);
-        if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
-          const runtimePayload = payload as {
-            reconnectState?: string;
-            reconnectSummary?: string;
+        assert.equal(routing.codex.startSession.mock.calls.length, 1);
+        const resumedStartInput = routing.codex.startSession.mock.calls[0]?.[0];
+        assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+        if (resumedStartInput && typeof resumedStartInput === "object") {
+          const startPayload = resumedStartInput as {
+            provider?: string;
+            cwd?: string;
+            modelOptions?: unknown;
+            providerOptions?: unknown;
+            resumeCursor?: unknown;
+            threadId?: string;
           };
-          assert.equal(runtimePayload.reconnectState, "resume-thread");
-          assert.equal(
-            runtimePayload.reconnectSummary,
-            "Resumed the persisted remote provider session.",
-          );
+          assert.equal(startPayload.provider, "codex");
+          assert.equal(startPayload.cwd, "/tmp/project-send-turn");
+          assert.deepEqual(startPayload.modelOptions, {
+            codex: {
+              reasoningEffort: "high",
+              fastMode: true,
+            },
+          });
+          assert.deepEqual(startPayload.providerOptions, {
+            codex: {
+              binaryPath: "/usr/local/bin/codex",
+            },
+          });
+          assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
+          assert.equal(startPayload.threadId, initial.threadId);
         }
-      }
-    }),
+        assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+
+        const recoveredRuntime = yield* runtimeRepository.getByThreadId({
+          threadId: initial.threadId,
+        });
+        assert.equal(Option.isSome(recoveredRuntime), true);
+        if (Option.isSome(recoveredRuntime)) {
+          const payload = recoveredRuntime.value.runtimePayload;
+          assert.equal(payload !== null && typeof payload === "object", true);
+          if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+            const runtimePayload = payload as {
+              reconnectState?: string;
+              reconnectSummary?: string;
+            };
+            assert.equal(runtimePayload.reconnectState, "resume-thread");
+            assert.equal(
+              runtimePayload.reconnectSummary,
+              "Resumed the persisted remote provider session.",
+            );
+          }
+        }
+      }),
   );
 
   it.effect("lists no sessions after adapter runtime clears", () =>

@@ -75,6 +75,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     example: "gpt-6.7-codex-ultra-preview",
   },
   {
+    provider: "claudeAgent",
+    title: "Claude",
+    description: "Save additional Claude model slugs for the picker and `/model` command.",
+    placeholder: "your-claude-model-slug",
+    example: "claude-opus-4-6-20251117",
+  },
+  {
     provider: "kiro",
     title: "Kiro CLI",
     description: "Save additional Kiro model slugs for the picker and `/model` command.",
@@ -147,6 +154,8 @@ function getCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return settings.customCodexModels;
+    case "claudeAgent":
+      return settings.customClaudeModels;
     case "kiro":
       return settings.customKiroModels;
   }
@@ -159,6 +168,8 @@ function getDefaultCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return defaults.customCodexModels;
+    case "claudeAgent":
+      return defaults.customClaudeModels;
     case "kiro":
       return defaults.customKiroModels;
   }
@@ -168,6 +179,8 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
       return { customCodexModels: models };
+    case "claudeAgent":
+      return { customClaudeModels: models };
     case "kiro":
       return { customKiroModels: models };
   }
@@ -189,6 +202,7 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
+    claudeAgent: "",
     kiro: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<

@@ -25,7 +25,7 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
   label: string;
   available: true;
 } {
-  return option.available && option.value !== "claudeCode";
+  return option.available;
 }
 
 function resolveModelForProviderPicker(
@@ -63,8 +63,8 @@ function resolveModelForProviderPicker(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  claudeAgent: ClaudeAI,
   kiro: KiroCliIcon,
-  claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
 
@@ -181,7 +181,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 aria-hidden="true"
                 className={cn(
                   "size-4 shrink-0 opacity-80",
-                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
+                  option.value === "claudeAgent" ? "" : "text-muted-foreground/85",
                 )}
               />
               <span>{option.label}</span>

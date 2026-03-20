@@ -606,7 +606,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
   const customModelsForSelectedProvider =
-    selectedProvider === "kiro" ? settings.customKiroModels : settings.customCodexModels;
+    selectedProvider === "claudeAgent"
+      ? settings.customClaudeModels
+      : selectedProvider === "kiro"
+        ? settings.customKiroModels
+        : settings.customCodexModels;
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -618,9 +622,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       draftModel,
     ) as ModelSlug;
   }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
-  const reasoningOptions = getReasoningEffortOptions(selectedProvider);
+  const reasoningOptions = selectedProvider === "codex" ? getReasoningEffortOptions("codex") : [];
   const supportsReasoningEffort = reasoningOptions.length > 0;
-  const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
+  const selectedEffort =
+    selectedProvider === "codex"
+      ? (reasoningOptions.find((option) => option === composerDraft.effort) ??
+        getDefaultReasoningEffort("codex"))
+      : null;
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedModelOptionsForDispatch = useMemo(() => {
@@ -654,6 +662,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           binaryPath: activeProjectKiroOverride.binaryPath,
         },
       };
+    }
+    if (selectedProvider === "claudeAgent") {
+      return undefined;
     }
     if (!activeProjectCodexOverride.binaryPath && !activeProjectCodexOverride.homePath) {
       return undefined;
@@ -3211,7 +3222,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       const customModels =
-        provider === "kiro" ? settings.customKiroModels : settings.customCodexModels;
+        provider === "claudeAgent"
+          ? settings.customClaudeModels
+          : provider === "kiro"
+            ? settings.customKiroModels
+            : settings.customCodexModels;
       setComposerDraftProvider(activeThread.id, provider);
       setComposerDraftModel(
         activeThread.id,
@@ -3233,6 +3248,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftModel,
       setComposerDraftInteractionMode,
       setComposerDraftProvider,
+      settings.customClaudeModels,
       settings.customCodexModels,
       settings.customKiroModels,
     ],
