@@ -12,7 +12,6 @@ export const ProviderHealthBanner = memo(function ProviderHealthBanner({
     return null;
   }
 
-<<<<<<< HEAD
   if (status.kind === "local") {
     if (status.status.status === "ready") {
       return null;
