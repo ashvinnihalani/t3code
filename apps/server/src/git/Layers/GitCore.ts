@@ -1,6 +1,7 @@
 import { Cache, Data, Duration, Effect, Exit, FileSystem, Layer, Path } from "effect";
 
 import { readRemoteHomeDir } from "../../sshCommand";
+import { ServerConfig } from "../../config.ts";
 import { GitCommandError } from "../Errors.ts";
 import { GitService } from "../Services/GitService.ts";
 import { GitCore, type GitCoreShape, type GitExecutionContext } from "../Services/GitCore.ts";
@@ -223,6 +224,7 @@ const makeGitCore = Effect.gen(function* () {
   const git = yield* GitService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const { worktreesDir } = yield* ServerConfig;
 
   const executeGit = (
     operation: string,
@@ -1306,15 +1308,18 @@ const makeGitCore = Effect.gen(function* () {
       const targetBranch = input.newBranch ?? input.branch;
       const sanitizedBranch = targetBranch.replace(/\//g, "-");
       const repoName = path.basename(input.cwd);
-      const homeDir =
+      const remoteHomeDir =
         input.remote?.kind === "ssh"
           ? (readRemoteHomeDir({
               hostAlias: input.remote.hostAlias,
               localCwd: process.cwd(),
             }) ?? "/tmp")
-          : (process.env.HOME ?? process.env.USERPROFILE ?? "/tmp");
+          : null;
       const worktreePath =
-        input.path ?? path.join(homeDir, ".t3", "worktrees", repoName, sanitizedBranch);
+        input.path ??
+        (remoteHomeDir
+          ? path.join(remoteHomeDir, ".t3", "worktrees", repoName, sanitizedBranch)
+          : path.join(worktreesDir, repoName, sanitizedBranch));
       const args = input.newBranch
         ? ["worktree", "add", "-b", input.newBranch, worktreePath, input.branch]
         : ["worktree", "add", worktreePath, input.branch];

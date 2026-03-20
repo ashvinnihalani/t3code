@@ -512,7 +512,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           };
 
           const attachmentPath = resolveAttachmentPath({
-            stateDir: serverConfig.stateDir,
+            attachmentsDir: serverConfig.attachmentsDir,
             attachment: persistedAttachment,
           });
           if (!attachmentPath) {
@@ -708,7 +708,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           }
 
           const filePath = resolveAttachmentPathById({
-            stateDir: serverConfig.stateDir,
+            attachmentsDir: serverConfig.attachmentsDir,
             attachmentId: attachmentRequest.attachmentId,
           });
           if (!filePath) {
