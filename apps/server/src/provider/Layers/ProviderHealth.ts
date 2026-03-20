@@ -751,7 +751,13 @@ export const ProviderHealthLive = Layer.effect(
         Fiber.join(codexStatusFiber),
         Fiber.join(claudeStatusFiber),
         Fiber.join(kiroStatusFiber),
-      ]).pipe(Effect.map(([codexStatus, claudeStatus, kiroStatus]) => [codexStatus, claudeStatus, kiroStatus])),
+      ]).pipe(
+        Effect.map(([codexStatus, claudeStatus, kiroStatus]) => [
+          codexStatus,
+          claudeStatus,
+          kiroStatus,
+        ]),
+      ),
     } satisfies ProviderHealthShape;
   }),
 );

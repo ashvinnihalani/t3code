@@ -5,7 +5,6 @@ import {
   SUPPORTED_INTERACTION_MODES_BY_PROVIDER,
   type EditorId,
   type KeybindingCommand,
-  type CodexReasoningEffort,
   type MessageId,
   type ProjectId,
   type ProjectEntry,
@@ -25,10 +24,12 @@ import {
 } from "@t3tools/contracts";
 import {
   getDefaultModel,
-  getDefaultReasoningEffort,
-  getReasoningEffortOptions,
+  isClaudeUltrathinkPrompt,
+  normalizeClaudeModelOptions,
+  normalizeCodexModelOptions,
   normalizeModelSlug,
   resolveModelSlugForProvider,
+  supportsClaudeUltrathinkKeyword,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -154,8 +155,9 @@ import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/Expanded
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
-import { CodexTraitsPicker } from "./chat/CodexTraitsPicker";
+import { ClaudeTraitsMenuContent, ClaudeTraitsPicker } from "./chat/ClaudeTraitsPicker";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
+import { CodexTraitsMenuContent, CodexTraitsPicker } from "./chat/CodexTraitsPicker";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
@@ -269,8 +271,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
-  const setComposerDraftEffort = useComposerDraftStore((store) => store.setEffort);
-  const setComposerDraftCodexFastMode = useComposerDraftStore((store) => store.setCodexFastMode);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -622,25 +622,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
       draftModel,
     ) as ModelSlug;
   }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
-  const reasoningOptions = selectedProvider === "codex" ? getReasoningEffortOptions("codex") : [];
-  const supportsReasoningEffort = reasoningOptions.length > 0;
-  const selectedEffort =
-    selectedProvider === "codex"
-      ? (reasoningOptions.find((option) => option === composerDraft.effort) ??
-        getDefaultReasoningEffort("codex"))
-      : null;
-  const selectedCodexFastModeEnabled =
-    selectedProvider === "codex" ? composerDraft.codexFastMode : false;
+  const draftModelOptions = composerDraft.modelOptions;
+  const isClaudeUltrathink =
+    selectedProvider === "claudeAgent" &&
+    supportsClaudeUltrathinkKeyword(selectedModel) &&
+    isClaudeUltrathinkPrompt(prompt);
   const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider !== "codex") {
+    if (selectedProvider === "codex") {
+      const codexOptions = normalizeCodexModelOptions(draftModelOptions?.codex);
+      return codexOptions ? { codex: codexOptions } : undefined;
+    }
+    if (selectedProvider === "claudeAgent") {
+      const claudeOptions = normalizeClaudeModelOptions(
+        selectedModel,
+        draftModelOptions?.claudeAgent,
+      );
+      return claudeOptions ? { claudeAgent: claudeOptions } : undefined;
+    }
+    if (selectedProvider === "kiro") {
       return undefined;
     }
-    const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
-      ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
-    };
-    return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
-  }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
+    return undefined;
+  }, [draftModelOptions, selectedModel, selectedProvider]);
   const activeProjectCodexHostAlias =
     activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
   const activeProjectKiroHostAlias = activeProjectCodexHostAlias;
@@ -3253,19 +3256,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       settings.customKiroModels,
     ],
   );
-  const onEffortSelect = useCallback(
-    (effort: CodexReasoningEffort) => {
-      setComposerDraftEffort(threadId, effort);
+  const setPromptFromTraits = useCallback(
+    (nextPrompt: string) => {
+      setPrompt(nextPrompt);
       scheduleComposerFocus();
     },
-    [scheduleComposerFocus, setComposerDraftEffort, threadId],
-  );
-  const onCodexFastModeChange = useCallback(
-    (enabled: boolean) => {
-      setComposerDraftCodexFastMode(threadId, enabled);
-      scheduleComposerFocus();
-    },
-    [scheduleComposerFocus, setComposerDraftCodexFastMode, threadId],
+    [scheduleComposerFocus, setPrompt],
   );
   const onEnvModeChange = useCallback(
     (mode: DraftThreadEnvMode) => {
@@ -3902,6 +3898,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         model={selectedModelForPickerWithCustomFallback}
                         lockedProvider={lockedProvider}
                         modelOptionsByProvider={modelOptionsByProvider}
+                        ultrathinkActive={isClaudeUltrathink}
                         onProviderModelChange={onProviderModelSelect}
                       />
 
@@ -3912,30 +3909,42 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           supportedInteractionModes={supportedInteractionModes}
                           planSidebarOpen={planSidebarOpen}
                           runtimeMode={runtimeMode}
-                          selectedEffort={selectedEffort}
-                          selectedProvider={selectedProvider}
-                          selectedCodexFastModeEnabled={selectedCodexFastModeEnabled}
-                          reasoningOptions={reasoningOptions}
-                          onEffortSelect={onEffortSelect}
-                          onCodexFastModeChange={onCodexFastModeChange}
+                          traitsMenuContent={
+                            selectedProvider === "codex" ? (
+                              <CodexTraitsMenuContent threadId={threadId} />
+                            ) : selectedProvider === "claudeAgent" ? (
+                              <ClaudeTraitsMenuContent
+                                threadId={threadId}
+                                model={selectedModel}
+                                onPromptChange={setPromptFromTraits}
+                              />
+                            ) : null
+                          }
                           onInteractionModeSelect={handleInteractionModeChange}
+                          onToggleInteractionMode={toggleInteractionMode}
                           onTogglePlanSidebar={togglePlanSidebar}
                           onToggleRuntimeMode={toggleRuntimeMode}
                         />
                       ) : (
                         <>
-                          {selectedProvider === "codex" && selectedEffort != null ? (
+                          {selectedProvider === "codex" ? (
                             <>
                               <Separator
                                 orientation="vertical"
                                 className="mx-0.5 hidden h-4 sm:block"
                               />
-                              <CodexTraitsPicker
-                                effort={selectedEffort}
-                                fastModeEnabled={selectedCodexFastModeEnabled}
-                                options={reasoningOptions}
-                                onEffortChange={onEffortSelect}
-                                onFastModeChange={onCodexFastModeChange}
+                              <CodexTraitsPicker threadId={threadId} />
+                            </>
+                          ) : selectedProvider === "claudeAgent" ? (
+                            <>
+                              <Separator
+                                orientation="vertical"
+                                className="mx-0.5 hidden h-4 sm:block"
+                              />
+                              <ClaudeTraitsPicker
+                                threadId={threadId}
+                                model={selectedModel}
+                                onPromptChange={setPromptFromTraits}
                               />
                             </>
                           ) : null}

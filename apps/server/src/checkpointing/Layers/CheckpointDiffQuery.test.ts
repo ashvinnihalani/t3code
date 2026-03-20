@@ -257,6 +257,8 @@ describe("CheckpointDiffQueryLive", () => {
             threadId,
             turnId: TurnId.makeUnsafe("turn-1"),
             pendingMessageId: null,
+            sourceProposedPlanThreadId: null,
+            sourceProposedPlanId: null,
             assistantMessageId: null,
             state: "completed" as const,
             requestedAt: "2026-01-01T00:00:00.000Z",
