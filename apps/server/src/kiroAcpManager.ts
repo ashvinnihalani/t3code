@@ -414,6 +414,23 @@ function permissionDecisionForOptionKinds(
   return { outcome: { outcome: "selected", optionId: selected.optionId } };
 }
 
+function autoApproveDecisionForRuntimeMode(
+  runtimeMode: ProviderSession["runtimeMode"],
+): ProviderApprovalDecision | undefined {
+  return runtimeMode === "full-access" ? "acceptForSession" : undefined;
+}
+
+export function buildKiroAcpArgs(input: {
+  readonly runtimeMode: ProviderSession["runtimeMode"];
+  readonly model?: string;
+}): ReadonlyArray<string> {
+  return [
+    "acp",
+    ...(input.model ? ["--model", input.model] : []),
+    ...(input.runtimeMode === "full-access" ? ["--trust-all-tools"] : []),
+  ];
+}
+
 function buildPromptBlocks(input: {
   readonly text?: string;
   readonly attachments?: ReadonlyArray<{ readonly mimeType: string; readonly data: string }>;
@@ -620,6 +637,7 @@ export class KiroAcpManager extends EventEmitter {
     const binaryPath = input.binaryPath ?? DEFAULT_BINARY_PATH;
     const { process, command } = this.spawnProcess({
       binaryPath,
+      runtimeMode: input.runtimeMode,
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.remote ? { remote: input.remote } : {}),
@@ -969,11 +987,15 @@ export class KiroAcpManager extends EventEmitter {
 
   private spawnProcess(input: {
     readonly binaryPath: string;
+    readonly runtimeMode: ProviderSession["runtimeMode"];
     readonly cwd?: string;
     readonly model?: string;
     readonly remote?: ProjectRemoteTarget;
   }): { readonly process: ChildProcessWithoutNullStreams; readonly command: string } {
-    const acpArgs = ["acp", ...(input.model ? ["--model", input.model] : [])];
+    const acpArgs = buildKiroAcpArgs({
+      runtimeMode: input.runtimeMode,
+      ...(input.model ? { model: input.model } : {}),
+    });
     if (input.remote?.kind === "ssh") {
       return {
         process: spawn(
@@ -1174,7 +1196,15 @@ export class KiroAcpManager extends EventEmitter {
     message: JsonRpcRequestMessage,
   ): Promise<void> {
     if (message.method !== "session/request_permission") {
-      session.rpc.respond(message.id, null);
+      const detail = `Unsupported Kiro ACP request method '${message.method}'.`;
+      this.emitErrorEvent(session, "session/requestUnsupported", detail, {
+        method: message.method,
+        params: message.params,
+      });
+      session.rpc.respond(message.id, undefined, {
+        code: -32601,
+        message: detail,
+      });
       return;
     }
 
@@ -1197,27 +1227,51 @@ export class KiroAcpManager extends EventEmitter {
       return acc;
     }, []);
     const toolCallId = normalizeNonEmpty(asString(toolCall?.toolCallId));
-    session.pendingPermissionRequests.set(requestId, {
-      rpcRequestId: message.id,
+    const method = permissionRequestMethod(normalizeNonEmpty(asString(toolCall?.kind)));
+    const route = {
+      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+      ...(toolCallId ? { itemId: ProviderItemId.makeUnsafe(toolCallId) } : {}),
       requestId,
-      toolCallId,
-      requestKind,
-      method: permissionRequestMethod(normalizeNonEmpty(asString(toolCall?.kind))),
-      options,
-    });
+      ...(requestKind ? { requestKind } : {}),
+    } as const;
+    const providerEventPayload = params ?? {};
+
     this.emit("event", {
       id: EventId.makeUnsafe(randomUUID()),
       kind: "request",
       provider: PROVIDER,
       threadId: session.threadId,
       createdAt: nowIso(),
-      method: permissionRequestMethod(normalizeNonEmpty(asString(toolCall?.kind))),
-      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-      ...(toolCallId ? { itemId: ProviderItemId.makeUnsafe(toolCallId) } : {}),
-      requestId,
-      ...(requestKind ? { requestKind } : {}),
-      payload: params,
+      method,
+      ...route,
+      payload: providerEventPayload,
     } satisfies ProviderEvent);
+
+    const autoDecision = autoApproveDecisionForRuntimeMode(session.runtimeMode);
+    if (autoDecision) {
+      session.rpc.respond(message.id, permissionDecisionForOptionKinds(options, autoDecision));
+      this.emitNotificationEvent(
+        session,
+        "item/requestApproval/decision",
+        {
+          requestId,
+          ...(requestKind ? { requestKind } : {}),
+          decision: autoDecision,
+          autoApproved: true,
+        },
+        route,
+      );
+      return;
+    }
+
+    session.pendingPermissionRequests.set(requestId, {
+      rpcRequestId: message.id,
+      requestId,
+      toolCallId,
+      requestKind,
+      method,
+      options,
+    });
   }
 
   private async handleNotification(
@@ -1482,6 +1536,24 @@ export class KiroAcpManager extends EventEmitter {
       ...(route?.itemId ? { itemId: route.itemId } : {}),
       ...(route?.requestId ? { requestId: route.requestId } : {}),
       ...(route?.requestKind ? { requestKind: route.requestKind } : {}),
+      ...(payload !== undefined ? { payload } : {}),
+    } satisfies ProviderEvent);
+  }
+
+  private emitErrorEvent(
+    session: KiroSessionState,
+    method: string,
+    message: string,
+    payload?: unknown,
+  ): void {
+    this.emit("event", {
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "error",
+      provider: PROVIDER,
+      threadId: session.threadId,
+      createdAt: nowIso(),
+      method,
+      message,
       ...(payload !== undefined ? { payload } : {}),
     } satisfies ProviderEvent);
   }

@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadId, TurnId } from "@t3tools/contracts";
+import { type ProviderSession, ThreadId, TurnId } from "@t3tools/contracts";
 
-import { formatKiroProcessExitMessage, KiroAcpManager, readKiroTextChunk } from "./kiroAcpManager";
+import {
+  buildKiroAcpArgs,
+  formatKiroProcessExitMessage,
+  KiroAcpManager,
+  readKiroTextChunk,
+} from "./kiroAcpManager";
 
 function createTestSession() {
   return {
@@ -14,11 +19,11 @@ function createTestSession() {
       respond: vi.fn(),
       notify: vi.fn(),
     },
-    runtimeMode: "full-access" as const,
+    runtimeMode: "full-access" as ProviderSession["runtimeMode"],
     cwd: undefined,
     createdAt: "2026-03-19T00:00:00.000Z",
     updatedAt: "2026-03-19T00:00:00.000Z",
-    status: "ready" as const,
+    status: "ready" as ProviderSession["status"],
     model: undefined,
     sessionId: "session-1",
     activeTurnId: TurnId.makeUnsafe("turn-1"),
@@ -65,6 +70,26 @@ describe("formatKiroProcessExitMessage", () => {
         command: "kiro-cli acp",
       }),
     ).toContain("full `kiro-cli` executable path");
+  });
+});
+
+describe("buildKiroAcpArgs", () => {
+  it("enables trust-all for full-access sessions", () => {
+    expect(
+      buildKiroAcpArgs({
+        runtimeMode: "full-access",
+        model: "claude-opus-4.6",
+      }),
+    ).toEqual(["acp", "--model", "claude-opus-4.6", "--trust-all-tools"]);
+  });
+
+  it("keeps supervised sessions on Kiro's default permission flow", () => {
+    expect(
+      buildKiroAcpArgs({
+        runtimeMode: "approval-required",
+        model: "claude-opus-4.6",
+      }),
+    ).toEqual(["acp", "--model", "claude-opus-4.6"]);
   });
 });
 
@@ -198,6 +223,162 @@ describe("KiroAcpManager", () => {
           payload: expect.objectContaining({
             reason: expect.stringContaining("session/cancel"),
           }),
+        }),
+      ]),
+    );
+  });
+
+  it("auto-approves permission requests in full-access mode", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    const events: Array<{ kind?: string; method: string; payload?: unknown; requestId?: string }> =
+      [];
+    manager.on("event", (event) => {
+      events.push(
+        event as { kind?: string; method: string; payload?: unknown; requestId?: string },
+      );
+    });
+
+    await (
+      manager as unknown as {
+        handleRequest: (
+          session: ReturnType<typeof createTestSession>,
+          message: {
+            jsonrpc: "2.0";
+            id: number;
+            method: string;
+            params: unknown;
+          },
+        ) => Promise<void>;
+      }
+    ).handleRequest(session, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "session/request_permission",
+      params: {
+        toolCall: {
+          toolCallId: "tool-1",
+          title: "Running: pwd",
+        },
+        options: [
+          { optionId: "allow_always", kind: "allow_always" },
+          { optionId: "allow_once", kind: "allow_once" },
+          { optionId: "reject_once", kind: "reject_once" },
+        ],
+      },
+    });
+
+    expect(session.rpc.respond).toHaveBeenCalledWith(1, {
+      outcome: {
+        outcome: "selected",
+        optionId: "allow_always",
+      },
+    });
+    expect(session.pendingPermissionRequests.size).toBe(0);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "request",
+          method: "item/requestApproval",
+        }),
+        expect.objectContaining({
+          method: "item/requestApproval/decision",
+          payload: expect.objectContaining({
+            decision: "acceptForSession",
+            autoApproved: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("tracks permission requests for supervised sessions", async () => {
+    const manager = new KiroAcpManager();
+    const session = {
+      ...createTestSession(),
+      runtimeMode: "approval-required" as const,
+    };
+    const events: Array<{ kind?: string; method: string; requestId?: string }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { kind?: string; method: string; requestId?: string });
+    });
+
+    await (
+      manager as unknown as {
+        handleRequest: (
+          session: ReturnType<typeof createTestSession>,
+          message: {
+            jsonrpc: "2.0";
+            id: number;
+            method: string;
+            params: unknown;
+          },
+        ) => Promise<void>;
+      }
+    ).handleRequest(session, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "session/request_permission",
+      params: {
+        toolCall: {
+          toolCallId: "tool-1",
+          title: "Running: pwd",
+        },
+        options: [{ optionId: "allow_once", kind: "allow_once" }],
+      },
+    });
+
+    expect(session.rpc.respond).not.toHaveBeenCalled();
+    expect(session.pendingPermissionRequests.size).toBe(1);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "request",
+          method: "item/requestApproval",
+        }),
+      ]),
+    );
+  });
+
+  it("rejects unsupported ACP request methods explicitly", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    const events: Array<{ kind?: string; method: string; message?: string }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { kind?: string; method: string; message?: string });
+    });
+
+    await (
+      manager as unknown as {
+        handleRequest: (
+          session: ReturnType<typeof createTestSession>,
+          message: {
+            jsonrpc: "2.0";
+            id: number;
+            method: string;
+            params: unknown;
+          },
+        ) => Promise<void>;
+      }
+    ).handleRequest(session, {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "session/request_user_input",
+      params: {
+        prompt: "Choose a default model",
+      },
+    });
+
+    expect(session.rpc.respond).toHaveBeenCalledWith(7, undefined, {
+      code: -32601,
+      message: "Unsupported Kiro ACP request method 'session/request_user_input'.",
+    });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "error",
+          method: "session/requestUnsupported",
+          message: "Unsupported Kiro ACP request method 'session/request_user_input'.",
         }),
       ]),
     );
