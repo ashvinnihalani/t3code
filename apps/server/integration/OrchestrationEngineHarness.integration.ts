@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -13,9 +10,11 @@ import {
 import {
   Effect,
   Exit,
+  FileSystem,
   Layer,
   ManagedRuntime,
   Option,
+  Path,
   Ref,
   Schedule,
   Schema,
@@ -67,7 +66,7 @@ import {
   makeTestProviderAdapterHarness,
   type TestProviderAdapterHarness,
 } from "./TestProviderAdapter.integration.ts";
-import { ServerConfig } from "../src/config.ts";
+import { deriveServerPaths, ServerConfig } from "../src/config.ts";
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
   return execFileSync("git", args, {
@@ -77,14 +76,16 @@ function runGit(cwd: string, args: ReadonlyArray<string>) {
   });
 }
 
-function initializeGitWorkspace(cwd: string) {
+const initializeGitWorkspace = Effect.fn(function* (cwd: string) {
   runGit(cwd, ["init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.email", "test@example.com"]);
   runGit(cwd, ["config", "user.name", "Test User"]);
-  fs.writeFileSync(path.join(cwd, "README.md"), "v1\n", "utf8");
+  const fileSystem = yield* FileSystem.FileSystem;
+  const { join } = yield* Path.Path;
+  yield* fileSystem.writeFileString(join(cwd, "README.md"), "v1\n");
   runGit(cwd, ["add", "."]);
   runGit(cwd, ["commit", "-m", "Initial"]);
-}
+});
 
 export function gitRefExists(cwd: string, ref: string): boolean {
   try {
@@ -215,7 +216,9 @@ export const makeOrchestrationIntegrationHarness = (
   options?: MakeOrchestrationIntegrationHarnessOptions,
 ) =>
   Effect.gen(function* () {
-    const sleep = (ms: number) => Effect.sleep(ms);
+    const path = yield* Path.Path;
+    const fileSystem = yield* FileSystem.FileSystem;
+
     const provider = options?.provider ?? "codex";
     const useRealCodex = options?.realCodex === true;
     const adapterHarness = useRealCodex
@@ -232,13 +235,16 @@ export const makeOrchestrationIntegrationHarness = (
           listProviders: () => Effect.succeed([adapterHarness.provider]),
         } as typeof ProviderAdapterRegistry.Service)
       : null;
-    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-orchestration-integration-"));
+    const rootDir = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "t3-orchestration-integration-",
+    });
     const workspaceDir = path.join(rootDir, "workspace");
-    const stateDir = path.join(rootDir, "state");
-    const dbPath = path.join(stateDir, "state.sqlite");
-    fs.mkdirSync(workspaceDir, { recursive: true });
-    fs.mkdirSync(stateDir, { recursive: true });
-    initializeGitWorkspace(workspaceDir);
+    const { stateDir, dbPath } = yield* deriveServerPaths(rootDir, undefined).pipe(
+      Effect.provideService(Path.Path, path),
+    );
+    yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });
+    yield* fileSystem.makeDirectory(stateDir, { recursive: true });
+    yield* initializeGitWorkspace(workspaceDir);
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -263,7 +269,7 @@ export const makeOrchestrationIntegrationHarness = (
       }),
     ).pipe(
       Layer.provide(makeCodexAdapterLive()),
-      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, stateDir)),
+      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
@@ -316,7 +322,7 @@ export const makeOrchestrationIntegrationHarness = (
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),
-      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, stateDir)),
+      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -356,7 +362,7 @@ export const makeOrchestrationIntegrationHarness = (
     yield* Stream.runForEach(runtimeReceiptBus.stream, (receipt) =>
       Ref.update(receiptHistory, (history) => [...history, receipt]).pipe(Effect.asVoid),
     ).pipe(Effect.forkIn(scope));
-    yield* sleep(10);
+    yield* Effect.sleep(10);
 
     const waitForThread: OrchestrationIntegrationHarness["waitForThread"] = (
       threadId,
@@ -473,13 +479,7 @@ export const makeOrchestrationIntegrationHarness = (
         }
       });
 
-      yield* shutdown.pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            fs.rmSync(rootDir, { recursive: true, force: true });
-          }),
-        ),
-      );
+      yield* shutdown;
     });
 
     return {

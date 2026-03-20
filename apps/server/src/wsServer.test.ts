@@ -8,7 +8,7 @@ import { Effect, Exit, Layer, PlatformError, PubSub, Scope, Stream } from "effec
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { createServer } from "./wsServer";
 import WebSocket from "ws";
-import { ServerConfig, type ServerConfigShape } from "./config";
+import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config";
 import { makeServerProviderLayer, makeServerRuntimeServicesLayer } from "./serverLayers";
 
 import {
@@ -565,6 +565,16 @@ function expectAvailableEditors(value: unknown): void {
   }
 }
 
+function ensureParentDir(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function deriveServerPathsSync(baseDir: string, devUrl: URL | undefined) {
+  return Effect.runSync(
+    deriveServerPaths(baseDir, devUrl).pipe(Effect.provide(NodeServices.layer)),
+  );
+}
+
 describe("WebSocket Server", () => {
   let server: Http.Server | null = null;
   let serverScope: Scope.Closeable | null = null;
@@ -588,7 +598,7 @@ describe("WebSocket Server", () => {
       logWebSocketEvents?: boolean;
       devUrl?: string;
       authToken?: string;
-      stateDir?: string;
+      baseDir?: string;
       staticDir?: string;
       providerLayer?: Layer.Layer<ProviderService, never>;
       providerHealth?: ProviderHealthShape;
@@ -602,7 +612,9 @@ describe("WebSocket Server", () => {
       throw new Error("Test server is already running");
     }
 
-    const stateDir = options.stateDir ?? makeTempDir("t3code-ws-state-");
+    const baseDir = options.baseDir ?? makeTempDir("t3code-ws-base-");
+    const devUrl = options.devUrl ? new URL(options.devUrl) : undefined;
+    const derivedPaths = deriveServerPathsSync(baseDir, devUrl);
     const scope = await Effect.runPromise(Scope.make("sequential"));
     const persistenceLayer = options.persistenceLayer ?? SqlitePersistenceMemory;
     const providerLayer = options.providerLayer ?? makeServerProviderLayer();
@@ -616,10 +628,10 @@ describe("WebSocket Server", () => {
       port: 0,
       host: undefined,
       cwd: options.cwd ?? "/test/project",
-      keybindingsConfigPath: path.join(stateDir, "keybindings.json"),
-      stateDir,
+      baseDir,
+      ...derivedPaths,
       staticDir: options.staticDir,
-      devUrl: options.devUrl ? new URL(options.devUrl) : undefined,
+      devUrl,
       noBrowser: true,
       authToken: options.authToken,
       autoBootstrapProjectFromCwd: options.autoBootstrapProjectFromCwd ?? false,
@@ -704,8 +716,8 @@ describe("WebSocket Server", () => {
   });
 
   it("serves persisted attachments from a project/thread-scoped route", async () => {
-    const stateDir = makeTempDir("t3code-state-attachments-");
-    server = await createTestServer({ cwd: "/test/project", stateDir });
+    const baseDir = makeTempDir("t3code-state-attachments-");
+    server = await createTestServer({ cwd: "/test/project", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -730,8 +742,8 @@ describe("WebSocket Server", () => {
   });
 
   it("serves scoped attachments for URL-encoded project and thread ids", async () => {
-    const stateDir = makeTempDir("t3code-state-attachments-encoded-");
-    server = await createTestServer({ cwd: "/test/project", stateDir });
+    const baseDir = makeTempDir("t3code-state-attachments-encoded-");
+    server = await createTestServer({ cwd: "/test/project", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -757,8 +769,8 @@ describe("WebSocket Server", () => {
   });
 
   it("rejects scoped attachment requests that do not match the thread ownership", async () => {
-    const stateDir = makeTempDir("t3code-state-attachments-ownership-");
-    server = await createTestServer({ cwd: "/test/project", stateDir });
+    const baseDir = makeTempDir("t3code-state-attachments-ownership-");
+    server = await createTestServer({ cwd: "/test/project", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -780,11 +792,11 @@ describe("WebSocket Server", () => {
   });
 
   it("serves static index for root path", async () => {
-    const stateDir = makeTempDir("t3code-state-static-root-");
+    const baseDir = makeTempDir("t3code-state-static-root-");
     const staticDir = makeTempDir("t3code-static-root-");
     fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
 
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir, staticDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -795,11 +807,11 @@ describe("WebSocket Server", () => {
   });
 
   it("rejects static path traversal attempts", async () => {
-    const stateDir = makeTempDir("t3code-state-static-traversal-");
+    const baseDir = makeTempDir("t3code-state-static-traversal-");
     const staticDir = makeTempDir("t3code-static-traversal-");
     fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>safe</h1>", "utf8");
 
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir, staticDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -877,15 +889,16 @@ describe("WebSocket Server", () => {
   });
 
   it("includes bootstrap ids in welcome when cwd project and thread already exist", async () => {
-    const stateDir = makeTempDir("t3code-state-bootstrap-existing-");
-    const persistenceLayer = makeSqlitePersistenceLive(path.join(stateDir, "state.sqlite")).pipe(
+    const baseDir = makeTempDir("t3code-state-bootstrap-existing-");
+    const { dbPath } = deriveServerPathsSync(baseDir, undefined);
+    const persistenceLayer = makeSqlitePersistenceLive(dbPath).pipe(
       Layer.provide(NodeServices.layer),
     );
     const cwd = "/test/bootstrap-existing";
 
     server = await createTestServer({
       cwd,
-      stateDir,
+      baseDir,
       persistenceLayer,
       autoBootstrapProjectFromCwd: true,
     });
@@ -908,7 +921,7 @@ describe("WebSocket Server", () => {
 
     server = await createTestServer({
       cwd,
-      stateDir,
+      baseDir,
       persistenceLayer,
       autoBootstrapProjectFromCwd: true,
     });
@@ -957,11 +970,12 @@ describe("WebSocket Server", () => {
   });
 
   it("responds to server.getConfig", async () => {
-    const stateDir = makeTempDir("t3code-state-get-config-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-get-config-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "[]", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -982,11 +996,11 @@ describe("WebSocket Server", () => {
   });
 
   it("bootstraps default keybindings file when missing", async () => {
-    const stateDir = makeTempDir("t3code-state-bootstrap-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-bootstrap-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
     expect(fs.existsSync(keybindingsPath)).toBe(false);
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1012,11 +1026,12 @@ describe("WebSocket Server", () => {
   });
 
   it("falls back to defaults and reports malformed keybindings config issues", async () => {
-    const stateDir = makeTempDir("t3code-state-malformed-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-malformed-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "{ not-json", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1043,8 +1058,9 @@ describe("WebSocket Server", () => {
   });
 
   it("ignores invalid keybinding entries but keeps valid entries and reports issues", async () => {
-    const stateDir = makeTempDir("t3code-state-partial-invalid-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-partial-invalid-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([
@@ -1055,7 +1071,7 @@ describe("WebSocket Server", () => {
       "utf8",
     );
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1094,11 +1110,12 @@ describe("WebSocket Server", () => {
   });
 
   it("pushes server.configUpdated issues when keybindings file changes", async () => {
-    const stateDir = makeTempDir("t3code-state-keybindings-watch-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-keybindings-watch-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "[]", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1297,8 +1314,9 @@ describe("WebSocket Server", () => {
   });
 
   it("reads keybindings from the configured state directory", async () => {
-    const stateDir = makeTempDir("t3code-state-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([
@@ -1308,7 +1326,7 @@ describe("WebSocket Server", () => {
       ]),
       "utf8",
     );
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1332,15 +1350,16 @@ describe("WebSocket Server", () => {
   });
 
   it("upserts keybinding rules and updates cached server config", async () => {
-    const stateDir = makeTempDir("t3code-state-upsert-keybinding-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("t3code-state-upsert-keybinding-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([{ key: "mod+j", command: "terminal.toggle" }]),
       "utf8",
     );
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
