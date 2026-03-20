@@ -82,34 +82,46 @@ export const AppSettingsSchema = Schema.Struct({
   ),
   defaultThreadEnvMode: Schema.Literals(["local", "worktree"]).pipe(
     Schema.withConstructorDefault(() => Option.some("local")),
+    Schema.withDecodingDefault(() => "local" as const),
   ),
   gitDefaultAction: Schema.Literals(GIT_DEFAULT_ACTION_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_DEFAULT_ACTION)),
+    Schema.withDecodingDefault(() => DEFAULT_GIT_DEFAULT_ACTION),
   ),
   gitCommitPrompt: GitCommitPromptSchema,
   gitHubBinaryPath: CodexSettingsPathSchema,
-  confirmThreadDelete: Schema.Boolean.pipe(Schema.withConstructorDefault(() => Option.some(true))),
+  confirmThreadDelete: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(true)),
+    Schema.withDecodingDefault(() => true),
+  ),
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
+    Schema.withDecodingDefault(() => false),
   ),
   desktopAppCloseBehavior: Schema.Literals(DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR)),
+    Schema.withDecodingDefault(() => DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR),
   ),
   threadIdDisplayMode: Schema.Literals(["hidden", "composer", "message"]).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_THREAD_ID_DISPLAY_MODE)),
+    Schema.withDecodingDefault(() => DEFAULT_THREAD_ID_DISPLAY_MODE),
   ),
   timestampFormat: Schema.Literals(["locale", "12-hour", "24-hour"]).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_TIMESTAMP_FORMAT)),
+    Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT),
   ),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+    Schema.withDecodingDefault(() => []),
   ),
   customClaudeModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+    Schema.withDecodingDefault(() => []),
   ),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
   customKiroModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+    Schema.withDecodingDefault(() => []),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
