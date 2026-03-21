@@ -606,10 +606,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const interactionMode = supportedInteractionModes.includes(requestedInteractionMode)
     ? requestedInteractionMode
     : DEFAULT_INTERACTION_MODE;
-  const interactionModeLabel = INTERACTION_MODE_LABEL_BY_OPTION[interactionMode];
-  const InteractionModeIcon = INTERACTION_MODE_ICON_BY_OPTION[interactionMode];
   const nextInteractionMode = getNextInteractionMode(interactionMode, supportedInteractionModes);
-  const nextInteractionModeLabel = INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode];
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
@@ -3941,14 +3938,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                             <Button
                               variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-foreground sm:px-3"
+                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
                               size="sm"
                               type="button"
                               onClick={toggleInteractionMode}
-                              title={`Switch to ${nextInteractionModeLabel} mode`}
+                              title={
+                                interactionMode === "plan"
+                                  ? "Plan mode — click to return to normal chat mode"
+                                  : interactionMode === "help"
+                                    ? `Help mode — click to switch to ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
+                                    : `Default mode — click to enter ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
+                              }
                             >
-                              <InteractionModeIcon />
-                              <span>{interactionModeLabel}</span>
+                              <INTERACTION_MODE_ICON_BY_OPTION.default />
+                              <span className="sr-only sm:not-sr-only">
+                                {interactionMode === "plan"
+                                  ? "Plan"
+                                  : interactionMode === "help"
+                                    ? "Help"
+                                    : "Chat"}
+                              </span>
                             </Button>
 
                             <Separator
