@@ -2,6 +2,7 @@ import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon, ListTodoIcon } from "lucide-react";
 import { Button } from "../ui/button";
+import { INTERACTION_MODE_LABEL_BY_OPTION } from "./interactionModeControl";
 import {
   Menu,
   MenuItem,
@@ -25,11 +26,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onToggleRuntimeMode: () => void;
 }) {
   const supportedInteractionModes = props.supportedInteractionModes ?? ["default", "plan"];
-  const interactionModeLabelByOption: Record<ProviderInteractionMode, string> = {
-    default: "Chat",
-    plan: "Plan",
-    help: "Help",
-  };
 
   return (
     <Menu>
@@ -67,7 +63,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         >
           {supportedInteractionModes.map((mode) => (
             <MenuRadioItem key={mode} value={mode}>
-              {interactionModeLabelByOption[mode]}
+              {INTERACTION_MODE_LABEL_BY_OPTION[mode]}
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>
