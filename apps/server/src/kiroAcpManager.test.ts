@@ -3,7 +3,45 @@ import { ThreadId, TurnId } from "@t3tools/contracts";
 
 import { formatKiroProcessExitMessage, KiroAcpManager, readKiroTextChunk } from "./kiroAcpManager";
 
-function createTestSession() {
+type TestSession = {
+  threadId: ThreadId;
+  process: {
+    kill: ReturnType<typeof vi.fn>;
+  };
+  rpc: {
+    request: ReturnType<typeof vi.fn>;
+    respond: ReturnType<typeof vi.fn>;
+    notify: ReturnType<typeof vi.fn>;
+  };
+  runtimeMode: "full-access";
+  cwd: undefined;
+  createdAt: string;
+  updatedAt: string;
+  status: "ready";
+  model: undefined;
+  sessionId: string;
+  activeTurnId: TurnId | undefined;
+  modeState: {
+    currentModeId: string | undefined;
+    defaultModeId: string | undefined;
+    availableModes: Array<{ id: string; name?: string; description?: string }>;
+  };
+  turns: [];
+  pendingPermissionRequests: Map<
+    string,
+    {
+      rpcRequestId: number | string;
+      requestId: string;
+      toolCallId: string | undefined;
+      requestType: string;
+      options: Array<{ optionId: string; kind?: string }>;
+    }
+  >;
+  suppressReplay: boolean;
+  toolCallKinds: Map<string, string>;
+};
+
+function createTestSession(): TestSession {
   return {
     threadId: ThreadId.makeUnsafe("thread-1"),
     process: {
@@ -30,6 +68,7 @@ function createTestSession() {
     turns: [],
     pendingPermissionRequests: new Map(),
     suppressReplay: false,
+    toolCallKinds: new Map(),
   };
 }
 
@@ -100,6 +139,7 @@ describe("KiroAcpManager", () => {
   it("does not duplicate completion when turn_end arrives before session/prompt resolves", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
+    session.activeTurnId = undefined;
     const deferred: { resolve?: (value: unknown) => void } = {};
     session.rpc.request = vi.fn((_method: string) => {
       return new Promise((resolve) => {
@@ -121,8 +161,7 @@ describe("KiroAcpManager", () => {
       threadId: session.threadId,
       input: "hello",
     });
-    const activeTurnId = session.activeTurnId;
-    expect(activeTurnId).toBeDefined();
+    await Promise.resolve();
 
     await (
       manager as unknown as {
@@ -144,7 +183,113 @@ describe("KiroAcpManager", () => {
     deferred.resolve({});
     const result = await sendPromise;
 
-    expect(result.turnId).toBe(activeTurnId);
+    expect(String(result.turnId)).toMatch(/^kiro:/);
     expect(events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("maps full-access default turns onto the code mode before prompting", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.modeState = {
+      currentModeId: "ask",
+      defaultModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask", description: "Request permission before making any changes" },
+        { id: "architect", name: "Architect", description: "Design and plan software systems" },
+        { id: "code", name: "Code", description: "Write and modify code with full tool access" },
+      ],
+    };
+    session.rpc.request = vi.fn(async (method: string) => {
+      if (method === "session/prompt") {
+        return {};
+      }
+      return null;
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.sendTurn({
+      threadId: session.threadId,
+      input: "hello",
+    });
+
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "session/set_mode", {
+      sessionId: "session-1",
+      modeId: "code",
+    });
+    expect(session.rpc.request).toHaveBeenNthCalledWith(
+      2,
+      "session/prompt",
+      expect.objectContaining({
+        sessionId: "session-1",
+      }),
+    );
+    expect(session.modeState.currentModeId).toBe("code");
+  });
+
+  it("uses tracked tool kinds when Kiro omits the permission request kind", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.toolCallKinds.set("call-1", "execute");
+    const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { type: string; payload?: Record<string, unknown> });
+    });
+
+    await (
+      manager as unknown as {
+        handleRequest: (
+          session: ReturnType<typeof createTestSession>,
+          message: { jsonrpc: "2.0"; id: number; method: string; params: unknown },
+        ) => Promise<void>;
+      }
+    ).handleRequest(session, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "session/request_permission",
+      params: {
+        toolCall: {
+          toolCallId: "call-1",
+          title: "Run command",
+        },
+        options: [{ optionId: "allow", kind: "allow_once" }],
+      },
+    });
+
+    const requestOpened = events.find((event) => event.type === "request.opened");
+    expect(requestOpened?.payload?.requestType).toBe("command_execution_approval");
+    expect(session.pendingPermissionRequests.get("kiro:call-1")?.requestType).toBe(
+      "command_execution_approval",
+    );
+  });
+
+  it("preserves the original request type when resolving approvals", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.pendingPermissionRequests.set("kiro:call-1", {
+      rpcRequestId: 1,
+      requestId: "kiro:call-1",
+      toolCallId: "call-1",
+      requestType: "command_execution_approval",
+      options: [{ optionId: "allow", kind: "allow_once" }],
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+    const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { type: string; payload?: Record<string, unknown> });
+    });
+
+    await manager.respondToRequest(session.threadId, "kiro:call-1", "accept");
+
+    const requestResolved = events.find((event) => event.type === "request.resolved");
+    expect(requestResolved?.payload?.requestType).toBe("command_execution_approval");
+    expect(requestResolved?.payload?.decision).toBe("accept");
   });
 });
