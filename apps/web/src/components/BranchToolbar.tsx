@@ -162,11 +162,9 @@ export default function BranchToolbar({
           </Select>
         )}
         {providerThreadId ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground/60">
-            <span className="shrink-0 uppercase tracking-[0.12em]">Thread ID</span>
-            <code className="max-w-36 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/80 sm:max-w-52">
-              {providerThreadId}
-            </code>
+          <span className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-muted-foreground/70 sm:text-xs">
+            <span className="shrink-0">Thread ID</span>
+            <span>{providerThreadId}</span>
           </span>
         ) : null}
       </div>
