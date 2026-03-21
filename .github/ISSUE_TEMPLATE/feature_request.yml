@@ -3,24 +3,12 @@ description: Propose a scoped improvement or new capability.
 title: "[Feature]: "
 labels:
   - enhancement
-  - needs-triage
 body:
   - type: markdown
     attributes:
       value: |
         Use this form for new capabilities or meaningful improvements to existing behavior.
-        This fork is maintained by one person and the form is mainly for personal planning.
-        Keep requests concrete, narrow, and explicit about why the added maintenance cost is worth it.
-
-  - type: checkboxes
-    id: checks
-    attributes:
-      label: Before submitting
-      options:
-        - label: I am describing a concrete problem or use case, not just a vague idea.
-          required: true
-        - label: I kept the request scoped tightly enough that it is realistic for this fork to maintain.
-          required: true
+        Keep it light and capture only what will be useful later.
 
   - type: dropdown
     id: area
@@ -35,61 +23,23 @@ body:
         - Build, CI, or release tooling
         - Docs
         - Not sure
-    validations:
-      required: true
 
   - type: textarea
     id: problem
     attributes:
-      label: Problem or use case
-      description: What are you trying to do? What is hard, slow, or impossible today?
+      label: Problem or idea
+      description: What do you want to change?
       placeholder: I want to reconnect to an existing provider session after a browser refresh without losing the current thread state.
-    validations:
-      required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Describe the behavior, API, or UX you want.
+      label: Proposed change
+      description: How should it work?
       placeholder: Persist enough session metadata so the client can discover and reattach to the active provider session on load.
-    validations:
-      required: true
-
-  - type: textarea
-    id: value
-    attributes:
-      label: Why this matters
-      description: What outcome does this unlock, and why is it worth maintaining here?
-      placeholder: This would make reconnects predictable during network drops and reduce accidental duplicate sessions.
-    validations:
-      required: true
-
-  - type: textarea
-    id: scope
-    attributes:
-      label: Smallest useful scope
-      description: What is the narrowest version of this request that would still solve your problem?
-      placeholder: A first pass only needs to support restoring the active session for the current thread.
-    validations:
-      required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: Workarounds, prior art, or other approaches you considered.
-      placeholder: I currently work around this by manually restarting the provider session, but that loses in-flight context.
-
-  - type: textarea
-    id: tradeoffs
-    attributes:
-      label: Risks, tradeoffs, and maintenance cost
-      description: What costs, complexity, support burden, or edge cases should be considered?
-      placeholder: This may require careful handling when the underlying provider session has already exited and would add another long-lived state path to maintain.
 
   - type: textarea
     id: references
     attributes:
-      label: Examples or references
-      description: Links, screenshots, mockups, or comparable tools.
+      label: Notes or references
+      description: Optional links, screenshots, mockups, or anything else useful.
