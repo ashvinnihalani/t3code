@@ -9,16 +9,17 @@ body:
     attributes:
       value: |
         Use this form for new capabilities or meaningful improvements to existing behavior.
-        This repo is still early. Small, concrete requests that clearly explain the problem and scope are much easier to evaluate.
+        This fork is maintained by one person and the form is mainly for personal planning.
+        Keep requests concrete, narrow, and explicit about why the added maintenance cost is worth it.
 
   - type: checkboxes
     id: checks
     attributes:
       label: Before submitting
       options:
-        - label: I searched existing issues and did not find a duplicate.
-          required: true
         - label: I am describing a concrete problem or use case, not just a vague idea.
+          required: true
+        - label: I kept the request scoped tightly enough that it is realistic for this fork to maintain.
           required: true
 
   - type: dropdown
@@ -59,7 +60,7 @@ body:
     id: value
     attributes:
       label: Why this matters
-      description: Who benefits, and what outcome does this unlock?
+      description: What outcome does this unlock, and why is it worth maintaining here?
       placeholder: This would make reconnects predictable during network drops and reduce accidental duplicate sessions.
     validations:
       required: true
@@ -83,19 +84,12 @@ body:
   - type: textarea
     id: tradeoffs
     attributes:
-      label: Risks or tradeoffs
-      description: What costs, complexity, or edge cases should be considered?
-      placeholder: This may require careful handling when the underlying provider session has already exited.
+      label: Risks, tradeoffs, and maintenance cost
+      description: What costs, complexity, support burden, or edge cases should be considered?
+      placeholder: This may require careful handling when the underlying provider session has already exited and would add another long-lived state path to maintain.
 
   - type: textarea
     id: references
     attributes:
       label: Examples or references
       description: Links, screenshots, mockups, or comparable tools.
-
-  - type: checkboxes
-    id: contribution
-    attributes:
-      label: Contribution
-      options:
-        - label: I would be open to helping implement this.

@@ -1,14 +1,13 @@
 <!--
 ⚠️ READ BEFORE OPENING ⚠️
 
-We are not actively accepting contributions right now.
+This is a personal fork.
 
-You can still open a PR, but please do so knowing there is a high chance
-we may close it without merging it, or never review it.
+Use this template to leave a clean record of what changed, why it changed, and how it was validated.
 
-- Small, focused PRs are strongly preferred. Bug fixes are most likely to be merged.
-- New features will most likely just annoy us.
-- 1,000+ line PRs with a bunch of new features will probably get you banned from the repo.
+- Keep PRs small and easy to skim later.
+- Call out maintenance cost when a change adds surface area.
+- Record the exact checks you ran before merging.
 -->
 
 ## What Changed
@@ -18,6 +17,14 @@ we may close it without merging it, or never review it.
 ## Why
 
 <!-- Explain the problem being solved and why this approach is the right one. -->
+
+## Validation
+
+<!-- List the checks you ran, especially bun fmt, bun lint, and bun typecheck. -->
+
+## Maintenance Impact
+
+<!-- Call out new dependencies, new long-term surface area, or why this stays cheap to maintain. Delete if not applicable. -->
 
 ## UI Changes
 
@@ -29,5 +36,7 @@ we may close it without merging it, or never review it.
 
 - [ ] This PR is small and focused
 - [ ] I explained what changed and why
+- [ ] I listed the validation I ran
+- [ ] I ran `bun fmt`, `bun lint`, and `bun typecheck`
 - [ ] I included before/after screenshots for any UI changes
 - [ ] I included a video for animation/interaction changes

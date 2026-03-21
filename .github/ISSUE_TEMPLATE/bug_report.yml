@@ -9,16 +9,17 @@ body:
     attributes:
       value: |
         Use this form for broken behavior, regressions, crashes, or reliability problems.
-        Search existing issues first and keep the report focused on one problem.
+        This fork is maintained by one person and used as a personal tracker.
+        Keep the report focused on one problem and capture enough detail to debug it later.
 
   - type: checkboxes
     id: checks
     attributes:
       label: Before submitting
       options:
-        - label: I searched existing issues and did not find a duplicate.
-          required: true
         - label: I included enough detail to reproduce or investigate the problem.
+          required: true
+        - label: I included version, environment, or provider details where they matter.
           required: true
 
   - type: dropdown
