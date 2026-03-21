@@ -162,7 +162,16 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
 
 export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  session?: Pick<ThreadSession, "orchestrationStatus"> | null,
 ): PendingApproval[] {
+  if (
+    session &&
+    session.orchestrationStatus !== "ready" &&
+    session.orchestrationStatus !== "running" &&
+    session.orchestrationStatus !== "interrupted"
+  ) {
+    return [];
+  }
   const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
 

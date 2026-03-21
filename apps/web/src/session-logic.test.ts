@@ -167,6 +167,29 @@ describe("derivePendingApprovals", () => {
 
     expect(derivePendingApprovals(activities)).toEqual([]);
   });
+
+  it("hides pending approvals for threads without an actionable session", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-disconnected",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-disconnected",
+          requestType: "unknown",
+          detail: "Querying knowledge base",
+        },
+      }),
+    ];
+
+    expect(
+      derivePendingApprovals(activities, {
+        orchestrationStatus: "disconnected",
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("PROVIDER_OPTIONS", () => {

@@ -307,6 +307,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
   );
+  const dismissLocalCodexErrors = useStore((store) => store.dismissLocalCodexErrors);
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
@@ -724,8 +725,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn?.turnId, threadActivities],
   );
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
+    () => derivePendingApprovals(threadActivities, activeThread?.session ?? null),
+    [activeThread?.session, threadActivities],
   );
   const pendingUserInputs = useMemo(
     () => derivePendingUserInputs(threadActivities),
@@ -3617,7 +3618,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       </header>
 
       {/* Error banner */}
-      <ProviderHealthBanner status={visibleProviderStatus} />
+      <ProviderHealthBanner
+        status={visibleProviderStatus}
+        onDismiss={() => dismissLocalCodexErrors(new Date().toISOString())}
+      />
       <ThreadErrorBanner
         error={visibleThreadError}
         onDismiss={() => setThreadError(activeThread.id, null)}

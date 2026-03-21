@@ -24,6 +24,9 @@ export function useHandleNewThread() {
   const activeDraftThread = useComposerDraftStore((store) =>
     routeThreadId ? (store.draftThreadsByThreadId[routeThreadId] ?? null) : null,
   );
+  const activeComposerDraft = useComposerDraftStore((store) =>
+    routeThreadId ? (store.draftsByThreadId[routeThreadId] ?? null) : null,
+  );
 
   const activeThread = routeThreadId
     ? threads.find((thread) => thread.id === routeThreadId)
@@ -136,6 +139,14 @@ export function useHandleNewThread() {
       const createdAt = new Date().toISOString();
       return (async () => {
         const resolvedEnvMode = resolveEnvMode(options?.worktreePath ?? null);
+        const inheritedProvider =
+          activeComposerDraft?.provider ?? activeThread?.session?.provider ?? null;
+        const inheritedModel =
+          stickyModel ?? activeComposerDraft?.model ?? activeThread?.model ?? null;
+        const inheritedModelOptions =
+          Object.keys(stickyModelOptions).length > 0
+            ? stickyModelOptions
+            : (activeComposerDraft?.modelOptions ?? {});
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
           branch: options?.branch ?? null,
@@ -143,12 +154,16 @@ export function useHandleNewThread() {
           envMode: resolvedEnvMode,
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
-        if (stickyModel) {
+        if (inheritedProvider) {
+          setProvider(threadId, inheritedProvider);
+        } else if (stickyModel) {
           setProvider(threadId, inferProviderForModel(stickyModel));
-          setModel(threadId, stickyModel);
         }
-        if (Object.keys(stickyModelOptions).length > 0) {
-          setModelOptions(threadId, stickyModelOptions);
+        if (inheritedModel) {
+          setModel(threadId, inheritedModel);
+        }
+        if (Object.keys(inheritedModelOptions).length > 0) {
+          setModelOptions(threadId, inheritedModelOptions);
         }
 
         await navigate({
@@ -157,7 +172,18 @@ export function useHandleNewThread() {
         });
       })();
     },
-    [navigate, projects, routeThreadId, stickyModel, stickyModelOptions],
+    [
+      activeComposerDraft?.model,
+      activeComposerDraft?.modelOptions,
+      activeComposerDraft?.provider,
+      activeThread?.model,
+      activeThread?.session?.provider,
+      navigate,
+      projects,
+      routeThreadId,
+      stickyModel,
+      stickyModelOptions,
+    ],
   );
 
   return {

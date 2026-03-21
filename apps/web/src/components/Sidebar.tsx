@@ -1603,7 +1603,9 @@ export default function Sidebar() {
                     projectThreads.map((thread) =>
                       resolveThreadStatusPill({
                         thread,
-                        hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
+                        hasPendingApprovals:
+                          derivePendingApprovals(thread.activities, thread.session ?? null).length >
+                          0,
                         hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
                       }),
                     ),
@@ -1720,7 +1722,10 @@ export default function Sidebar() {
                                 const threadStatus = resolveThreadStatusPill({
                                   thread,
                                   hasPendingApprovals:
-                                    derivePendingApprovals(thread.activities).length > 0,
+                                    derivePendingApprovals(
+                                      thread.activities,
+                                      thread.session ?? null,
+                                    ).length > 0,
                                   hasPendingUserInput:
                                     derivePendingUserInputs(thread.activities).length > 0,
                                 });
