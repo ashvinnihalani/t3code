@@ -59,4 +59,7 @@ body:
     attributes:
       label: Screenshots, recordings, or supporting files
       description: Add screenshots, short recordings, or files if useful.
+    validations:
+      required: false
+      description: Add screenshots, short recordings, or files if useful.
       accept: ".png,.jpg,.jpeg,.gif,.webp,.svg,.mp4,.mov,.webm,.log,.txt,.json,.zip"
