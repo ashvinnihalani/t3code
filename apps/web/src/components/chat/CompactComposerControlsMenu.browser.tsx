@@ -1,4 +1,8 @@
-import { type ProviderModelOptions, ThreadId } from "@t3tools/contracts";
+import {
+  type ProviderInteractionMode,
+  type ProviderModelOptions,
+  ThreadId,
+} from "@t3tools/contracts";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -15,6 +19,8 @@ async function mountMenu(props?: {
   prompt?: string;
   provider?: "codex" | "claudeAgent";
   modelOptions?: ProviderModelOptions | null;
+  supportedInteractionModes?: ReadonlyArray<ProviderInteractionMode>;
+  onInteractionModeSelect?: (mode: ProviderInteractionMode) => void;
 }) {
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
   const provider = props?.provider ?? "claudeAgent";
@@ -58,6 +64,12 @@ async function mountMenu(props?: {
           />
         )
       }
+      {...(props?.supportedInteractionModes
+        ? { supportedInteractionModes: props.supportedInteractionModes }
+        : {})}
+      {...(props?.onInteractionModeSelect
+        ? { onInteractionModeSelect: props.onInteractionModeSelect }
+        : {})}
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
       onToggleRuntimeMode={vi.fn()}
@@ -179,6 +191,23 @@ describe("CompactComposerControlsMenu", () => {
         expect(text).toContain("Remove Ultrathink from the prompt to change effort.");
         expect(text).not.toContain("Fallback Effort");
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("lets compact mode select all supported interaction modes", async () => {
+    const onInteractionModeSelect = vi.fn();
+    const mounted = await mountMenu({
+      supportedInteractionModes: ["default", "plan", "help"],
+      onInteractionModeSelect,
+    });
+
+    try {
+      await page.getByLabelText("More composer controls").click();
+      await page.getByText("Help").click();
+
+      expect(onInteractionModeSelect).toHaveBeenCalledWith("help");
     } finally {
       await mounted.cleanup();
     }
