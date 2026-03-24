@@ -18,6 +18,7 @@ import {
   getCustomModelsForProvider,
   getDefaultCustomModelsForProvider,
   getKiroHostOverride,
+  getProviderStartOptions,
   normalizeCustomModelSlugs,
   patchCustomModels,
   resolveAppModelSelection,
@@ -35,6 +36,13 @@ describe("normalizeCustomModelSlugs", () => {
         null,
       ]),
     ).toEqual(["custom/internal-model"]);
+  });
+
+  it("normalizes provider-specific aliases for claude", () => {
+    expect(normalizeCustomModelSlugs(["sonnet"], "claudeAgent")).toEqual([]);
+    expect(normalizeCustomModelSlugs(["claude/custom-sonnet"], "claudeAgent")).toEqual([
+      "claude/custom-sonnet",
+    ]);
   });
 });
 
@@ -61,6 +69,14 @@ describe("getAppModelOptions", () => {
       name: "custom/selected-model",
       isCustom: true,
     });
+  });
+
+  it("keeps a saved custom provider model available as an exact slug option", () => {
+    const options = getAppModelOptions("claudeAgent", ["claude/custom-opus"], "claude/custom-opus");
+
+    expect(options.some((option) => option.slug === "claude/custom-opus" && option.isCustom)).toBe(
+      true,
+    );
   });
 
   it("returns the built-in Kiro catalog and custom Kiro models", () => {
@@ -136,6 +152,91 @@ describe("desktop app close behavior defaults", () => {
 describe("git settings defaults", () => {
   it("defaults the primary git action to auto", () => {
     expect(DEFAULT_GIT_DEFAULT_ACTION).toBe("auto");
+  });
+});
+
+describe("thread id display defaults", () => {
+  it("hides thread ids by default", () => {
+    expect(DEFAULT_THREAD_ID_DISPLAY_MODE).toBe("hidden");
+  });
+});
+
+describe("provider-specific custom models", () => {
+  it("includes provider-specific custom slugs in non-codex model lists", () => {
+    const claudeOptions = getAppModelOptions("claudeAgent", ["claude/custom-opus"]);
+
+    expect(claudeOptions.some((option) => option.slug === "claude/custom-opus")).toBe(true);
+  });
+});
+
+describe("getProviderStartOptions", () => {
+  it("returns only populated provider overrides", () => {
+    expect(
+      getProviderStartOptions({
+        claudeBinaryPath: "/usr/local/bin/claude",
+        codexBinaryPath: "",
+        codexHomePath: "/Users/you/.codex",
+        codexRemoteOverrides: {},
+        kiroBinaryPath: "",
+        kiroRemoteOverrides: {},
+      }),
+    ).toEqual({
+      claudeAgent: {
+        binaryPath: "/usr/local/bin/claude",
+      },
+      codex: {
+        homePath: "/Users/you/.codex",
+      },
+    });
+  });
+
+  it("returns host-scoped codex and kiro overrides when a remote host is selected", () => {
+    expect(
+      getProviderStartOptions(
+        {
+          claudeBinaryPath: "/usr/local/bin/claude",
+          codexBinaryPath: "/usr/local/bin/codex",
+          codexHomePath: "/Users/you/.codex",
+          codexRemoteOverrides: {
+            "prod-box": {
+              binaryPath: "/opt/codex/bin/codex",
+              homePath: "/home/ubuntu/.codex",
+            },
+          },
+          kiroBinaryPath: "",
+          kiroRemoteOverrides: {
+            "prod-box": {
+              binaryPath: "/opt/kiro/bin/kiro-cli",
+            },
+          },
+        },
+        "prod-box",
+      ),
+    ).toEqual({
+      claudeAgent: {
+        binaryPath: "/usr/local/bin/claude",
+      },
+      codex: {
+        binaryPath: "/opt/codex/bin/codex",
+        homePath: "/home/ubuntu/.codex",
+      },
+      kiro: {
+        binaryPath: "/opt/kiro/bin/kiro-cli",
+      },
+    });
+  });
+
+  it("returns undefined when no provider overrides are configured", () => {
+    expect(
+      getProviderStartOptions({
+        claudeBinaryPath: "",
+        codexBinaryPath: "",
+        codexHomePath: "",
+        codexRemoteOverrides: {},
+        kiroBinaryPath: "",
+        kiroRemoteOverrides: {},
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -250,6 +351,7 @@ describe("AppSettingsSchema", () => {
         }),
       ),
     ).toMatchObject({
+      claudeBinaryPath: "",
       codexBinaryPath: "/usr/local/bin/codex",
       codexHomePath: "",
       defaultThreadEnvMode: "local",
@@ -260,12 +362,6 @@ describe("AppSettingsSchema", () => {
       customClaudeModels: [],
       customKiroModels: [],
     });
-  });
-});
-
-describe("thread id display defaults", () => {
-  it("hides thread ids by default", () => {
-    expect(DEFAULT_THREAD_ID_DISPLAY_MODE).toBe("hidden");
   });
 });
 

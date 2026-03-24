@@ -6,6 +6,7 @@ import {
   type DesktopAppCloseBehavior,
   type GitRequestSettings,
   type ProviderKind,
+  type ProviderStartOptions,
 } from "@t3tools/contracts";
 import {
   getDefaultModel,
@@ -18,10 +19,11 @@ import { useLocalStorage } from "./hooks/useLocalStorage";
 export const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
+
 export const TIMESTAMP_FORMAT_OPTIONS = ["locale", "12-hour", "24-hour"] as const;
 export type TimestampFormat = (typeof TIMESTAMP_FORMAT_OPTIONS)[number];
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
-export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
+
 export const GIT_DEFAULT_ACTION_OPTIONS = [
   "auto",
   "commit",
@@ -30,10 +32,15 @@ export const GIT_DEFAULT_ACTION_OPTIONS = [
 ] as const;
 export type GitDefaultAction = (typeof GIT_DEFAULT_ACTION_OPTIONS)[number];
 export const DEFAULT_GIT_DEFAULT_ACTION: GitDefaultAction = "auto";
+
 export const THREAD_ID_DISPLAY_MODE_OPTIONS = ["hidden", "composer", "message"] as const;
 export type ThreadIdDisplayMode = (typeof THREAD_ID_DISPLAY_MODE_OPTIONS)[number];
 export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
+
+export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
+
 type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels" | "customKiroModels";
+
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
   settingsKey: CustomModelSettingsKey;
@@ -43,12 +50,14 @@ export type ProviderCustomModelConfig = {
   placeholder: string;
   example: string;
 };
+
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
   kiro: new Set(getModelOptions("kiro").map((option) => option.slug)),
 };
-const CodexSettingsPathSchema = Schema.String.check(Schema.isMaxLength(4096)).pipe(
+
+const SettingsPathSchema = Schema.String.check(Schema.isMaxLength(4096)).pipe(
   Schema.withConstructorDefault(() => Option.some("")),
   Schema.withDecodingDefault(() => ""),
 );
@@ -56,26 +65,29 @@ const GitCommitPromptSchema = Schema.String.check(Schema.isMaxLength(10_000)).pi
   Schema.withConstructorDefault(() => Option.some("")),
   Schema.withDecodingDefault(() => ""),
 );
+
 const CodexHostOverrideSchema = Schema.Struct({
-  binaryPath: CodexSettingsPathSchema,
-  homePath: CodexSettingsPathSchema,
+  binaryPath: SettingsPathSchema,
+  homePath: SettingsPathSchema,
 });
 export type CodexHostOverride = typeof CodexHostOverrideSchema.Type;
 const DEFAULT_CODEX_HOST_OVERRIDE = CodexHostOverrideSchema.makeUnsafe({});
+
 const KiroHostOverrideSchema = Schema.Struct({
-  binaryPath: CodexSettingsPathSchema,
+  binaryPath: SettingsPathSchema,
 });
 export type KiroHostOverride = typeof KiroHostOverrideSchema.Type;
 const DEFAULT_KIRO_HOST_OVERRIDE = KiroHostOverrideSchema.makeUnsafe({});
 
 export const AppSettingsSchema = Schema.Struct({
-  codexBinaryPath: CodexSettingsPathSchema,
-  codexHomePath: CodexSettingsPathSchema,
+  claudeBinaryPath: SettingsPathSchema,
+  codexBinaryPath: SettingsPathSchema,
+  codexHomePath: SettingsPathSchema,
   codexRemoteOverrides: Schema.Record(Schema.String, CodexHostOverrideSchema).pipe(
     Schema.withConstructorDefault(() => Option.some({})),
     Schema.withDecodingDefault(() => ({})),
   ),
-  kiroBinaryPath: CodexSettingsPathSchema,
+  kiroBinaryPath: SettingsPathSchema,
   kiroRemoteOverrides: Schema.Record(Schema.String, KiroHostOverrideSchema).pipe(
     Schema.withConstructorDefault(() => Option.some({})),
     Schema.withDecodingDefault(() => ({})),
@@ -89,7 +101,7 @@ export const AppSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_GIT_DEFAULT_ACTION),
   ),
   gitCommitPrompt: GitCommitPromptSchema,
-  gitHubBinaryPath: CodexSettingsPathSchema,
+  gitHubBinaryPath: SettingsPathSchema,
   confirmThreadDelete: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(true)),
     Schema.withDecodingDefault(() => true),
@@ -125,6 +137,7 @@ export const AppSettingsSchema = Schema.Struct({
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
+
 export interface AppModelOption {
   slug: string;
   name: string;
@@ -132,6 +145,7 @@ export interface AppModelOption {
 }
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+
 const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
   codex: {
     provider: "codex",
@@ -328,6 +342,7 @@ export function getCustomModelsByProvider(
     kiro: getCustomModelsForProvider(settings, "kiro"),
   };
 }
+
 export function getAppModelOptions(
   provider: ProviderKind,
   customModels: readonly string[],
@@ -409,6 +424,49 @@ export function buildGitRequestSettings(
     ...(commitPrompt ? { commitPrompt } : {}),
     ...(textGenerationModel ? { textGenerationModel } : {}),
   };
+}
+
+export function getProviderStartOptions(
+  settings: Pick<
+    AppSettings,
+    | "claudeBinaryPath"
+    | "codexBinaryPath"
+    | "codexHomePath"
+    | "codexRemoteOverrides"
+    | "kiroBinaryPath"
+    | "kiroRemoteOverrides"
+  >,
+  hostAlias?: string | null,
+): ProviderStartOptions | undefined {
+  const codex = getCodexHostOverride(settings, hostAlias);
+  const kiro = getKiroHostOverride(settings, hostAlias);
+
+  const providerOptions: ProviderStartOptions = {
+    ...(settings.claudeBinaryPath
+      ? {
+          claudeAgent: {
+            binaryPath: settings.claudeBinaryPath,
+          },
+        }
+      : {}),
+    ...(codex.binaryPath || codex.homePath
+      ? {
+          codex: {
+            ...(codex.binaryPath ? { binaryPath: codex.binaryPath } : {}),
+            ...(codex.homePath ? { homePath: codex.homePath } : {}),
+          },
+        }
+      : {}),
+    ...(kiro.binaryPath
+      ? {
+          kiro: {
+            binaryPath: kiro.binaryPath,
+          },
+        }
+      : {}),
+  };
+
+  return Object.keys(providerOptions).length > 0 ? providerOptions : undefined;
 }
 
 export function useAppSettings() {
