@@ -1183,6 +1183,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isGitRepo = branchesQuery.data?.isRepo ?? true;
   const fallbackComposerThreadId =
     showComposerThreadId && !isGitRepo ? visibleProviderThreadId : null;
+  const terminalToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    [keybindings],
+  );
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split"),
     [keybindings],
@@ -3559,6 +3563,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           keybindings={keybindings}
           availableEditors={availableEditors}
+          terminalAvailable={activeProject !== undefined}
+          terminalOpen={terminalState.terminalOpen}
+          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitTarget={gitTarget}
           diffOpen={diffOpen}
@@ -3568,6 +3575,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
+          onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
           onDraftThreadTitleOverrideChange={isLocalDraftThread ? setDraftThreadTitleOverride : null}
         />
