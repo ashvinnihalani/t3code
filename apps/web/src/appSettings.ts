@@ -106,6 +106,10 @@ export const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some(true)),
     Schema.withDecodingDefault(() => true),
   ),
+  diffWordWrap: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(false)),
+    Schema.withDecodingDefault(() => false),
+  ),
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
     Schema.withDecodingDefault(() => false),

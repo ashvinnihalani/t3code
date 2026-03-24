@@ -356,6 +356,7 @@ describe("AppSettingsSchema", () => {
       codexHomePath: "",
       defaultThreadEnvMode: "local",
       confirmThreadDelete: false,
+      diffWordWrap: false,
       enableAssistantStreaming: false,
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
       customCodexModels: [],
