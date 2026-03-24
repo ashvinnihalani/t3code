@@ -119,10 +119,9 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   buildGitRequestSettings,
-  getCodexHostOverride,
-  getKiroHostOverride,
   getCustomModelOptionsByProvider,
   getCustomModelsByProvider,
+  getProviderStartOptions,
   resolveAppModelSelection,
   useAppSettings,
 } from "../appSettings";
@@ -620,17 +619,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return resolveAppModelSelection(selectedProvider, customModelsByProvider, draftModel);
   }, [baseThreadModel, composerDraft.model, customModelsByProvider, selectedProvider]);
   const draftModelOptions = composerDraft.modelOptions;
-  const activeProjectCodexHostAlias =
+  const activeProjectHostAlias =
     activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
-  const activeProjectKiroHostAlias = activeProjectCodexHostAlias;
-  const activeProjectCodexOverride = useMemo(
-    () => getCodexHostOverride(settings, activeProjectCodexHostAlias),
-    [activeProjectCodexHostAlias, settings],
-  );
-  const activeProjectKiroOverride = useMemo(
-    () => getKiroHostOverride(settings, activeProjectKiroHostAlias),
-    [activeProjectKiroHostAlias, settings],
-  );
   const composerProviderState = useMemo(
     () =>
       getComposerProviderState({
@@ -642,39 +632,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [draftModelOptions, prompt, selectedModel, selectedProvider],
   );
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  const providerOptionsForDispatch = useMemo(() => {
-    if (selectedProvider === "kiro") {
-      if (!activeProjectKiroOverride.binaryPath) {
-        return undefined;
-      }
-      return {
-        kiro: {
-          binaryPath: activeProjectKiroOverride.binaryPath,
-        },
-      };
-    }
-    if (selectedProvider === "claudeAgent") {
-      return undefined;
-    }
-    if (!activeProjectCodexOverride.binaryPath && !activeProjectCodexOverride.homePath) {
-      return undefined;
-    }
-    return {
-      codex: {
-        ...(activeProjectCodexOverride.binaryPath
-          ? { binaryPath: activeProjectCodexOverride.binaryPath }
-          : {}),
-        ...(activeProjectCodexOverride.homePath
-          ? { homePath: activeProjectCodexOverride.homePath }
-          : {}),
-      },
-    };
-  }, [
-    activeProjectCodexOverride.binaryPath,
-    activeProjectCodexOverride.homePath,
-    activeProjectKiroOverride.binaryPath,
-    selectedProvider,
-  ]);
+  const providerOptionsForDispatch = useMemo(
+    () => getProviderStartOptions(settings, activeProjectHostAlias),
+    [activeProjectHostAlias, settings],
+  );
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),

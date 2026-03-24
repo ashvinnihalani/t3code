@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   type DesktopAppCloseBehavior,
@@ -8,31 +9,25 @@ import {
 } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
-  DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
-  DEFAULT_GIT_DEFAULT_ACTION,
   GIT_DEFAULT_ACTION_OPTIONS,
+  MAX_CUSTOM_MODEL_LENGTH,
+  MODEL_PROVIDER_SETTINGS,
+  THREAD_ID_DISPLAY_MODE_OPTIONS,
   type GitDefaultAction,
   type ThreadIdDisplayMode,
   buildCodexHostOverridePatch,
   buildKiroHostOverridePatch,
-  getCodexHostOverride,
   getAppModelOptions,
+  getCodexHostOverride,
   getCustomModelsForProvider,
   getDefaultCustomModelsForProvider,
   getKiroHostOverride,
-  MODEL_PROVIDER_SETTINGS,
-  MAX_CUSTOM_MODEL_LENGTH,
   patchCustomModels,
-  THREAD_ID_DISPLAY_MODE_OPTIONS,
   useAppSettings,
 } from "../appSettings";
-import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { isElectron } from "../env";
-import { useTheme } from "../hooks/useTheme";
-import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { ensureNativeApi } from "../nativeApi";
-import { useStore } from "../store";
+import { APP_VERSION } from "../branding";
 import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import {
   Select,
@@ -41,10 +36,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
 import { Switch } from "../components/ui/switch";
 import { Textarea } from "../components/ui/textarea";
-import { APP_VERSION } from "../branding";
-import { SidebarInset } from "~/components/ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
+import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import { isElectron } from "../env";
+import { useTheme } from "../hooks/useTheme";
+import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { cn } from "../lib/utils";
+import { ensureNativeApi, readNativeApi } from "../nativeApi";
+import { useStore } from "../store";
 
 const THEME_OPTIONS = [
   {
@@ -69,70 +71,198 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
 const GIT_DEFAULT_ACTION_LABELS: Record<GitDefaultAction, string> = {
   auto: "Auto",
   commit: "Commit",
   commit_push: "Commit and Push",
   commit_push_pr: "Commit Push and PR",
 };
+
 const DESKTOP_APP_CLOSE_BEHAVIOR_LABELS: Record<DesktopAppCloseBehavior, string> = {
   terminate_all_agents: "Stop all sessions",
   terminate_local_agents_only: "Stop local sessions only",
   terminate_no_agents: "Keep all sessions running",
 };
+
 const DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS: Record<DesktopAppCloseBehavior, string> = {
   terminate_all_agents: "Quit the local threads server and stop every active Codex session.",
   terminate_local_agents_only:
     "Keep the local threads server running, but stop sessions for local projects before exit.",
   terminate_no_agents: "Leave the local threads server and existing sessions running.",
 };
+
 const THREAD_ID_DISPLAY_MODE_LABELS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Hidden",
   composer: "Below input box",
   message: "On each message",
 };
+
 const THREAD_ID_DISPLAY_MODE_DESCRIPTIONS: Record<ThreadIdDisplayMode, string> = {
   hidden: "Do not show the provider thread ID.",
   composer: "Show one thread ID centered below the composer.",
   message: "Append the thread ID to every message timestamp.",
 };
-const LOCAL_CODEX_SETTINGS_SCOPE = "local";
-const SSH_CODEX_SETTINGS_SCOPE_PREFIX = "ssh:";
-const LOCAL_KIRO_SETTINGS_SCOPE = "local";
-const SSH_KIRO_SETTINGS_SCOPE_PREFIX = "ssh:";
 
-function encodeCodexSettingsScope(hostAlias: string | null): string {
-  return hostAlias ? `${SSH_CODEX_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_CODEX_SETTINGS_SCOPE;
+type InstallBinarySettingsKey = "claudeBinaryPath" | "codexBinaryPath" | "kiroBinaryPath";
+
+type InstallProviderSettings = {
+  provider: ProviderKind;
+  title: string;
+  binaryPathKey: InstallBinarySettingsKey;
+  binaryPlaceholder: string;
+  binaryDescription: ReactNode;
+  homePathKey?: "codexHomePath";
+  homePlaceholder?: string;
+  homeDescription?: ReactNode;
+};
+
+const INSTALL_PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
+  {
+    provider: "codex",
+    title: "Codex",
+    binaryPathKey: "codexBinaryPath",
+    binaryPlaceholder: "Codex binary path",
+    binaryDescription: (
+      <>
+        Leave blank to use <code>codex</code> from your PATH.
+      </>
+    ),
+    homePathKey: "codexHomePath",
+    homePlaceholder: "CODEX_HOME",
+    homeDescription: "Optional custom Codex home and config directory.",
+  },
+  {
+    provider: "claudeAgent",
+    title: "Claude",
+    binaryPathKey: "claudeBinaryPath",
+    binaryPlaceholder: "Claude binary path",
+    binaryDescription: (
+      <>
+        Leave blank to use <code>claude</code> from your PATH.
+      </>
+    ),
+  },
+  {
+    provider: "kiro",
+    title: "Kiro CLI",
+    binaryPathKey: "kiroBinaryPath",
+    binaryPlaceholder: "Kiro binary path",
+    binaryDescription: (
+      <>
+        Leave blank to use <code>kiro-cli</code> from your PATH.
+      </>
+    ),
+  },
+];
+
+function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        {title}
+      </h2>
+      <div className="relative overflow-hidden rounded-2xl border bg-card not-dark:bg-clip-padding text-card-foreground shadow-xs/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
+        {children}
+      </div>
+    </section>
+  );
 }
 
-function decodeCodexSettingsScope(scope: string): string | null {
-  return scope.startsWith(SSH_CODEX_SETTINGS_SCOPE_PREFIX)
-    ? scope.slice(SSH_CODEX_SETTINGS_SCOPE_PREFIX.length)
-    : null;
+function SettingsRow({
+  title,
+  description,
+  status,
+  resetAction,
+  control,
+  children,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  status?: ReactNode;
+  resetAction?: ReactNode;
+  control?: ReactNode;
+  children?: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      className="border-t border-border px-4 py-4 first:border-t-0 sm:px-5"
+      data-slot="settings-row"
+    >
+      <div
+        className={cn(
+          "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+          onClick && "cursor-pointer",
+        )}
+        onClick={onClick}
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-h-5 items-center gap-1.5">
+            <h3 className="text-sm font-medium text-foreground">{title}</h3>
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+              {resetAction}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{description}</p>
+          {status ? <div className="pt-1 text-[11px] text-muted-foreground">{status}</div> : null}
+        </div>
+        {control ? (
+          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+            {control}
+          </div>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
 }
 
-function encodeKiroSettingsScope(hostAlias: string | null): string {
-  return hostAlias ? `${SSH_KIRO_SETTINGS_SCOPE_PREFIX}${hostAlias}` : LOCAL_KIRO_SETTINGS_SCOPE;
+function SettingResetButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label={`Reset ${label} to default`}
+            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+          >
+            <Undo2Icon className="size-3" />
+          </Button>
+        }
+      />
+      <TooltipPopup side="top">Reset to default</TooltipPopup>
+    </Tooltip>
+  );
 }
 
-function decodeKiroSettingsScope(scope: string): string | null {
-  return scope.startsWith(SSH_KIRO_SETTINGS_SCOPE_PREFIX)
-    ? scope.slice(SSH_KIRO_SETTINGS_SCOPE_PREFIX.length)
-    : null;
+function arraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function SettingsRouteView() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const { settings, defaults, updateSettings } = useAppSettings();
+  const { theme, setTheme } = useTheme();
+  const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
   const projects = useStore((store) => store.projects);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
-  const [selectedCodexSettingsScope, setSelectedCodexSettingsScope] = useState(
-    LOCAL_CODEX_SETTINGS_SCOPE,
-  );
-  const [selectedKiroSettingsScope, setSelectedKiroSettingsScope] =
-    useState(LOCAL_KIRO_SETTINGS_SCOPE);
+  const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
+    codex: Boolean(settings.codexBinaryPath || settings.codexHomePath),
+    claudeAgent: Boolean(settings.claudeBinaryPath),
+    kiro: Boolean(settings.kiroBinaryPath),
+  });
+  const [selectedCodexRemoteHost, setSelectedCodexRemoteHost] = useState<string | null>(null);
+  const [selectedKiroRemoteHost, setSelectedKiroRemoteHost] = useState<string | null>(null);
+  const [selectedCustomModelProvider, setSelectedCustomModelProvider] =
+    useState<ProviderKind>("codex");
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -143,8 +273,9 @@ function SettingsRouteView() {
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
   >({});
+  const [showAllCustomModels, setShowAllCustomModels] = useState(false);
 
-  const remoteCodexHosts = useMemo(
+  const sshProjectHostAliases = useMemo(
     () =>
       Array.from(
         new Set(
@@ -155,69 +286,51 @@ function SettingsRouteView() {
       ).toSorted((left, right) => left.localeCompare(right)),
     [projects],
   );
-  const codexSettingsScopeOptions = useMemo(
-    () => [
-      {
-        label: "Local",
-        value: LOCAL_CODEX_SETTINGS_SCOPE,
-      },
-      ...remoteCodexHosts.map((hostAlias) => ({
-        label: hostAlias,
-        value: encodeCodexSettingsScope(hostAlias),
-      })),
-    ],
-    [remoteCodexHosts],
+
+  const codexRemoteHosts = useMemo(
+    () =>
+      Array.from(
+        new Set([...sshProjectHostAliases, ...Object.keys(settings.codexRemoteOverrides)]),
+      ).toSorted((left, right) => left.localeCompare(right)),
+    [settings.codexRemoteOverrides, sshProjectHostAliases],
   );
-  const hasRemoteCodexHosts = remoteCodexHosts.length > 0;
-  const remoteKiroHosts = remoteCodexHosts;
-  const kiroSettingsScopeOptions = useMemo(
-    () => [
-      {
-        label: "Local",
-        value: LOCAL_KIRO_SETTINGS_SCOPE,
-      },
-      ...remoteKiroHosts.map((hostAlias) => ({
-        label: hostAlias,
-        value: encodeKiroSettingsScope(hostAlias),
-      })),
-    ],
-    [remoteKiroHosts],
+  const kiroRemoteHosts = useMemo(
+    () =>
+      Array.from(
+        new Set([...sshProjectHostAliases, ...Object.keys(settings.kiroRemoteOverrides)]),
+      ).toSorted((left, right) => left.localeCompare(right)),
+    [settings.kiroRemoteOverrides, sshProjectHostAliases],
   );
-  const hasRemoteKiroHosts = remoteKiroHosts.length > 0;
 
   useEffect(() => {
-    if (selectedCodexSettingsScope === LOCAL_CODEX_SETTINGS_SCOPE) {
+    if (codexRemoteHosts.length === 0) {
+      setSelectedCodexRemoteHost(null);
       return;
     }
 
-    if (!codexSettingsScopeOptions.some((option) => option.value === selectedCodexSettingsScope)) {
-      setSelectedCodexSettingsScope(LOCAL_CODEX_SETTINGS_SCOPE);
+    if (!selectedCodexRemoteHost || !codexRemoteHosts.includes(selectedCodexRemoteHost)) {
+      setSelectedCodexRemoteHost(codexRemoteHosts[0] ?? null);
     }
-  }, [codexSettingsScopeOptions, selectedCodexSettingsScope]);
+  }, [codexRemoteHosts, selectedCodexRemoteHost]);
 
   useEffect(() => {
-    if (selectedKiroSettingsScope === LOCAL_KIRO_SETTINGS_SCOPE) {
+    if (kiroRemoteHosts.length === 0) {
+      setSelectedKiroRemoteHost(null);
       return;
     }
 
-    if (!kiroSettingsScopeOptions.some((option) => option.value === selectedKiroSettingsScope)) {
-      setSelectedKiroSettingsScope(LOCAL_KIRO_SETTINGS_SCOPE);
+    if (!selectedKiroRemoteHost || !kiroRemoteHosts.includes(selectedKiroRemoteHost)) {
+      setSelectedKiroRemoteHost(kiroRemoteHosts[0] ?? null);
     }
-  }, [kiroSettingsScopeOptions, selectedKiroSettingsScope]);
+  }, [kiroRemoteHosts, selectedKiroRemoteHost]);
 
-  const selectedCodexHostAlias = decodeCodexSettingsScope(selectedCodexSettingsScope);
-  const selectedCodexSettingsOption =
-    codexSettingsScopeOptions.find((option) => option.value === selectedCodexSettingsScope) ??
-    codexSettingsScopeOptions[0];
-  const codexHostOverride = getCodexHostOverride(settings, selectedCodexHostAlias);
-  const codexBinaryPath = codexHostOverride.binaryPath;
-  const codexHomePath = codexHostOverride.homePath;
-  const selectedKiroHostAlias = decodeKiroSettingsScope(selectedKiroSettingsScope);
-  const selectedKiroSettingsOption =
-    kiroSettingsScopeOptions.find((option) => option.value === selectedKiroSettingsScope) ??
-    kiroSettingsScopeOptions[0];
-  const kiroHostOverride = getKiroHostOverride(settings, selectedKiroHostAlias);
-  const kiroBinaryPath = kiroHostOverride.binaryPath;
+  const selectedCodexRemoteOverride = selectedCodexRemoteHost
+    ? getCodexHostOverride(settings, selectedCodexRemoteHost)
+    : null;
+  const selectedKiroRemoteOverride = selectedKiroRemoteHost
+    ? getKiroHostOverride(settings, selectedKiroRemoteHost)
+    : null;
+
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
@@ -226,16 +339,79 @@ function SettingsRouteView() {
     settings.customCodexModels,
     settings.textGenerationModel,
   );
+  const currentGitTextGenerationModel =
+    settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+  const defaultGitTextGenerationModel =
+    defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+  const isGitTextGenerationModelDirty =
+    currentGitTextGenerationModel !== defaultGitTextGenerationModel;
   const selectedGitTextGenerationModelLabel =
-    gitTextGenerationModelOptions.find(
-      (option) =>
-        option.slug === (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
-    )?.name ?? settings.textGenerationModel;
+    gitTextGenerationModelOptions.find((option) => option.slug === currentGitTextGenerationModel)
+      ?.name ?? currentGitTextGenerationModel;
+
+  const selectedCustomModelProviderSettings = MODEL_PROVIDER_SETTINGS.find(
+    (providerSettings) => providerSettings.provider === selectedCustomModelProvider,
+  )!;
+  const selectedCustomModelInput = customModelInputByProvider[selectedCustomModelProvider];
+  const selectedCustomModelError = customModelErrorByProvider[selectedCustomModelProvider] ?? null;
+
+  const savedCustomModelRows = MODEL_PROVIDER_SETTINGS.flatMap((providerSettings) =>
+    getCustomModelsForProvider(settings, providerSettings.provider).map((slug) => ({
+      key: `${providerSettings.provider}:${slug}`,
+      provider: providerSettings.provider,
+      providerTitle: providerSettings.title,
+      slug,
+    })),
+  );
+  const totalCustomModels = savedCustomModelRows.length;
+  const visibleCustomModelRows = showAllCustomModels
+    ? savedCustomModelRows
+    : savedCustomModelRows.slice(0, 5);
+  const hasCustomModelOverrides = MODEL_PROVIDER_SETTINGS.some((providerSettings) => {
+    const currentModels = getCustomModelsForProvider(settings, providerSettings.provider);
+    const defaultModels = getDefaultCustomModelsForProvider(defaults, providerSettings.provider);
+    return !arraysEqual(currentModels, defaultModels);
+  });
+
   const hasGitOverrides =
-    settings.gitDefaultAction !== DEFAULT_GIT_DEFAULT_ACTION ||
-    settings.gitCommitPrompt !== "" ||
-    settings.gitHubBinaryPath !== "" ||
-    settings.textGenerationModel !== defaults.textGenerationModel;
+    settings.gitDefaultAction !== defaults.gitDefaultAction ||
+    settings.gitCommitPrompt !== defaults.gitCommitPrompt ||
+    settings.gitHubBinaryPath !== defaults.gitHubBinaryPath ||
+    isGitTextGenerationModelDirty;
+
+  const isInstallSettingsDirty =
+    settings.claudeBinaryPath !== defaults.claudeBinaryPath ||
+    settings.codexBinaryPath !== defaults.codexBinaryPath ||
+    settings.codexHomePath !== defaults.codexHomePath ||
+    settings.kiroBinaryPath !== defaults.kiroBinaryPath;
+
+  const hasCodexRemoteOverrides = Object.keys(settings.codexRemoteOverrides).length > 0;
+  const hasKiroRemoteOverrides = Object.keys(settings.kiroRemoteOverrides).length > 0;
+  const hasSelectedCodexRemoteOverride = Boolean(
+    selectedCodexRemoteOverride?.binaryPath || selectedCodexRemoteOverride?.homePath,
+  );
+  const hasSelectedKiroRemoteOverride = Boolean(selectedKiroRemoteOverride?.binaryPath);
+
+  const changedSettingLabels = [
+    ...(theme !== "system" ? ["Theme"] : []),
+    ...(settings.timestampFormat !== defaults.timestampFormat ? ["Time format"] : []),
+    ...(settings.enableAssistantStreaming !== defaults.enableAssistantStreaming
+      ? ["Assistant output"]
+      : []),
+    ...(settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ? ["New thread mode"] : []),
+    ...(settings.confirmThreadDelete !== defaults.confirmThreadDelete
+      ? ["Delete confirmation"]
+      : []),
+    ...(settings.threadIdDisplayMode !== defaults.threadIdDisplayMode ? ["Thread ID display"] : []),
+    ...(settings.desktopAppCloseBehavior !== defaults.desktopAppCloseBehavior
+      ? ["App close behavior"]
+      : []),
+    ...(hasGitOverrides ? ["Git settings"] : []),
+    ...(hasCustomModelOverrides ? ["Custom models"] : []),
+    ...(isInstallSettingsDirty ? ["Provider installs"] : []),
+    ...(hasCodexRemoteOverrides ? ["Codex SSH overrides"] : []),
+    ...(hasKiroRemoteOverrides ? ["Kiro SSH overrides"] : []),
+  ];
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
@@ -324,134 +500,369 @@ function SettingsRouteView() {
     [settings, updateSettings],
   );
 
+  async function restoreDefaults() {
+    if (changedSettingLabels.length === 0) return;
+
+    const api = readNativeApi();
+    const confirmed = await (api ?? ensureNativeApi()).dialogs.confirm(
+      ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
+        "\n",
+      ),
+    );
+    if (!confirmed) return;
+
+    setTheme("system");
+    resetSettings();
+    setOpenInstallProviders({
+      codex: false,
+      claudeAgent: false,
+      kiro: false,
+    });
+    setSelectedCodexRemoteHost(null);
+    setSelectedKiroRemoteHost(null);
+    setSelectedCustomModelProvider("codex");
+    setCustomModelInputByProvider({
+      codex: "",
+      claudeAgent: "",
+      kiro: "",
+    });
+    setCustomModelErrorByProvider({});
+    setShowAllCustomModels(false);
+  }
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+        {!isElectron && (
+          <header className="border-b border-border px-3 py-2 sm:px-5">
+            <div className="flex items-center gap-2">
+              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+              <span className="text-sm font-medium text-foreground">Settings</span>
+              <div className="ms-auto flex items-center gap-2">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={changedSettingLabels.length === 0}
+                  onClick={() => void restoreDefaults()}
+                >
+                  <RotateCcwIcon className="size-3.5" />
+                  Restore defaults
+                </Button>
+              </div>
+            </div>
+          </header>
+        )}
+
         {isElectron && (
           <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
+            <div className="ms-auto flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={changedSettingLabels.length === 0}
+                onClick={() => void restoreDefaults()}
+              >
+                <RotateCcwIcon className="size-3.5" />
+                Restore defaults
+              </Button>
+            </div>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-            <header className="space-y-1">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
-              <p className="text-sm text-muted-foreground">
-                Configure app-level preferences for this device.
-              </p>
-            </header>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Appearance</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Choose how T3 Code looks across the app.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2" role="radiogroup" aria-label="Theme preference">
-                  {THEME_OPTIONS.map((option) => {
-                    const selected = theme === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left transition-colors ${
-                          selected
-                            ? "border-primary/60 bg-primary/8 text-foreground"
-                            : "border-border bg-background text-muted-foreground hover:bg-accent"
-                        }`}
-                        onClick={() => setTheme(option.value)}
-                      >
-                        <span className="flex flex-col">
-                          <span className="text-sm font-medium">{option.label}</span>
-                          <span className="text-xs">{option.description}</span>
-                        </span>
-                        {selected ? (
-                          <span className="rounded bg-primary/14 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-                            Selected
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  Active theme: <span className="font-medium text-foreground">{resolvedTheme}</span>
-                </p>
-
-                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Timestamp format</p>
-                    <p className="text-xs text-muted-foreground">
-                      System default follows your browser or OS time format. <code>12-hour</code>{" "}
-                      and <code>24-hour</code> force the hour cycle.
-                    </p>
-                  </div>
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+            <SettingsSection title="General">
+              <SettingsRow
+                title="Theme"
+                description="Choose how T3 Code looks across the app."
+                resetAction={
+                  theme !== "system" ? (
+                    <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+                  ) : null
+                }
+                control={
                   <Select
-                    value={settings.timestampFormat}
+                    value={theme}
                     onValueChange={(value) => {
-                      if (value !== "locale" && value !== "12-hour" && value !== "24-hour") return;
-                      updateSettings({
-                        timestampFormat: value,
-                      });
+                      if (value !== "system" && value !== "light" && value !== "dark") return;
+                      setTheme(value);
                     }}
                   >
-                    <SelectTrigger className="w-40" aria-label="Timestamp format">
-                      <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+                    <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+                      <SelectValue>
+                        {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
+                      </SelectValue>
                     </SelectTrigger>
-                    <SelectPopup align="end">
-                      <SelectItem value="locale">{TIMESTAMP_FORMAT_LABELS.locale}</SelectItem>
-                      <SelectItem value="12-hour">{TIMESTAMP_FORMAT_LABELS["12-hour"]}</SelectItem>
-                      <SelectItem value="24-hour">{TIMESTAMP_FORMAT_LABELS["24-hour"]}</SelectItem>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {THEME_OPTIONS.map((option) => (
+                        <SelectItem hideIndicator key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
                     </SelectPopup>
                   </Select>
-                </div>
+                }
+              />
 
-                {settings.timestampFormat !== defaults.timestampFormat ? (
-                  <div className="flex justify-end">
-                    <Button
-                      size="xs"
-                      variant="outline"
+              <SettingsRow
+                title="Time format"
+                description="System default follows your browser or OS clock preference."
+                resetAction={
+                  settings.timestampFormat !== defaults.timestampFormat ? (
+                    <SettingResetButton
+                      label="time format"
                       onClick={() =>
                         updateSettings({
                           timestampFormat: defaults.timestampFormat,
                         })
                       }
+                    />
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={settings.timestampFormat}
+                    onValueChange={(value) => {
+                      if (value !== "locale" && value !== "12-hour" && value !== "24-hour") {
+                        return;
+                      }
+                      updateSettings({
+                        timestampFormat: value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
+                      <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      <SelectItem hideIndicator value="locale">
+                        {TIMESTAMP_FORMAT_LABELS.locale}
+                      </SelectItem>
+                      <SelectItem hideIndicator value="12-hour">
+                        {TIMESTAMP_FORMAT_LABELS["12-hour"]}
+                      </SelectItem>
+                      <SelectItem hideIndicator value="24-hour">
+                        {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                      </SelectItem>
+                    </SelectPopup>
+                  </Select>
+                }
+              />
+
+              <SettingsRow
+                title="Assistant output"
+                description="Show token-by-token output while a response is in progress."
+                resetAction={
+                  settings.enableAssistantStreaming !== defaults.enableAssistantStreaming ? (
+                    <SettingResetButton
+                      label="assistant output"
+                      onClick={() =>
+                        updateSettings({
+                          enableAssistantStreaming: defaults.enableAssistantStreaming,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Switch
+                    checked={settings.enableAssistantStreaming}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        enableAssistantStreaming: Boolean(checked),
+                      })
+                    }
+                    aria-label="Stream assistant messages"
+                  />
+                }
+              />
+
+              <SettingsRow
+                title="New threads"
+                description="Pick the default workspace mode for newly created draft threads."
+                resetAction={
+                  settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ? (
+                    <SettingResetButton
+                      label="new threads"
+                      onClick={() =>
+                        updateSettings({
+                          defaultThreadEnvMode: defaults.defaultThreadEnvMode,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={settings.defaultThreadEnvMode}
+                    onValueChange={(value) => {
+                      if (value !== "local" && value !== "worktree") return;
+                      updateSettings({
+                        defaultThreadEnvMode: value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+                      <SelectValue>
+                        {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      <SelectItem hideIndicator value="local">
+                        Local
+                      </SelectItem>
+                      <SelectItem hideIndicator value="worktree">
+                        New worktree
+                      </SelectItem>
+                    </SelectPopup>
+                  </Select>
+                }
+              />
+
+              <SettingsRow
+                title="Delete confirmation"
+                description="Ask before deleting a thread and its chat history."
+                resetAction={
+                  settings.confirmThreadDelete !== defaults.confirmThreadDelete ? (
+                    <SettingResetButton
+                      label="delete confirmation"
+                      onClick={() =>
+                        updateSettings({
+                          confirmThreadDelete: defaults.confirmThreadDelete,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Switch
+                    checked={settings.confirmThreadDelete}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        confirmThreadDelete: Boolean(checked),
+                      })
+                    }
+                    aria-label="Confirm thread deletion"
+                  />
+                }
+              />
+
+              <SettingsRow
+                title="Thread ID display"
+                description={THREAD_ID_DISPLAY_MODE_DESCRIPTIONS[settings.threadIdDisplayMode]}
+                resetAction={
+                  settings.threadIdDisplayMode !== defaults.threadIdDisplayMode ? (
+                    <SettingResetButton
+                      label="thread id display"
+                      onClick={() =>
+                        updateSettings({
+                          threadIdDisplayMode: defaults.threadIdDisplayMode,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={settings.threadIdDisplayMode}
+                    onValueChange={(value) => {
+                      if (
+                        !THREAD_ID_DISPLAY_MODE_OPTIONS.includes(value as ThreadIdDisplayMode)
+                      ) {
+                        return;
+                      }
+                      updateSettings({
+                        threadIdDisplayMode: value as ThreadIdDisplayMode,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-44" aria-label="Thread ID display mode">
+                      <SelectValue>
+                        {THREAD_ID_DISPLAY_MODE_LABELS[settings.threadIdDisplayMode]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {THREAD_ID_DISPLAY_MODE_OPTIONS.map((option) => (
+                        <SelectItem hideIndicator key={option} value={option}>
+                          {THREAD_ID_DISPLAY_MODE_LABELS[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                }
+              />
+
+              {isElectron ? (
+                <SettingsRow
+                  title="On app close"
+                  description={
+                    DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]
+                  }
+                  resetAction={
+                    settings.desktopAppCloseBehavior !== defaults.desktopAppCloseBehavior ? (
+                      <SettingResetButton
+                        label="app close behavior"
+                        onClick={() =>
+                          updateSettings({
+                            desktopAppCloseBehavior: defaults.desktopAppCloseBehavior,
+                          })
+                        }
+                      />
+                    ) : null
+                  }
+                  control={
+                    <Select
+                      value={settings.desktopAppCloseBehavior}
+                      onValueChange={(value) => {
+                        if (value === null || !(value in DESKTOP_APP_CLOSE_BEHAVIOR_LABELS)) {
+                          return;
+                        }
+                        updateSettings({
+                          desktopAppCloseBehavior: value as DesktopAppCloseBehavior,
+                        });
+                      }}
                     >
-                      Restore default
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            </section>
+                      <SelectTrigger
+                        className="w-full sm:w-56"
+                        aria-label="Desktop app close behavior"
+                      >
+                        <SelectValue>
+                          {DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[settings.desktopAppCloseBehavior]}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(DESKTOP_APP_CLOSE_BEHAVIOR_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  }
+                />
+              ) : null}
+            </SettingsSection>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Git</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Configure the default stacked git action and overrides used for auto-generated
-                  commits, PR workflows, and generated git content. These settings apply to both
-                  local and SSH projects; only the Codex App Server overrides below are host-scoped.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">Default action</p>
-                    <p className="text-xs text-muted-foreground">
-                      Auto preserves the original context-sensitive behavior. The other options
-                      force a preferred action when possible.
-                    </p>
-                  </div>
+            <SettingsSection title="Git">
+              <SettingsRow
+                title="Default action"
+                description="Auto preserves the original context-sensitive behavior. The other options force a preferred action when possible."
+                resetAction={
+                  settings.gitDefaultAction !== defaults.gitDefaultAction ? (
+                    <SettingResetButton
+                      label="default git action"
+                      onClick={() =>
+                        updateSettings({
+                          gitDefaultAction: defaults.gitDefaultAction,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
                   <Select
                     value={settings.gitDefaultAction}
                     onValueChange={(value) => {
@@ -463,84 +874,110 @@ function SettingsRouteView() {
                       });
                     }}
                   >
-                    <SelectTrigger className="w-48" aria-label="Default git action">
-                      <SelectValue>
-                        {GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}
-                      </SelectValue>
+                    <SelectTrigger className="w-full sm:w-52" aria-label="Default git action">
+                      <SelectValue>{GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}</SelectValue>
                     </SelectTrigger>
-                    <SelectPopup align="end">
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
                       {GIT_DEFAULT_ACTION_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
+                        <SelectItem hideIndicator key={option} value={option}>
                           {GIT_DEFAULT_ACTION_LABELS[option]}
                         </SelectItem>
                       ))}
                     </SelectPopup>
                   </Select>
-                </div>
+                }
+              />
 
-                <div className="space-y-4 rounded-lg border border-border bg-background px-3 py-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">Text generation</p>
-                    <p className="text-xs text-muted-foreground">
-                      Configure the model used for generating commit messages, PR titles, and branch
-                      names.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-foreground">Model</p>
-                      <p className="text-xs text-muted-foreground">
-                        Select which model the Git prompter uses.
-                      </p>
-                    </div>
-                    <Select
-                      value={settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
-                      onValueChange={(value) => {
-                        if (value) {
-                          updateSettings({
-                            textGenerationModel: value,
-                          });
-                        }
-                      }}
-                    >
-                      <SelectTrigger
-                        className="w-full shrink-0 sm:w-48"
-                        aria-label="Git text generation model"
-                      >
-                        <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup align="end">
-                        {gitTextGenerationModelOptions.map((option) => (
-                          <SelectItem key={option.slug} value={option.slug}>
-                            {option.name}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-
-                  <label htmlFor="git-commit-prompt" className="block space-y-1">
-                    <span className="text-xs font-medium text-foreground">Prompt</span>
-                    <Textarea
-                      id="git-commit-prompt"
-                      value={settings.gitCommitPrompt}
-                      onChange={(event) =>
+              <SettingsRow
+                title="Git writing model"
+                description="Used for generated commit messages, PR titles, and branch names."
+                resetAction={
+                  isGitTextGenerationModelDirty ? (
+                    <SettingResetButton
+                      label="git writing model"
+                      onClick={() =>
                         updateSettings({
-                          gitCommitPrompt: event.target.value,
+                          textGenerationModel: defaults.textGenerationModel,
                         })
                       }
-                      placeholder="Optional instructions for the Git prompter"
-                      spellCheck={false}
                     />
-                    <span className="text-xs text-muted-foreground">
-                      Leave blank to use the built-in prompting behavior only.
-                    </span>
-                  </label>
-                </div>
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={currentGitTextGenerationModel}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      updateSettings({
+                        textGenerationModel: value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full sm:w-52"
+                      aria-label="Git text generation model"
+                    >
+                      <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {gitTextGenerationModelOptions.map((option) => (
+                        <SelectItem hideIndicator key={option.slug} value={option.slug}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                }
+              />
 
-                <label htmlFor="github-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">GitHub binary path</span>
+              <SettingsRow
+                title="Prompt"
+                description="Optional instructions for generated commit messages, PR titles, and branch names."
+                resetAction={
+                  settings.gitCommitPrompt !== defaults.gitCommitPrompt ? (
+                    <SettingResetButton
+                      label="git prompt"
+                      onClick={() =>
+                        updateSettings({
+                          gitCommitPrompt: defaults.gitCommitPrompt,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
+                  <Textarea
+                    id="git-commit-prompt"
+                    value={settings.gitCommitPrompt}
+                    onChange={(event) =>
+                      updateSettings({
+                        gitCommitPrompt: event.target.value,
+                      })
+                    }
+                    placeholder="Optional instructions for the Git prompter"
+                    spellCheck={false}
+                  />
+                </div>
+              </SettingsRow>
+
+              <SettingsRow
+                title="GitHub binary path"
+                description="Optional executable override for git status, PR actions, and PR checkout. For SSH projects, the same path must exist on the remote host."
+                resetAction={
+                  settings.gitHubBinaryPath !== defaults.gitHubBinaryPath ? (
+                    <SettingResetButton
+                      label="github binary path"
+                      onClick={() =>
+                        updateSettings({
+                          gitHubBinaryPath: defaults.gitHubBinaryPath,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
                   <Input
                     id="github-binary-path"
                     value={settings.gitHubBinaryPath}
@@ -552,668 +989,520 @@ function SettingsRouteView() {
                     placeholder="gh"
                     spellCheck={false}
                   />
-                  <span className="text-xs text-muted-foreground">
-                    Optional executable override for git status, PR actions, and PR checkout. For
-                    SSH projects, the same path must exist on the remote host.
-                  </span>
-                </label>
-              </div>
-
-              {hasGitOverrides ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        gitDefaultAction: defaults.gitDefaultAction,
-                        gitCommitPrompt: defaults.gitCommitPrompt,
-                        gitHubBinaryPath: defaults.gitHubBinaryPath,
-                        textGenerationModel: defaults.textGenerationModel,
-                      })
-                    }
-                  >
-                    Restore default
-                  </Button>
                 </div>
-              ) : null}
-            </section>
+              </SettingsRow>
+            </SettingsSection>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Codex App Server</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  These overrides apply to new sessions and let you use a non-default Codex install.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label
-                    htmlFor="codex-settings-host"
-                    className="block text-xs font-medium text-foreground"
-                  >
-                    Host
-                  </label>
-                  <Select
-                    value={selectedCodexSettingsScope}
-                    onValueChange={(value) => {
-                      if (
-                        value === null ||
-                        !codexSettingsScopeOptions.some((option) => option.value === value)
-                      ) {
-                        return;
-                      }
-                      setSelectedCodexSettingsScope(value);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="codex-settings-host"
-                      className="w-full"
-                      aria-label="Codex settings host"
-                      disabled={!hasRemoteCodexHosts}
+            <SettingsSection title="Models">
+              <SettingsRow
+                title="Custom models"
+                description="Add custom model slugs for supported providers."
+                resetAction={
+                  hasCustomModelOverrides ? (
+                    <SettingResetButton
+                      label="custom models"
+                      onClick={() => {
+                        updateSettings({
+                          customCodexModels: defaults.customCodexModels,
+                          customClaudeModels: defaults.customClaudeModels,
+                          customKiroModels: defaults.customKiroModels,
+                        });
+                        setCustomModelErrorByProvider({});
+                        setShowAllCustomModels(false);
+                      }}
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Select
+                      value={selectedCustomModelProvider}
+                      onValueChange={(value) => {
+                        if (!MODEL_PROVIDER_SETTINGS.some((provider) => provider.provider === value)) {
+                          return;
+                        }
+                        setSelectedCustomModelProvider(value as ProviderKind);
+                      }}
                     >
-                      <SelectValue>{selectedCodexSettingsOption?.label ?? "Local"}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {codexSettingsScopeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                  <span className="text-xs text-muted-foreground">
-                    {hasRemoteCodexHosts
-                      ? "Choose which machine these overrides apply to. Remote host overrides are stored locally on this device for now."
-                      : "Only local projects are open right now, so these overrides are locked to Local."}
-                  </span>
-                </div>
-
-                <label htmlFor="codex-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Codex binary path</span>
-                  <Input
-                    id="codex-binary-path"
-                    value={codexBinaryPath}
-                    onChange={(event) =>
-                      updateSettings(
-                        buildCodexHostOverridePatch(
-                          settings,
-                          { binaryPath: event.target.value },
-                          selectedCodexHostAlias,
-                        ),
-                      )
-                    }
-                    placeholder="codex"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>codex</code> from your PATH on the selected host.
-                  </span>
-                </label>
-
-                <label htmlFor="codex-home-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
-                  <Input
-                    id="codex-home-path"
-                    value={codexHomePath}
-                    onChange={(event) =>
-                      updateSettings(
-                        buildCodexHostOverridePatch(
-                          settings,
-                          { homePath: event.target.value },
-                          selectedCodexHostAlias,
-                        ),
-                      )
-                    }
-                    placeholder="/Users/you/.codex"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Optional custom Codex home/config directory.
-                  </span>
-                </label>
-
-                <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p>Binary source for {selectedCodexSettingsOption?.label ?? "Local"}</p>
-                    <p className="mt-1 break-all font-mono text-[11px] text-foreground">
-                      {codexBinaryPath || "PATH"}
-                    </p>
-                  </div>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="self-start"
-                    onClick={() =>
-                      updateSettings(
-                        buildCodexHostOverridePatch(
-                          settings,
-                          {
-                            binaryPath: defaults.codexBinaryPath,
-                            homePath: defaults.codexHomePath,
-                          },
-                          selectedCodexHostAlias,
-                        ),
-                      )
-                    }
-                  >
-                    Reset codex overrides
-                  </Button>
-                </div>
-
-                {isElectron ? (
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground">On app close</p>
-                      <p className="text-xs text-muted-foreground">
-                        {DESKTOP_APP_CLOSE_BEHAVIOR_DESCRIPTIONS[settings.desktopAppCloseBehavior]}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={settings.desktopAppCloseBehavior}
-                        onValueChange={(value) => {
-                          if (value === null || !(value in DESKTOP_APP_CLOSE_BEHAVIOR_LABELS)) {
-                            return;
-                          }
-                          updateSettings({
-                            desktopAppCloseBehavior: value as DesktopAppCloseBehavior,
-                          });
-                        }}
+                      <SelectTrigger
+                        size="sm"
+                        className="w-full sm:w-40"
+                        aria-label="Custom model provider"
                       >
-                        <SelectTrigger
-                          id="desktop-app-close-behavior"
-                          className="w-56"
-                          aria-label="Codex app close behavior"
-                        >
-                          <SelectValue>
-                            {DESKTOP_APP_CLOSE_BEHAVIOR_LABELS[settings.desktopAppCloseBehavior]}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectPopup align="end">
-                          {Object.entries(DESKTOP_APP_CLOSE_BEHAVIOR_LABELS).map(
-                            ([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ),
-                          )}
-                        </SelectPopup>
-                      </Select>
+                        <SelectValue>{selectedCustomModelProviderSettings.title}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="start" alignItemWithTrigger={false}>
+                        {MODEL_PROVIDER_SETTINGS.map((providerSettings) => (
+                          <SelectItem
+                            hideIndicator
+                            className="min-h-7 text-sm"
+                            key={providerSettings.provider}
+                            value={providerSettings.provider}
+                          >
+                            {providerSettings.title}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                    <Input
+                      id="custom-model-slug"
+                      value={selectedCustomModelInput}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setCustomModelInputByProvider((existing) => ({
+                          ...existing,
+                          [selectedCustomModelProvider]: value,
+                        }));
+                        if (selectedCustomModelError) {
+                          setCustomModelErrorByProvider((existing) => ({
+                            ...existing,
+                            [selectedCustomModelProvider]: null,
+                          }));
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        addCustomModel(selectedCustomModelProvider);
+                      }}
+                      placeholder={selectedCustomModelProviderSettings.example}
+                      spellCheck={false}
+                    />
+                    <Button
+                      className="shrink-0"
+                      variant="outline"
+                      onClick={() => addCustomModel(selectedCustomModelProvider)}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      Add
+                    </Button>
+                  </div>
 
-                      {settings.desktopAppCloseBehavior !== DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR ? (
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() =>
-                            updateSettings({
-                              desktopAppCloseBehavior: DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
-                            })
-                          }
+                  {selectedCustomModelError ? (
+                    <p className="mt-2 text-xs text-destructive">{selectedCustomModelError}</p>
+                  ) : null}
+
+                  {totalCustomModels > 0 ? (
+                    <div className="mt-3">
+                      <div>
+                        {visibleCustomModelRows.map((row) => (
+                          <div
+                            key={row.key}
+                            className="group grid grid-cols-[minmax(5rem,6rem)_minmax(0,1fr)_auto] items-center gap-3 border-t border-border/60 px-4 py-2 first:border-t-0"
+                          >
+                            <span className="truncate text-xs text-muted-foreground">
+                              {row.providerTitle}
+                            </span>
+                            <code className="min-w-0 truncate text-sm text-foreground">
+                              {row.slug}
+                            </code>
+                            <button
+                              type="button"
+                              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100"
+                              aria-label={`Remove ${row.slug}`}
+                              onClick={() => removeCustomModel(row.provider, row.slug)}
+                            >
+                              <XIcon className="size-3.5 text-muted-foreground hover:text-foreground" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {savedCustomModelRows.length > 5 ? (
+                        <button
+                          type="button"
+                          className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          onClick={() => setShowAllCustomModels((value) => !value)}
                         >
-                          Reset
-                        </Button>
+                          {showAllCustomModels
+                            ? "Show less"
+                            : `Show more (${savedCustomModelRows.length - 5})`}
+                        </button>
                       ) : null}
                     </div>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Kiro CLI</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  These overrides apply to new sessions and let you point T3 Code at a specific Kiro
-                  CLI binary per host.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label
-                    htmlFor="kiro-settings-host"
-                    className="block text-xs font-medium text-foreground"
-                  >
-                    Host
-                  </label>
-                  <Select
-                    value={selectedKiroSettingsScope}
-                    onValueChange={(value) => {
-                      if (
-                        value === null ||
-                        !kiroSettingsScopeOptions.some((option) => option.value === value)
-                      ) {
-                        return;
-                      }
-                      setSelectedKiroSettingsScope(value);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="kiro-settings-host"
-                      className="w-full"
-                      aria-label="Kiro settings host"
-                      disabled={!hasRemoteKiroHosts}
-                    >
-                      <SelectValue>{selectedKiroSettingsOption?.label ?? "Local"}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {kiroSettingsScopeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                  <span className="text-xs text-muted-foreground">
-                    {hasRemoteKiroHosts
-                      ? "Choose which machine this override applies to. Remote host overrides are stored locally on this device for now."
-                      : "Only local projects are open right now, so these overrides are locked to Local."}
-                  </span>
-                </div>
-
-                <label htmlFor="kiro-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Kiro binary path</span>
-                  <Input
-                    id="kiro-binary-path"
-                    value={kiroBinaryPath}
-                    onChange={(event) =>
-                      updateSettings(
-                        buildKiroHostOverridePatch(
-                          settings,
-                          { binaryPath: event.target.value },
-                          selectedKiroHostAlias,
-                        ),
-                      )
-                    }
-                    placeholder="kiro-cli"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>kiro-cli</code> from your PATH on the selected host.
-                  </span>
-                </label>
-
-                <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p>Binary source for {selectedKiroSettingsOption?.label ?? "Local"}</p>
-                    <p className="mt-1 break-all font-mono text-[11px] text-foreground">
-                      {kiroBinaryPath || "PATH"}
-                    </p>
-                  </div>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="self-start"
-                    onClick={() =>
-                      updateSettings(
-                        buildKiroHostOverridePatch(
-                          settings,
-                          {
-                            binaryPath: defaults.kiroBinaryPath,
-                          },
-                          selectedKiroHostAlias,
-                        ),
-                      )
-                    }
-                  >
-                    Reset Kiro overrides
-                  </Button>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Models</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Save additional provider model slugs so they appear in the chat model picker and
-                  `/model` command suggestions.
-                </p>
-              </div>
-
-              <div className="space-y-5">
-                {MODEL_PROVIDER_SETTINGS.map((providerSettings) => {
-                  const provider = providerSettings.provider;
-                  const customModels = getCustomModelsForProvider(settings, provider);
-                  const customModelInput = customModelInputByProvider[provider];
-                  const customModelError = customModelErrorByProvider[provider] ?? null;
-                  return (
-                    <div
-                      key={provider}
-                      className="rounded-xl border border-border bg-background/50 p-4"
-                    >
-                      <div className="mb-4">
-                        <h3 className="text-sm font-medium text-foreground">
-                          {providerSettings.title}
-                        </h3>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {providerSettings.description}
-                        </p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                          <label
-                            htmlFor={`custom-model-slug-${provider}`}
-                            className="block flex-1 space-y-1"
-                          >
-                            <span className="text-xs font-medium text-foreground">
-                              Custom model slug
-                            </span>
-                            <Input
-                              id={`custom-model-slug-${provider}`}
-                              value={customModelInput}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setCustomModelInputByProvider((existing) => ({
-                                  ...existing,
-                                  [provider]: value,
-                                }));
-                                if (customModelError) {
-                                  setCustomModelErrorByProvider((existing) => ({
-                                    ...existing,
-                                    [provider]: null,
-                                  }));
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter") return;
-                                event.preventDefault();
-                                addCustomModel(provider);
-                              }}
-                              placeholder={providerSettings.placeholder}
-                              spellCheck={false}
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              Example: <code>{providerSettings.example}</code>
-                            </span>
-                          </label>
-
-                          <Button
-                            className="sm:mt-6"
-                            type="button"
-                            onClick={() => addCustomModel(provider)}
-                          >
-                            Add model
-                          </Button>
-                        </div>
-
-                        {customModelError ? (
-                          <p className="text-xs text-destructive">{customModelError}</p>
-                        ) : null}
-
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <p>Saved custom models: {customModels.length}</p>
-                            {customModels.length > 0 ? (
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() =>
-                                  updateSettings(
-                                    patchCustomModels(provider, [
-                                      ...getDefaultCustomModelsForProvider(defaults, provider),
-                                    ]),
-                                  )
-                                }
-                              >
-                                Reset custom models
-                              </Button>
-                            ) : null}
-                          </div>
-
-                          {customModels.length > 0 ? (
-                            <div className="space-y-2">
-                              {customModels.map((slug) => (
-                                <div
-                                  key={`${provider}:${slug}`}
-                                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
-                                >
-                                  <code className="min-w-0 flex-1 truncate text-xs text-foreground">
-                                    {slug}
-                                  </code>
-                                  <Button
-                                    size="xs"
-                                    variant="ghost"
-                                    onClick={() => removeCustomModel(provider, slug)}
-                                  >
-                                    Remove
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
-                              No custom models saved yet.
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                      No custom models saved yet.
                     </div>
-                  );
-                })}
-              </div>
-            </section>
+                  )}
+                </div>
+              </SettingsRow>
+            </SettingsSection>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Threads</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Configure defaults for new threads and how conversation thread IDs are shown.
-                </p>
-              </div>
+            <SettingsSection title="Advanced">
+              <SettingsRow
+                title="Provider installs"
+                description="Override the CLI used for new local sessions. SSH-specific overrides are configured below."
+                resetAction={
+                  isInstallSettingsDirty ? (
+                    <SettingResetButton
+                      label="provider installs"
+                      onClick={() => {
+                        updateSettings({
+                          claudeBinaryPath: defaults.claudeBinaryPath,
+                          codexBinaryPath: defaults.codexBinaryPath,
+                          codexHomePath: defaults.codexHomePath,
+                          kiroBinaryPath: defaults.kiroBinaryPath,
+                        });
+                        setOpenInstallProviders({
+                          codex: false,
+                          claudeAgent: false,
+                          kiro: false,
+                        });
+                      }}
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4">
+                  <div className="space-y-2">
+                    {INSTALL_PROVIDER_SETTINGS.map((providerSettings) => {
+                      const isOpen = openInstallProviders[providerSettings.provider];
+                      const isDirty =
+                        providerSettings.provider === "codex"
+                          ? settings.codexBinaryPath !== defaults.codexBinaryPath ||
+                            settings.codexHomePath !== defaults.codexHomePath
+                          : providerSettings.provider === "claudeAgent"
+                            ? settings.claudeBinaryPath !== defaults.claudeBinaryPath
+                            : settings.kiroBinaryPath !== defaults.kiroBinaryPath;
+                      const binaryPathValue =
+                        providerSettings.binaryPathKey === "claudeBinaryPath"
+                          ? settings.claudeBinaryPath
+                          : providerSettings.binaryPathKey === "kiroBinaryPath"
+                            ? settings.kiroBinaryPath
+                            : settings.codexBinaryPath;
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Default to New worktree</p>
-                    <p className="text-xs text-muted-foreground">
-                      New threads start in New worktree mode instead of Local.
-                    </p>
+                      return (
+                        <Collapsible
+                          key={providerSettings.provider}
+                          open={isOpen}
+                          onOpenChange={(open) =>
+                            setOpenInstallProviders((existing) => ({
+                              ...existing,
+                              [providerSettings.provider]: open,
+                            }))
+                          }
+                        >
+                          <div className="overflow-hidden rounded-xl border border-border/70">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                              onClick={() =>
+                                setOpenInstallProviders((existing) => ({
+                                  ...existing,
+                                  [providerSettings.provider]: !existing[providerSettings.provider],
+                                }))
+                              }
+                            >
+                              <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                                {providerSettings.title}
+                              </span>
+                              {isDirty ? (
+                                <span className="text-[11px] text-muted-foreground">Custom</span>
+                              ) : null}
+                              <ChevronDownIcon
+                                className={cn(
+                                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                                  isOpen && "rotate-180",
+                                )}
+                              />
+                            </button>
+
+                            <CollapsibleContent>
+                              <div className="border-t border-border/70 px-4 py-4">
+                                <div className="space-y-3">
+                                  <label
+                                    htmlFor={`provider-install-${providerSettings.binaryPathKey}`}
+                                    className="block"
+                                  >
+                                    <span className="block text-xs font-medium text-foreground">
+                                      {providerSettings.title} binary path
+                                    </span>
+                                    <Input
+                                      id={`provider-install-${providerSettings.binaryPathKey}`}
+                                      className="mt-1"
+                                      value={binaryPathValue}
+                                      onChange={(event) =>
+                                        updateSettings(
+                                          providerSettings.binaryPathKey === "claudeBinaryPath"
+                                            ? { claudeBinaryPath: event.target.value }
+                                            : providerSettings.binaryPathKey === "kiroBinaryPath"
+                                              ? { kiroBinaryPath: event.target.value }
+                                              : { codexBinaryPath: event.target.value },
+                                        )
+                                      }
+                                      placeholder={providerSettings.binaryPlaceholder}
+                                      spellCheck={false}
+                                    />
+                                    <span className="mt-1 block text-xs text-muted-foreground">
+                                      {providerSettings.binaryDescription}
+                                    </span>
+                                  </label>
+
+                                  {providerSettings.homePathKey ? (
+                                    <label
+                                      htmlFor={`provider-install-${providerSettings.homePathKey}`}
+                                      className="block"
+                                    >
+                                      <span className="block text-xs font-medium text-foreground">
+                                        CODEX_HOME path
+                                      </span>
+                                      <Input
+                                        id={`provider-install-${providerSettings.homePathKey}`}
+                                        className="mt-1"
+                                        value={settings.codexHomePath}
+                                        onChange={(event) =>
+                                          updateSettings({
+                                            codexHomePath: event.target.value,
+                                          })
+                                        }
+                                        placeholder={providerSettings.homePlaceholder}
+                                        spellCheck={false}
+                                      />
+                                      {providerSettings.homeDescription ? (
+                                        <span className="mt-1 block text-xs text-muted-foreground">
+                                          {providerSettings.homeDescription}
+                                        </span>
+                                      ) : null}
+                                    </label>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      );
+                    })}
                   </div>
-                  <Switch
-                    checked={settings.defaultThreadEnvMode === "worktree"}
-                    onCheckedChange={(checked) =>
-                      updateSettings({
-                        defaultThreadEnvMode: checked ? "worktree" : "local",
-                      })
-                    }
-                    aria-label="Default new threads to New worktree mode"
-                  />
                 </div>
+              </SettingsRow>
 
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">Thread ID display</p>
-                    <p className="text-xs text-muted-foreground">
-                      {THREAD_ID_DISPLAY_MODE_DESCRIPTIONS[settings.threadIdDisplayMode]}
-                    </p>
-                  </div>
-                  <Select
-                    value={settings.threadIdDisplayMode}
-                    onValueChange={(value) =>
-                      updateSettings({
-                        threadIdDisplayMode: value as ThreadIdDisplayMode,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-44" aria-label="Thread ID display mode">
-                      <SelectValue>
-                        {THREAD_ID_DISPLAY_MODE_LABELS[settings.threadIdDisplayMode]}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {THREAD_ID_DISPLAY_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {THREAD_ID_DISPLAY_MODE_LABELS[option]}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
+              <SettingsRow
+                title="Codex SSH overrides"
+                description="Override the Codex binary and CODEX_HOME for specific SSH hosts. Local installs are configured above."
+                resetAction={
+                  hasSelectedCodexRemoteOverride && selectedCodexRemoteHost ? (
+                    <SettingResetButton
+                      label="codex ssh override"
+                      onClick={() =>
+                        updateSettings(
+                          buildCodexHostOverridePatch(
+                            settings,
+                            {
+                              binaryPath: "",
+                              homePath: "",
+                            },
+                            selectedCodexRemoteHost,
+                          ),
+                        )
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
+                  {codexRemoteHosts.length > 0 ? (
+                    <div className="space-y-3">
+                      <label htmlFor="codex-ssh-host" className="block">
+                        <span className="block text-xs font-medium text-foreground">SSH host</span>
+                        <Select
+                          value={selectedCodexRemoteHost ?? ""}
+                          onValueChange={(value) => {
+                            if (typeof value !== "string") return;
+                            if (!codexRemoteHosts.includes(value)) return;
+                            setSelectedCodexRemoteHost(value);
+                          }}
+                        >
+                          <SelectTrigger
+                            id="codex-ssh-host"
+                            className="mt-1 w-full"
+                            aria-label="Codex SSH override host"
+                          >
+                            <SelectValue>{selectedCodexRemoteHost ?? "Select host"}</SelectValue>
+                          </SelectTrigger>
+                          <SelectPopup align="start" alignItemWithTrigger={false}>
+                            {codexRemoteHosts.map((hostAlias) => (
+                              <SelectItem hideIndicator key={hostAlias} value={hostAlias}>
+                                {hostAlias}
+                              </SelectItem>
+                            ))}
+                          </SelectPopup>
+                        </Select>
+                      </label>
+
+                      <label htmlFor="codex-ssh-binary-path" className="block">
+                        <span className="block text-xs font-medium text-foreground">
+                          Codex binary path
+                        </span>
+                        <Input
+                          id="codex-ssh-binary-path"
+                          className="mt-1"
+                          value={selectedCodexRemoteOverride?.binaryPath ?? ""}
+                          onChange={(event) => {
+                            if (!selectedCodexRemoteHost) return;
+                            updateSettings(
+                              buildCodexHostOverridePatch(
+                                settings,
+                                { binaryPath: event.target.value },
+                                selectedCodexRemoteHost,
+                              ),
+                            );
+                          }}
+                          placeholder="codex"
+                          spellCheck={false}
+                        />
+                      </label>
+
+                      <label htmlFor="codex-ssh-home-path" className="block">
+                        <span className="block text-xs font-medium text-foreground">
+                          CODEX_HOME path
+                        </span>
+                        <Input
+                          id="codex-ssh-home-path"
+                          className="mt-1"
+                          value={selectedCodexRemoteOverride?.homePath ?? ""}
+                          onChange={(event) => {
+                            if (!selectedCodexRemoteHost) return;
+                            updateSettings(
+                              buildCodexHostOverridePatch(
+                                settings,
+                                { homePath: event.target.value },
+                                selectedCodexRemoteHost,
+                              ),
+                            );
+                          }}
+                          placeholder="/home/you/.codex"
+                          spellCheck={false}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                      Open an SSH project to configure per-host Codex overrides.
+                    </div>
+                  )}
                 </div>
-              </div>
+              </SettingsRow>
 
-              {settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ||
-              settings.threadIdDisplayMode !== defaults.threadIdDisplayMode ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        defaultThreadEnvMode: defaults.defaultThreadEnvMode,
-                        threadIdDisplayMode: defaults.threadIdDisplayMode,
-                      })
-                    }
-                  >
-                    Restore default
-                  </Button>
+              <SettingsRow
+                title="Kiro SSH overrides"
+                description="Override the Kiro CLI binary for specific SSH hosts. Local installs are configured above."
+                resetAction={
+                  hasSelectedKiroRemoteOverride && selectedKiroRemoteHost ? (
+                    <SettingResetButton
+                      label="kiro ssh override"
+                      onClick={() =>
+                        updateSettings(
+                          buildKiroHostOverridePatch(
+                            settings,
+                            {
+                              binaryPath: "",
+                            },
+                            selectedKiroRemoteHost,
+                          ),
+                        )
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
+                  {kiroRemoteHosts.length > 0 ? (
+                    <div className="space-y-3">
+                      <label htmlFor="kiro-ssh-host" className="block">
+                        <span className="block text-xs font-medium text-foreground">SSH host</span>
+                        <Select
+                          value={selectedKiroRemoteHost ?? ""}
+                          onValueChange={(value) => {
+                            if (typeof value !== "string") return;
+                            if (!kiroRemoteHosts.includes(value)) return;
+                            setSelectedKiroRemoteHost(value);
+                          }}
+                        >
+                          <SelectTrigger
+                            id="kiro-ssh-host"
+                            className="mt-1 w-full"
+                            aria-label="Kiro SSH override host"
+                          >
+                            <SelectValue>{selectedKiroRemoteHost ?? "Select host"}</SelectValue>
+                          </SelectTrigger>
+                          <SelectPopup align="start" alignItemWithTrigger={false}>
+                            {kiroRemoteHosts.map((hostAlias) => (
+                              <SelectItem hideIndicator key={hostAlias} value={hostAlias}>
+                                {hostAlias}
+                              </SelectItem>
+                            ))}
+                          </SelectPopup>
+                        </Select>
+                      </label>
+
+                      <label htmlFor="kiro-ssh-binary-path" className="block">
+                        <span className="block text-xs font-medium text-foreground">
+                          Kiro binary path
+                        </span>
+                        <Input
+                          id="kiro-ssh-binary-path"
+                          className="mt-1"
+                          value={selectedKiroRemoteOverride?.binaryPath ?? ""}
+                          onChange={(event) => {
+                            if (!selectedKiroRemoteHost) return;
+                            updateSettings(
+                              buildKiroHostOverridePatch(
+                                settings,
+                                { binaryPath: event.target.value },
+                                selectedKiroRemoteHost,
+                              ),
+                            );
+                          }}
+                          placeholder="kiro-cli"
+                          spellCheck={false}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                      Open an SSH project to configure per-host Kiro overrides.
+                    </div>
+                  )}
                 </div>
-              ) : null}
-            </section>
+              </SettingsRow>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Responses</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Control how assistant output is rendered during a turn.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Stream assistant messages</p>
-                  <p className="text-xs text-muted-foreground">
-                    Show token-by-token output while a response is in progress.
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.enableAssistantStreaming}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      enableAssistantStreaming: Boolean(checked),
-                    })
-                  }
-                  aria-label="Stream assistant messages"
-                />
-              </div>
-
-              {settings.enableAssistantStreaming !== defaults.enableAssistantStreaming ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        enableAssistantStreaming: defaults.enableAssistantStreaming,
-                      })
-                    }
-                  >
-                    Restore default
-                  </Button>
-                </div>
-              ) : null}
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Keybindings</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Open the persisted <code>keybindings.json</code> file to edit advanced bindings
-                  directly.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-foreground">Config file path</p>
-                    <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+              <SettingsRow
+                title="Keybindings"
+                description="Open the persisted `keybindings.json` file to edit advanced bindings directly."
+                status={
+                  <>
+                    <span className="block break-all font-mono text-[11px] text-foreground">
                       {keybindingsConfigPath ?? "Resolving keybindings path..."}
-                    </p>
-                  </div>
+                    </span>
+                    {openKeybindingsError ? (
+                      <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
+                    ) : (
+                      <span className="mt-1 block">Opens in your preferred editor.</span>
+                    )}
+                  </>
+                }
+                control={
                   <Button
                     size="xs"
                     variant="outline"
                     disabled={!keybindingsConfigPath || isOpeningKeybindings}
                     onClick={openKeybindingsFile}
                   >
-                    {isOpeningKeybindings ? "Opening..." : "Open keybindings.json"}
+                    {isOpeningKeybindings ? "Opening..." : "Open file"}
                   </Button>
-                </div>
+                }
+              />
 
-                <p className="text-xs text-muted-foreground">
-                  Opens in your preferred editor selection.
-                </p>
-                {openKeybindingsError ? (
-                  <p className="text-xs text-destructive">{openKeybindingsError}</p>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Safety</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Additional guardrails for destructive local actions.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Confirm thread deletion</p>
-                  <p className="text-xs text-muted-foreground">
-                    Ask for confirmation before deleting a thread and its chat history.
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.confirmThreadDelete}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      confirmThreadDelete: Boolean(checked),
-                    })
-                  }
-                  aria-label="Confirm thread deletion"
-                />
-              </div>
-
-              {settings.confirmThreadDelete !== defaults.confirmThreadDelete ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        confirmThreadDelete: defaults.confirmThreadDelete,
-                      })
-                    }
-                  >
-                    Restore default
-                  </Button>
-                </div>
-              ) : null}
-            </section>
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">About</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Application version and environment information.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Version</p>
-                  <p className="text-xs text-muted-foreground">
-                    Current version of the application.
-                  </p>
-                </div>
-                <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
-              </div>
-            </section>
+              <SettingsRow
+                title="Version"
+                description="Current application version."
+                control={
+                  <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
+                }
+              />
+            </SettingsSection>
           </div>
         </div>
       </div>
