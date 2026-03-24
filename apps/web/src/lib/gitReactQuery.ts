@@ -151,11 +151,13 @@ export function gitRunStackedActionMutationOptions(input: {
   return mutationOptions({
     mutationKey: gitMutationKeys.runStackedAction(input.target),
     mutationFn: async ({
+      actionId,
       action,
       commitMessage,
       featureBranch,
       filePaths,
     }: {
+      actionId: string;
       action: GitStackedAction;
       commitMessage?: string;
       featureBranch?: boolean;
@@ -164,6 +166,7 @@ export function gitRunStackedActionMutationOptions(input: {
       const api = ensureNativeApi();
       return api.git.runStackedAction({
         ...toGitApiTarget(input.target),
+        actionId,
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
