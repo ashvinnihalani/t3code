@@ -288,6 +288,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     gitCommitPrompt: "",
     gitHubBinaryPath: "",
     confirmThreadDelete: true,
+    diffWordWrap: false,
     enableAssistantStreaming: false,
     desktopAppCloseBehavior: "terminate_all_agents",
     threadIdDisplayMode: "hidden",
