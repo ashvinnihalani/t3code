@@ -128,7 +128,7 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
           (attachment) =>
             Effect.gen(function* () {
               const attachmentPath = resolveAttachmentPath({
-                stateDir: serverConfig.stateDir,
+                attachmentsDir: serverConfig.attachmentsDir,
                 attachment,
               });
               if (!attachmentPath) {
