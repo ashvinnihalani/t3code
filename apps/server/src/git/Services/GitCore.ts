@@ -33,6 +33,7 @@ export interface ExecuteGitInput {
   readonly allowNonZeroExit?: boolean;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
+  readonly progress?: ExecuteGitProgress;
 }
 
 export interface ExecuteGitResult {
@@ -81,6 +82,36 @@ export interface GitInitExecutionInput extends GitInitInput {
 export interface GitPreparedCommitContext {
   stagedSummary: string;
   stagedPatch: string;
+}
+
+export interface ExecuteGitProgress {
+  readonly onStdoutLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onStderrLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitProgress {
+  readonly onOutputLine?: (input: {
+    stream: "stdout" | "stderr";
+    text: string;
+  }) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitOptions {
+  readonly timeoutMs?: number;
+  readonly progress?: GitCommitProgress;
+  readonly remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitPushResult {
@@ -177,7 +208,7 @@ export interface GitCoreShape {
     cwd: string,
     subject: string,
     body: string,
-    remote?: ProjectRemoteTarget | null,
+    options?: GitCommitOptions,
   ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
 
   /**

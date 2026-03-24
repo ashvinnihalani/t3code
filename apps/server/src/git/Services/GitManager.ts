@@ -7,6 +7,7 @@
  * @module GitManager
  */
 import {
+  GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -29,12 +30,21 @@ export interface GitPullRequestRefExecutionInput extends GitPullRequestRefInput 
   remote?: ProjectRemoteTarget | null;
 }
 
+export interface GitActionProgressReporter {
+  readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
+}
+
 export interface GitPreparePullRequestThreadExecutionInput extends GitPreparePullRequestThreadInput {
   remote?: ProjectRemoteTarget | null;
 }
 
 export interface GitRunStackedActionExecutionInput extends GitRunStackedActionInput {
   remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitRunStackedActionOptions {
+  readonly actionId?: string;
+  readonly progressReporter?: GitActionProgressReporter;
 }
 
 /**
@@ -68,6 +78,7 @@ export interface GitManagerShape {
    */
   readonly runStackedAction: (
     input: GitRunStackedActionExecutionInput,
+    options?: GitRunStackedActionOptions,
   ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
 }
 

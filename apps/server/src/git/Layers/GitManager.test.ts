@@ -6,7 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect, vi } from "vitest";
-import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import type { GitActionProgressEvent, ProjectRemoteTarget } from "@t3tools/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
@@ -141,6 +141,7 @@ function initRepo(
     yield* runGit(cwd, ["init", "--initial-branch=main"]);
     yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
     yield* runGit(cwd, ["config", "user.name", "Test User"]);
+    yield* runGit(cwd, ["config", "core.hooksPath", ".git/hooks"]);
     yield* fs.writeFileString(path.join(cwd, "README.md"), "hello\n");
     yield* runGit(cwd, ["add", "README.md"]);
     yield* runGit(cwd, ["commit", "-m", "Initial commit"]);
@@ -459,6 +460,7 @@ function runStackedAction(
   input: {
     cwd: string;
     action: "commit" | "commit_push" | "commit_push_pr";
+    actionId?: string;
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
@@ -468,8 +470,15 @@ function runStackedAction(
       textGenerationModel?: string;
     };
   },
+  options?: Parameters<GitManagerShape["runStackedAction"]>[1],
 ) {
-  return manager.runStackedAction(input);
+  return manager.runStackedAction(
+    {
+      ...input,
+      actionId: input.actionId ?? "test-action-id",
+    },
+    options,
+  );
 }
 
 function resolvePullRequest(manager: GitManagerShape, input: { cwd: string; reference: string }) {
@@ -2183,6 +2192,119 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       );
 
       expect(errorMessage).toContain("already checked out in the main repo");
+    }),
+  );
+
+  it.effect("emits ordered progress events for commit hooks", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      fs.writeFileSync(path.join(repoDir, "hooked.txt"), "hooked\n");
+      fs.writeFileSync(
+        path.join(repoDir, ".git", "hooks", "pre-commit"),
+        '#!/bin/sh\necho "hook: start" >&2\nsleep 1\necho "hook: end" >&2\n',
+        { mode: 0o755 },
+      );
+
+      const { manager } = yield* makeManager();
+      const events: GitActionProgressEvent[] = [];
+
+      const result = yield* runStackedAction(
+        manager,
+        {
+          cwd: repoDir,
+          action: "commit",
+        },
+        {
+          actionId: "action-1",
+          progressReporter: {
+            publish: (event) =>
+              Effect.sync(() => {
+                events.push(event);
+              }),
+          },
+        },
+      );
+
+      expect(result.commit.status).toBe("created");
+      expect(events.map((event) => event.kind)).toContain("action_started");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "phase_started",
+            phase: "commit",
+          }),
+          expect.objectContaining({
+            kind: "hook_started",
+            hookName: "pre-commit",
+          }),
+          expect.objectContaining({
+            kind: "hook_output",
+            text: "hook: start",
+          }),
+          expect.objectContaining({
+            kind: "hook_output",
+            text: "hook: end",
+          }),
+          expect.objectContaining({
+            kind: "hook_finished",
+            hookName: "pre-commit",
+          }),
+          expect.objectContaining({
+            kind: "action_finished",
+          }),
+        ]),
+      );
+    }),
+  );
+
+  it.effect("emits action_failed when a commit hook rejects", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      fs.writeFileSync(path.join(repoDir, "hook-failure.txt"), "broken\n");
+      fs.writeFileSync(
+        path.join(repoDir, ".git", "hooks", "pre-commit"),
+        '#!/bin/sh\necho "hook: fail" >&2\nexit 1\n',
+        { mode: 0o755 },
+      );
+
+      const { manager } = yield* makeManager();
+      const events: GitActionProgressEvent[] = [];
+
+      const errorMessage = yield* runStackedAction(
+        manager,
+        {
+          cwd: repoDir,
+          action: "commit",
+        },
+        {
+          actionId: "action-2",
+          progressReporter: {
+            publish: (event) =>
+              Effect.sync(() => {
+                events.push(event);
+              }),
+          },
+        },
+      ).pipe(
+        Effect.flip,
+        Effect.map((error) => error.message),
+      );
+
+      expect(errorMessage).toContain("hook: fail");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "hook_started",
+            hookName: "pre-commit",
+          }),
+          expect.objectContaining({
+            kind: "action_failed",
+            phase: "commit",
+          }),
+        ]),
+      );
     }),
   );
 });
