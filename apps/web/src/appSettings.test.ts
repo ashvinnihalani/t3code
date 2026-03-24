@@ -6,6 +6,8 @@ import {
   DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR,
   DEFAULT_GIT_DEFAULT_ACTION,
   DEFAULT_THREAD_ID_DISPLAY_MODE,
+  DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+  DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
   DEFAULT_TIMESTAMP_FORMAT,
   MODEL_PROVIDER_SETTINGS,
   buildCodexHostOverridePatch,
@@ -158,6 +160,16 @@ describe("git settings defaults", () => {
 describe("thread id display defaults", () => {
   it("hides thread ids by default", () => {
     expect(DEFAULT_THREAD_ID_DISPLAY_MODE).toBe("hidden");
+  });
+});
+
+describe("sidebar sort defaults", () => {
+  it("defaults project sorting to updated_at", () => {
+    expect(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER).toBe("updated_at");
+  });
+
+  it("defaults thread sorting to updated_at", () => {
+    expect(DEFAULT_SIDEBAR_THREAD_SORT_ORDER).toBe("updated_at");
   });
 });
 
@@ -358,6 +370,8 @@ describe("AppSettingsSchema", () => {
       confirmThreadDelete: false,
       diffWordWrap: false,
       enableAssistantStreaming: false,
+      sidebarProjectSortOrder: DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+      sidebarThreadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
       customCodexModels: [],
       customClaudeModels: [],

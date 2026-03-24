@@ -24,6 +24,13 @@ export const TIMESTAMP_FORMAT_OPTIONS = ["locale", "12-hour", "24-hour"] as cons
 export type TimestampFormat = (typeof TIMESTAMP_FORMAT_OPTIONS)[number];
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
+export const SIDEBAR_PROJECT_SORT_ORDER_OPTIONS = ["updated_at", "created_at", "manual"] as const;
+export type SidebarProjectSortOrder = (typeof SIDEBAR_PROJECT_SORT_ORDER_OPTIONS)[number];
+export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
+export const SIDEBAR_THREAD_SORT_ORDER_OPTIONS = ["updated_at", "created_at"] as const;
+export type SidebarThreadSortOrder = (typeof SIDEBAR_THREAD_SORT_ORDER_OPTIONS)[number];
+export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
 export const GIT_DEFAULT_ACTION_OPTIONS = [
   "auto",
   "commit",
@@ -40,7 +47,6 @@ export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
 export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
 
 type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels" | "customKiroModels";
-
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
   settingsKey: CustomModelSettingsKey;
@@ -113,6 +119,14 @@ export const AppSettingsSchema = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
     Schema.withDecodingDefault(() => false),
+  ),
+  sidebarProjectSortOrder: Schema.Literals(SIDEBAR_PROJECT_SORT_ORDER_OPTIONS).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
+    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_PROJECT_SORT_ORDER),
+  ),
+  sidebarThreadSortOrder: Schema.Literals(SIDEBAR_THREAD_SORT_ORDER_OPTIONS).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
+    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
   desktopAppCloseBehavior: Schema.Literals(DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR)),
