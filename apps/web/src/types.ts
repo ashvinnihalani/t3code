@@ -85,6 +85,8 @@ export interface Project {
   remote?: ProjectRemoteTarget | null;
   model: string;
   expanded: boolean;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
   scripts: ProjectScript[];
 }
 
@@ -101,6 +103,7 @@ export interface Thread {
   proposedPlans: ProposedPlan[];
   error: string | null;
   createdAt: string;
+  updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
   branch: string | null;

@@ -290,6 +290,8 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     confirmThreadDelete: true,
     diffWordWrap: false,
     enableAssistantStreaming: false,
+    sidebarProjectSortOrder: "updated_at",
+    sidebarThreadSortOrder: "updated_at",
     desktopAppCloseBehavior: "terminate_all_agents",
     threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
