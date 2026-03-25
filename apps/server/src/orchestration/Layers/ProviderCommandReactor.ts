@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   EventId,
   type GitRequestSettings,
   type ModelSelection,
@@ -118,6 +119,19 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
   const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
+}
+
+function resolveGitTextGenerationModelSelection(
+  gitSettings?: GitRequestSettings,
+): ModelSelection {
+  const selection = gitSettings?.textGenerationModelSelection;
+  if (selection?.provider === "codex" || selection?.provider === "claudeAgent") {
+    return selection;
+  }
+  return {
+    provider: "codex",
+    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+  };
 }
 
 function resolveProjectScopedProviderOptions(input: {
@@ -517,9 +531,7 @@ const make = Effect.gen(function* () {
         ...(input.gitSettings?.commitPrompt
           ? { systemPrompt: input.gitSettings.commitPrompt }
           : {}),
-        ...(input.gitSettings?.textGenerationModel
-          ? { model: input.gitSettings.textGenerationModel }
-          : {}),
+        modelSelection: resolveGitTextGenerationModelSelection(input.gitSettings),
       })
       .pipe(
         Effect.catch((error) =>

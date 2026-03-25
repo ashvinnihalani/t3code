@@ -346,7 +346,10 @@ describe("ProviderCommandReactor", () => {
         },
         gitSettings: {
           commitPrompt: "Prefer concise branch names.",
-          textGenerationModel: "gpt-5.4-mini",
+          textGenerationModelSelection: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+          },
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
@@ -361,7 +364,10 @@ describe("ProviderCommandReactor", () => {
       cwd: "/tmp/provider-project-worktree",
       message: "rename this worktree branch",
       systemPrompt: "Prefer concise branch names.",
-      model: "gpt-5.4-mini",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
     });
     expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
       cwd: "/tmp/provider-project-worktree",
@@ -412,7 +418,10 @@ describe("ProviderCommandReactor", () => {
         },
         gitSettings: {
           commitPrompt: "Prefer concise remote branch names.",
-          textGenerationModel: "gpt-5.4-mini",
+          textGenerationModelSelection: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+          },
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
@@ -431,7 +440,10 @@ describe("ProviderCommandReactor", () => {
       },
       message: "rename this remote worktree branch",
       systemPrompt: "Prefer concise remote branch names.",
-      model: "gpt-5.4-mini",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
     });
     expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
       cwd: "/srv/provider-project/.worktrees/thread-1",

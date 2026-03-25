@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
+import { ModelSelection } from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 
@@ -36,7 +37,7 @@ const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
 export const GitRequestSettings = Schema.Struct({
   githubBinaryPath: Schema.optional(Schema.String.check(Schema.isMaxLength(4096))),
   commitPrompt: Schema.optional(Schema.String.check(Schema.isMaxLength(10_000))),
-  textGenerationModel: Schema.optional(TrimmedNonEmptyStringSchema),
+  textGenerationModelSelection: Schema.optional(ModelSelection),
 });
 export type GitRequestSettings = typeof GitRequestSettings.Type;
 
@@ -90,6 +91,7 @@ export const GitRunStackedActionInput = Schema.Struct({
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
   settings: Schema.optional(GitRequestSettings),
+  modelSelection: ModelSelection,
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 

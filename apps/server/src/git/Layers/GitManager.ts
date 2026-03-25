@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import { Effect, Layer } from "effect";
-import type { GitActionProgressEvent, GitActionProgressPhase } from "@t3tools/contracts";
+import type { GitActionProgressEvent, GitActionProgressPhase, ModelSelection } from "@t3tools/contracts";
 import {
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
@@ -25,7 +25,7 @@ type GitOperationSettings =
   | {
       githubBinaryPath?: string | undefined;
       commitPrompt?: string | undefined;
-      textGenerationModel?: string | undefined;
+      textGenerationModelSelection?: ModelSelection | undefined;
     }
   | undefined;
 
@@ -318,7 +318,6 @@ function toGitHubCliInputOptions(settings: GitOperationSettings): {
 
 function toCommitGenerationOptions(settings: GitOperationSettings): {
   systemPrompt: string | null;
-  model?: string;
 } {
   return {
     ...toTextGenerationOptions(settings),
@@ -327,13 +326,10 @@ function toCommitGenerationOptions(settings: GitOperationSettings): {
 
 function toTextGenerationOptions(settings: GitOperationSettings): {
   systemPrompt: string | null;
-  model?: string;
 } {
   const systemPrompt = settings?.commitPrompt?.trim();
-  const model = settings?.textGenerationModel?.trim();
   return {
     systemPrompt: systemPrompt || null,
-    ...(model ? { model } : {}),
   };
 }
 
@@ -784,6 +780,7 @@ export const makeGitManager = Effect.gen(function* () {
     includeBranch?: boolean;
     filePaths?: readonly string[];
     settings?: GitOperationSettings;
+    modelSelection: ModelSelection;
   }) =>
     Effect.gen(function* () {
       const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths, input.remote);
@@ -812,6 +809,7 @@ export const makeGitManager = Effect.gen(function* () {
           stagedPatch: limitContext(context.stagedPatch, 50_000),
           ...toCommitGenerationOptions(input.settings),
           ...(input.includeBranch ? { includeBranch: true } : {}),
+          modelSelection: input.modelSelection,
         })
         .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
 
@@ -824,6 +822,7 @@ export const makeGitManager = Effect.gen(function* () {
     });
 
   const runCommitStep = (
+    modelSelection: ModelSelection,
     cwd: string,
     action: "commit" | "commit_push" | "commit_push_pr",
     branch: string | null,
@@ -862,6 +861,8 @@ export const makeGitManager = Effect.gen(function* () {
           ...(remote ? { remote } : {}),
           ...(commitMessage ? { commitMessage } : {}),
           ...(filePaths ? { filePaths } : {}),
+          ...(settings ? { settings } : {}),
+          modelSelection,
           ...(settings ? { settings } : {}),
         });
       }
@@ -941,6 +942,7 @@ export const makeGitManager = Effect.gen(function* () {
     });
 
   const runPrStep = (
+    modelSelection: ModelSelection,
     cwd: string,
     fallbackBranch: string | null,
     remote?: GitRemoteTarget,
@@ -1001,6 +1003,8 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+        ...toTextGenerationOptions(settings),
+        modelSelection,
         ...toTextGenerationOptions(settings),
       });
 
@@ -1235,6 +1239,7 @@ export const makeGitManager = Effect.gen(function* () {
   );
 
   const runFeatureBranchStep = (
+    modelSelection: ModelSelection,
     cwd: string,
     branch: string | null,
     remote?: GitRemoteTarget,
@@ -1251,6 +1256,7 @@ export const makeGitManager = Effect.gen(function* () {
         ...(filePaths ? { filePaths } : {}),
         ...(settings ? { settings } : {}),
         includeBranch: true,
+        modelSelection,
       });
       if (!suggestion) {
         return yield* gitManagerError(
@@ -1325,6 +1331,7 @@ export const makeGitManager = Effect.gen(function* () {
             label: "Preparing feature branch...",
           });
           const result = yield* runFeatureBranchStep(
+            input.modelSelection,
             input.cwd,
             initialStatus.branch,
             input.remote,
@@ -1343,6 +1350,7 @@ export const makeGitManager = Effect.gen(function* () {
 
         currentPhase = "commit";
         const commit = yield* runCommitStep(
+          input.modelSelection,
           input.cwd,
           input.action,
           currentBranch,
@@ -1383,7 +1391,13 @@ export const makeGitManager = Effect.gen(function* () {
                 Effect.flatMap(() =>
                   Effect.gen(function* () {
                     currentPhase = "pr";
-                    return yield* runPrStep(input.cwd, currentBranch, input.remote, input.settings);
+                    return yield* runPrStep(
+                      input.modelSelection,
+                      input.cwd,
+                      currentBranch,
+                      input.remote,
+                      input.settings,
+                    );
                   }),
                 ),
               )

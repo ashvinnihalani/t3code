@@ -1,4 +1,9 @@
-import type { GitRequestSettings, GitStackedAction, ProjectId } from "@t3tools/contracts";
+import type {
+  GitRequestSettings,
+  GitStackedAction,
+  ModelSelection,
+  ProjectId,
+} from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -147,6 +152,7 @@ export function gitRunStackedActionMutationOptions(input: {
   target: GitQueryTarget;
   queryClient: QueryClient;
   settings?: GitRequestSettings;
+  modelSelection: ModelSelection;
 }) {
   return mutationOptions({
     mutationKey: gitMutationKeys.runStackedAction(input.target),
@@ -167,6 +173,7 @@ export function gitRunStackedActionMutationOptions(input: {
       return api.git.runStackedAction({
         ...toGitApiTarget(input.target),
         actionId,
+        modelSelection: input.modelSelection,
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),

@@ -120,14 +120,12 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { buildGitRequestSettings, getProviderStartOptions, useAppSettings } from "../appSettings";
 import {
-  buildGitRequestSettings,
   getCustomModelOptionsByProvider,
   getCustomModelsByProvider,
-  getProviderStartOptions,
   resolveAppModelSelection,
-  useAppSettings,
-} from "../appSettings";
+} from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
@@ -672,8 +670,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
-    () => getCustomModelOptionsByProvider(settings),
-    [settings],
+    () => getCustomModelOptionsByProvider(settings, selectedProvider, selectedModel),
+    [settings, selectedProvider, selectedModel],
   );
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];

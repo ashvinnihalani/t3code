@@ -1,12 +1,17 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Path } from "effect";
+import { Effect, FileSystem, Layer, Path, Result } from "effect";
 import { expect } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
 import { CodexTextGenerationLive } from "./CodexTextGeneration.ts";
 import { TextGenerationError } from "../Errors.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
+
+const DEFAULT_TEST_MODEL_SELECTION = {
+  provider: "codex" as const,
+  model: "gpt-5.4-mini",
+};
 
 const CodexTextGenerationTestLayer = CodexTextGenerationLive.pipe(
   Layer.provideMerge(
@@ -40,13 +45,15 @@ function makeFakeCodexBinary(dir: string) {
         "  fi",
         '  if [ "$1" = "--config" ]; then',
         "    shift",
-        '    if [ "$1" = "tools.web_search=false" ]; then',
-        '      seen_disable_web_search="1"',
+        '    if [ "$1" = "service_tier=\\"fast\\"" ]; then',
+        '      seen_fast_service_tier="1"',
         "    fi",
+        '    case "$1" in',
+        "      model_reasoning_effort=*)",
+        '        seen_reasoning_effort="$1"',
+        "        ;;",
+        "    esac",
         "    continue",
-        "  fi",
-        '  if [ "$1" = "--output-schema" ]; then',
-        '    seen_output_schema="1"',
         "  fi",
         '  if [ "$1" = "--output-last-message" ]; then',
         "    shift",
@@ -59,13 +66,17 @@ function makeFakeCodexBinary(dir: string) {
         '  printf "%s\\n" "missing --image input" >&2',
         "  exit 2",
         "fi",
-        'if [ "$T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED" = "1" ] && [ "$seen_disable_web_search" != "1" ]; then',
-        '  printf "%s\\n" "missing tools.web_search=false override" >&2',
+        'if [ "$T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER" = "1" ] && [ "$seen_fast_service_tier" != "1" ]; then',
+        '  printf "%s\\n" "missing fast service tier config" >&2',
+        "  exit 5",
+        "fi",
+        'if [ -n "$T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT" ] && [ "$seen_reasoning_effort" != "model_reasoning_effort=\\"$T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT\\"" ]; then',
+        '  printf "%s\\n" "unexpected reasoning effort config: $seen_reasoning_effort" >&2',
         "  exit 6",
         "fi",
-        'if [ "$T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA" = "1" ] && [ "$seen_output_schema" = "1" ]; then',
-        '  printf "%s\\n" "unexpected argument --output-schema" >&2',
-        "  exit 5",
+        'if [ "$T3_FAKE_CODEX_FORBID_REASONING_EFFORT" = "1" ] && [ -n "$seen_reasoning_effort" ]; then',
+        '  printf "%s\\n" "reasoning effort config should be omitted: $seen_reasoning_effort" >&2',
+        "  exit 7",
         "fi",
         'if [ -n "$T3_FAKE_CODEX_STDIN_MUST_CONTAIN" ]; then',
         '  printf "%s" "$stdin_content" | grep -F -- "$T3_FAKE_CODEX_STDIN_MUST_CONTAIN" >/dev/null || {',
@@ -82,10 +93,7 @@ function makeFakeCodexBinary(dir: string) {
         'if [ -n "$T3_FAKE_CODEX_STDERR" ]; then',
         '  printf "%s\\n" "$T3_FAKE_CODEX_STDERR" >&2',
         "fi",
-        'if [ -n "$T3_FAKE_CODEX_STDOUT" ]; then',
-        '  printf "%s\\n" "$T3_FAKE_CODEX_STDOUT"',
-        "fi",
-        'if [ -n "$output_path" ] && [ "$T3_FAKE_CODEX_SKIP_OUTPUT_FILE" != "1" ]; then',
+        'if [ -n "$output_path" ]; then',
         '  node -e \'const fs=require("node:fs"); const value=process.argv[2] ?? ""; fs.writeFileSync(process.argv[1], Buffer.from(value, "base64"));\' "$output_path" "${T3_FAKE_CODEX_OUTPUT_B64:-e30=}"',
         "fi",
         'exit "${T3_FAKE_CODEX_EXIT_CODE:-0}"',
@@ -100,13 +108,12 @@ function makeFakeCodexBinary(dir: string) {
 function withFakeCodexEnv<A, E, R>(
   input: {
     output: string;
-    skipOutputFile?: boolean;
     exitCode?: number;
     stderr?: string;
-    stdout?: string;
     requireImage?: boolean;
-    failOnOutputSchema?: boolean;
-    requireWebSearchDisabled?: boolean;
+    requireFastServiceTier?: boolean;
+    requireReasoningEffort?: string;
+    forbidReasoningEffort?: boolean;
     stdinMustContain?: string;
     stdinMustNotContain?: string;
   },
@@ -119,26 +126,18 @@ function withFakeCodexEnv<A, E, R>(
       const binDir = yield* makeFakeCodexBinary(tempDir);
       const previousPath = process.env.PATH;
       const previousOutput = process.env.T3_FAKE_CODEX_OUTPUT_B64;
-      const previousSkipOutputFile = process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
       const previousExitCode = process.env.T3_FAKE_CODEX_EXIT_CODE;
       const previousStderr = process.env.T3_FAKE_CODEX_STDERR;
-      const previousStdout = process.env.T3_FAKE_CODEX_STDOUT;
       const previousRequireImage = process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
-      const previousFailOnOutputSchema = process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
-      const previousRequireWebSearchDisabled =
-        process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
+      const previousRequireFastServiceTier = process.env.T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER;
+      const previousRequireReasoningEffort = process.env.T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT;
+      const previousForbidReasoningEffort = process.env.T3_FAKE_CODEX_FORBID_REASONING_EFFORT;
       const previousStdinMustContain = process.env.T3_FAKE_CODEX_STDIN_MUST_CONTAIN;
       const previousStdinMustNotContain = process.env.T3_FAKE_CODEX_STDIN_MUST_NOT_CONTAIN;
 
       yield* Effect.sync(() => {
         process.env.PATH = `${binDir}:${previousPath ?? ""}`;
         process.env.T3_FAKE_CODEX_OUTPUT_B64 = Buffer.from(input.output, "utf8").toString("base64");
-
-        if (input.skipOutputFile) {
-          process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE = "1";
-        } else {
-          delete process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
-        }
 
         if (input.exitCode !== undefined) {
           process.env.T3_FAKE_CODEX_EXIT_CODE = String(input.exitCode);
@@ -152,28 +151,28 @@ function withFakeCodexEnv<A, E, R>(
           delete process.env.T3_FAKE_CODEX_STDERR;
         }
 
-        if (input.stdout !== undefined) {
-          process.env.T3_FAKE_CODEX_STDOUT = input.stdout;
-        } else {
-          delete process.env.T3_FAKE_CODEX_STDOUT;
-        }
-
         if (input.requireImage) {
           process.env.T3_FAKE_CODEX_REQUIRE_IMAGE = "1";
         } else {
           delete process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
         }
 
-        if (input.failOnOutputSchema) {
-          process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA = "1";
+        if (input.requireFastServiceTier) {
+          process.env.T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER = "1";
         } else {
-          delete process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
+          delete process.env.T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER;
         }
 
-        if (input.requireWebSearchDisabled) {
-          process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED = "1";
+        if (input.requireReasoningEffort !== undefined) {
+          process.env.T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT = input.requireReasoningEffort;
         } else {
-          delete process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
+          delete process.env.T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT;
+        }
+
+        if (input.forbidReasoningEffort) {
+          process.env.T3_FAKE_CODEX_FORBID_REASONING_EFFORT = "1";
+        } else {
+          delete process.env.T3_FAKE_CODEX_FORBID_REASONING_EFFORT;
         }
 
         if (input.stdinMustContain !== undefined) {
@@ -192,13 +191,12 @@ function withFakeCodexEnv<A, E, R>(
       return {
         previousPath,
         previousOutput,
-        previousSkipOutputFile,
         previousExitCode,
         previousStderr,
-        previousStdout,
         previousRequireImage,
-        previousFailOnOutputSchema,
-        previousRequireWebSearchDisabled,
+        previousRequireFastServiceTier,
+        previousRequireReasoningEffort,
+        previousForbidReasoningEffort,
         previousStdinMustContain,
         previousStdinMustNotContain,
       };
@@ -214,12 +212,6 @@ function withFakeCodexEnv<A, E, R>(
           process.env.T3_FAKE_CODEX_OUTPUT_B64 = previous.previousOutput;
         }
 
-        if (previous.previousSkipOutputFile === undefined) {
-          delete process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE;
-        } else {
-          process.env.T3_FAKE_CODEX_SKIP_OUTPUT_FILE = previous.previousSkipOutputFile;
-        }
-
         if (previous.previousExitCode === undefined) {
           delete process.env.T3_FAKE_CODEX_EXIT_CODE;
         } else {
@@ -232,29 +224,31 @@ function withFakeCodexEnv<A, E, R>(
           process.env.T3_FAKE_CODEX_STDERR = previous.previousStderr;
         }
 
-        if (previous.previousStdout === undefined) {
-          delete process.env.T3_FAKE_CODEX_STDOUT;
-        } else {
-          process.env.T3_FAKE_CODEX_STDOUT = previous.previousStdout;
-        }
-
         if (previous.previousRequireImage === undefined) {
           delete process.env.T3_FAKE_CODEX_REQUIRE_IMAGE;
         } else {
           process.env.T3_FAKE_CODEX_REQUIRE_IMAGE = previous.previousRequireImage;
         }
 
-        if (previous.previousFailOnOutputSchema === undefined) {
-          delete process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA;
+        if (previous.previousRequireFastServiceTier === undefined) {
+          delete process.env.T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER;
         } else {
-          process.env.T3_FAKE_CODEX_FAIL_ON_OUTPUT_SCHEMA = previous.previousFailOnOutputSchema;
+          process.env.T3_FAKE_CODEX_REQUIRE_FAST_SERVICE_TIER =
+            previous.previousRequireFastServiceTier;
         }
 
-        if (previous.previousRequireWebSearchDisabled === undefined) {
-          delete process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED;
+        if (previous.previousRequireReasoningEffort === undefined) {
+          delete process.env.T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT;
         } else {
-          process.env.T3_FAKE_CODEX_REQUIRE_WEB_SEARCH_DISABLED =
-            previous.previousRequireWebSearchDisabled;
+          process.env.T3_FAKE_CODEX_REQUIRE_REASONING_EFFORT =
+            previous.previousRequireReasoningEffort;
+        }
+
+        if (previous.previousForbidReasoningEffort === undefined) {
+          delete process.env.T3_FAKE_CODEX_FORBID_REASONING_EFFORT;
+        } else {
+          process.env.T3_FAKE_CODEX_FORBID_REASONING_EFFORT =
+            previous.previousForbidReasoningEffort;
         }
 
         if (previous.previousStdinMustContain === undefined) {
@@ -291,12 +285,70 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           branch: "feature/codex-effect",
           stagedSummary: "M README.md",
           stagedPatch: "diff --git a/README.md b/README.md",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 
         expect(generated.subject.length).toBeLessThanOrEqual(72);
         expect(generated.subject.endsWith(".")).toBe(false);
         expect(generated.body).toBe("- added migration\n- updated tests");
         expect(generated.branch).toBeUndefined();
+      }),
+    ),
+  );
+
+  it.effect(
+    "forwards codex fast mode and non-default reasoning effort into codex exec config",
+    () =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({
+            subject: "Add important change",
+            body: "",
+          }),
+          requireFastServiceTier: true,
+          requireReasoningEffort: "xhigh",
+          stdinMustNotContain: "branch must be a short semantic git branch fragment",
+        },
+        Effect.gen(function* () {
+          const textGeneration = yield* TextGeneration;
+
+          yield* textGeneration.generateCommitMessage({
+            cwd: process.cwd(),
+            branch: "feature/codex-effect",
+            stagedSummary: "M README.md",
+            stagedPatch: "diff --git a/README.md b/README.md",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+              options: {
+                reasoningEffort: "xhigh",
+                fastMode: true,
+              },
+            },
+          });
+        }),
+      ),
+  );
+
+  it.effect("defaults git text generation codex effort to low", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Add important change",
+          body: "",
+        }),
+        requireReasoningEffort: "low",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/codex-effect",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        });
       }),
     ),
   );
@@ -320,202 +372,11 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           stagedSummary: "M README.md",
           stagedPatch: "diff --git a/README.md b/README.md",
           includeBranch: true,
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 
         expect(generated.subject).toBe("Add important change");
         expect(generated.branch).toBe("feature/fix/important-system-change");
-      }),
-    ),
-  );
-
-  it.effect("includes a custom system prompt for commit generation", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({
-          subject: "Respect custom instructions",
-          body: "",
-        }),
-        stdinMustContain: "Always prefer imperative database migration wording.",
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/custom-commit-prompt",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-          systemPrompt: "Always prefer imperative database migration wording.",
-        });
-
-        expect(generated.subject).toBe("Respect custom instructions");
-      }),
-    ),
-  );
-
-  it.effect("falls back to a local working directory for remote commit message generation", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({
-          subject: "Add remote-safe commit message generation",
-          body: "",
-        }),
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: "/home/remote-user/project",
-          remote: { kind: "ssh", hostAlias: "test-remote" },
-          branch: "feature/remote-commit-message",
-          stagedSummary: "M src/index.ts",
-          stagedPatch: "diff --git a/src/index.ts b/src/index.ts",
-        });
-
-        expect(generated.subject).toBe("Add remote-safe commit message generation");
-      }),
-    ),
-  );
-
-  it.effect("does not require codex output-schema CLI support", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({
-          subject: "Use output-last-message only",
-          body: "",
-        }),
-        failOnOutputSchema: true,
-        requireWebSearchDisabled: true,
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/output-last-message-only",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-        });
-
-        expect(generated.subject).toBe("Use output-last-message only");
-      }),
-    ),
-  );
-
-  it.effect("parses fenced JSON from codex output-last-message", () =>
-    withFakeCodexEnv(
-      {
-        output: '```json\n{"subject":"Add fenced-json fallback","body":""}\n```',
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/fenced-json",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-        });
-
-        expect(generated.subject).toBe("Add fenced-json fallback");
-      }),
-    ),
-  );
-
-  it.effect("falls back to plain-text commit messages when codex skips JSON output", () =>
-    withFakeCodexEnv(
-      {
-        output: ["Add resilient commit parsing", "", "- tolerate plain-text codex output"].join(
-          "\n",
-        ),
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/plain-text-fallback",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-        });
-
-        expect(generated.subject).toBe("Add resilient commit parsing");
-        expect(generated.body).toBe("- tolerate plain-text codex output");
-      }),
-    ),
-  );
-
-  it.effect("falls back to labeled plain-text commit output with branch suggestions", () =>
-    withFakeCodexEnv(
-      {
-        output: [
-          "Subject: Add resilient remote commit generation",
-          "Body:",
-          "- parse plain-text fallback output",
-          "Branch: fix/remote-commit-generation",
-        ].join("\n"),
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/plain-text-branch-fallback",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-          includeBranch: true,
-        });
-
-        expect(generated.subject).toBe("Add resilient remote commit generation");
-        expect(generated.body).toBe("- parse plain-text fallback output");
-        expect(generated.branch).toBe("feature/fix/remote-commit-generation");
-      }),
-    ),
-  );
-
-  it.effect("falls back to stdout when codex leaves output-last-message empty", () =>
-    withFakeCodexEnv(
-      {
-        output: "",
-        skipOutputFile: true,
-        stdout: "Subject: Read commit output from stdout\nBody:\n- keep commit generation working",
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/stdout-fallback",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-        });
-
-        expect(generated.subject).toBe("Read commit output from stdout");
-        expect(generated.body).toBe("- keep commit generation working");
-      }),
-    ),
-  );
-
-  it.effect("uses a generic commit message when codex returns no usable output", () =>
-    withFakeCodexEnv(
-      {
-        output: "",
-        skipOutputFile: true,
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateCommitMessage({
-          cwd: process.cwd(),
-          branch: "feature/generic-fallback",
-          stagedSummary: "M README.md",
-          stagedPatch: "diff --git a/README.md b/README.md",
-          includeBranch: true,
-        });
-
-        expect(generated.subject).toBe("Update project files");
-        expect(generated.body).toBe("");
-        expect(generated.branch).toBe("feature/update-project-files");
       }),
     ),
   );
@@ -538,38 +399,12 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           commitSummary: "feat: improve orchestration flow",
           diffSummary: "2 files changed",
           diffPatch: "diff --git a/a.ts b/a.ts",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 
         expect(generated.title).toBe("Improve orchestration flow");
         expect(generated.body.startsWith("## Summary")).toBe(true);
         expect(generated.body.endsWith("\n\n")).toBe(false);
-      }),
-    ),
-  );
-
-  it.effect("includes a custom system prompt for PR generation", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({
-          title: "Respect custom instructions",
-          body: "## Summary\n- follow instructions\n\n## Testing\n- Not run",
-        }),
-        stdinMustContain: "Always emphasize migration sequencing.",
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generatePrContent({
-          cwd: process.cwd(),
-          baseBranch: "main",
-          headBranch: "feature/custom-pr-prompt",
-          commitSummary: "feat: improve orchestration flow",
-          diffSummary: "2 files changed",
-          diffPatch: "diff --git a/a.ts b/a.ts",
-          systemPrompt: "Always emphasize migration sequencing.",
-        });
-
-        expect(generated.title).toBe("Respect custom instructions");
       }),
     ),
   );
@@ -588,28 +423,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const generated = yield* textGeneration.generateBranchName({
           cwd: process.cwd(),
           message: "Please update session handling.",
-        });
-
-        expect(generated.branch).toBe("feat/session");
-      }),
-    ),
-  );
-
-  it.effect("includes a custom system prompt for branch generation", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({
-          branch: "feat/session",
-        }),
-        stdinMustContain: "Prefer product-facing language over internal codenames.",
-      },
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-
-        const generated = yield* textGeneration.generateBranchName({
-          cwd: process.cwd(),
-          message: "Please update session handling.",
-          systemPrompt: "Prefer product-facing language over internal codenames.",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 
         expect(generated.branch).toBe("feat/session");
@@ -631,6 +445,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const generated = yield* textGeneration.generateBranchName({
           cwd: process.cwd(),
           message: "Fix timeout behavior.",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 
         expect(generated.branch).toBe("fix/session-timeout");
@@ -657,21 +472,20 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         yield* fs.writeFile(attachmentPath, Buffer.from("hello"));
 
         const textGeneration = yield* TextGeneration;
-        const generated = yield* textGeneration
-          .generateBranchName({
-            cwd: process.cwd(),
-            message: "Fix layout bug from screenshot.",
-            attachments: [
-              {
-                type: "image",
-                id: attachmentId,
-                name: "bug.png",
-                mimeType: "image/png",
-                sizeBytes: 5,
-              },
-            ],
-          })
-          .pipe(Effect.ensuring(fs.remove(attachmentPath).pipe(Effect.catch(() => Effect.void))));
+        const generated = yield* textGeneration.generateBranchName({
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+          cwd: process.cwd(),
+          message: "Fix layout bug from screenshot.",
+          attachments: [
+            {
+              type: "image",
+              id: attachmentId,
+              name: "bug.png",
+              mimeType: "image/png",
+              sizeBytes: 5,
+            },
+          ],
+        });
 
         expect(generated.branch).toBe("fix/ui-regression");
       }),
@@ -698,6 +512,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const textGeneration = yield* TextGeneration;
         const generated = yield* textGeneration
           .generateBranchName({
+            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
             cwd: process.cwd(),
             message: "Fix layout bug from screenshot.",
             attachments: [
@@ -745,6 +560,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const textGeneration = yield* TextGeneration;
         const result = yield* textGeneration
           .generateBranchName({
+            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
             cwd: process.cwd(),
             message: "Fix layout bug from screenshot.",
             attachments: [
@@ -757,17 +573,12 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
               },
             ],
           })
-          .pipe(
-            Effect.match({
-              onFailure: (error) => ({ _tag: "Left" as const, left: error }),
-              onSuccess: (value) => ({ _tag: "Right" as const, right: value }),
-            }),
-          );
+          .pipe(Effect.result);
 
-        expect(result._tag).toBe("Left");
-        if (result._tag === "Left") {
-          expect(result.left).toBeInstanceOf(TextGenerationError);
-          expect(result.left.message).toContain("missing --image input");
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(TextGenerationError);
+          expect(result.failure.message).toContain("missing --image input");
         }
       }),
     ),
@@ -789,18 +600,14 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
             .generateBranchName({
               cwd: process.cwd(),
               message: "Fix websocket reconnect flake",
+              modelSelection: DEFAULT_TEST_MODEL_SELECTION,
             })
-            .pipe(
-              Effect.match({
-                onFailure: (error) => ({ _tag: "Left" as const, left: error }),
-                onSuccess: (value) => ({ _tag: "Right" as const, right: value }),
-              }),
-            );
+            .pipe(Effect.result);
 
-          expect(result._tag).toBe("Left");
-          if (result._tag === "Left") {
-            expect(result.left).toBeInstanceOf(TextGenerationError);
-            expect(result.left.message).toContain("Codex returned invalid structured output");
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure).toBeInstanceOf(TextGenerationError);
+            expect(result.failure.message).toContain("Codex returned invalid structured output");
           }
         }),
       ),
@@ -822,18 +629,16 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
             branch: "feature/codex-error",
             stagedSummary: "M README.md",
             stagedPatch: "diff --git a/README.md b/README.md",
+            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
           })
-          .pipe(
-            Effect.match({
-              onFailure: (error) => ({ _tag: "Left" as const, left: error }),
-              onSuccess: (value) => ({ _tag: "Right" as const, right: value }),
-            }),
-          );
+          .pipe(Effect.result);
 
-        expect(result._tag).toBe("Left");
-        if (result._tag === "Left") {
-          expect(result.left).toBeInstanceOf(TextGenerationError);
-          expect(result.left.message).toContain("Codex CLI command failed: codex execution failed");
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(TextGenerationError);
+          expect(result.failure.message).toContain(
+            "Codex CLI command failed: codex execution failed",
+          );
         }
       }),
     ),
