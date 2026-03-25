@@ -1,9 +1,9 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Option, Schema, Struct } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
 
-import { toPersistenceDecodeError, toPersistenceSqlError } from "../Errors.ts";
-
+import { ModelSelection, ProjectRemoteTarget, ProjectScript } from "@t3tools/contracts";
+import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionProjectInput,
   GetProjectionProjectInput,
@@ -11,68 +11,60 @@ import {
   ProjectionProjectRepository,
   type ProjectionProjectRepositoryShape,
 } from "../Services/ProjectionProjects.ts";
-import { ProjectRemoteTarget, ProjectScript } from "@t3tools/contracts";
-
-// Makes sure that the scripts are parsed from the JSON string the DB returns
-const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
+const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
+    defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
   }),
 );
-
-function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
-  return (cause: unknown) =>
-    Schema.isSchemaError(cause)
-      ? toPersistenceDecodeError(decodeOperation)(cause)
-      : toPersistenceSqlError(sqlOperation)(cause);
-}
+type ProjectionProjectDbRow = typeof ProjectionProjectDbRow.Type;
 
 const makeProjectionProjectRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   const upsertProjectionProjectRow = SqlSchema.void({
-    Request: ProjectionProjectDbRowSchema,
+    Request: ProjectionProject,
     execute: (row) =>
       sql`
-            INSERT INTO projection_projects (
-              project_id,
-              title,
-              workspace_root,
-              remote_json,
-              default_model,
-              scripts_json,
-              created_at,
-              updated_at,
-              deleted_at
-            )
-            VALUES (
-              ${row.projectId},
-              ${row.title},
-              ${row.workspaceRoot},
-              ${row.remote},
-              ${row.defaultModel},
-              ${row.scripts},
-              ${row.createdAt},
-              ${row.updatedAt},
-              ${row.deletedAt}
-            )
-            ON CONFLICT (project_id)
-            DO UPDATE SET
-              title = excluded.title,
-              workspace_root = excluded.workspace_root,
-              remote_json = excluded.remote_json,
-              default_model = excluded.default_model,
-              scripts_json = excluded.scripts_json,
-              created_at = excluded.created_at,
-              updated_at = excluded.updated_at,
-              deleted_at = excluded.deleted_at
-          `,
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          remote_json,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          ${row.projectId},
+          ${row.title},
+          ${row.workspaceRoot},
+          ${row.remote !== null ? JSON.stringify(row.remote) : null},
+          ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
+          ${JSON.stringify(row.scripts)},
+          ${row.createdAt},
+          ${row.updatedAt},
+          ${row.deletedAt}
+        )
+        ON CONFLICT (project_id)
+        DO UPDATE SET
+          title = excluded.title,
+          workspace_root = excluded.workspace_root,
+          remote_json = excluded.remote_json,
+          default_model_selection_json = excluded.default_model_selection_json,
+          scripts_json = excluded.scripts_json,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at,
+          deleted_at = excluded.deleted_at
+      `,
   });
 
   const getProjectionProjectRow = SqlSchema.findOneOption({
     Request: GetProjectionProjectInput,
-    Result: ProjectionProjectDbRowSchema,
+    Result: ProjectionProjectDbRow,
     execute: ({ projectId }) =>
       sql`
         SELECT
@@ -80,7 +72,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           title,
           workspace_root AS "workspaceRoot",
           remote_json AS "remote",
-          default_model AS "defaultModel",
+          default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -92,7 +84,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
 
   const listProjectionProjectRows = SqlSchema.findAll({
     Request: Schema.Void,
-    Result: ProjectionProjectDbRowSchema,
+    Result: ProjectionProjectDbRow,
     execute: () =>
       sql`
         SELECT
@@ -100,7 +92,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           title,
           workspace_root AS "workspaceRoot",
           remote_json AS "remote",
-          default_model AS "defaultModel",
+          default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -121,40 +113,17 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
 
   const upsert: ProjectionProjectRepositoryShape["upsert"] = (row) =>
     upsertProjectionProjectRow(row).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionProjectRepository.upsert:query",
-          "ProjectionProjectRepository.upsert:encodeRequest",
-        ),
-      ),
+      Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.upsert:query")),
     );
 
   const getById: ProjectionProjectRepositoryShape["getById"] = (input) =>
     getProjectionProjectRow(input).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionProjectRepository.getById:query",
-          "ProjectionProjectRepository.getById:decodeRow",
-        ),
-      ),
-      Effect.flatMap((rowOption) =>
-        Option.match(rowOption, {
-          onNone: () => Effect.succeed(Option.none()),
-          onSome: (row) =>
-            Effect.succeed(Option.some(row as Schema.Schema.Type<typeof ProjectionProject>)),
-        }),
-      ),
+      Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.getById:query")),
     );
 
   const listAll: ProjectionProjectRepositoryShape["listAll"] = () =>
     listProjectionProjectRows().pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionProjectRepository.listAll:query",
-          "ProjectionProjectRepository.listAll:decodeRows",
-        ),
-      ),
-      Effect.map((rows) => rows as ReadonlyArray<Schema.Schema.Type<typeof ProjectionProject>>),
+      Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.listAll:query")),
     );
 
   const deleteById: ProjectionProjectRepositoryShape["deleteById"] = (input) =>
