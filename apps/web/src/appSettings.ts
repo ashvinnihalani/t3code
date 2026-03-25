@@ -2,23 +2,20 @@ import { useCallback } from "react";
 import { Option, Schema } from "effect";
 import {
   DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS,
-  TrimmedNonEmptyString,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  ModelSelection,
   type DesktopAppCloseBehavior,
   type GitRequestSettings,
-  type ProviderKind,
   type ProviderStartOptions,
 } from "@t3tools/contracts";
-import {
-  getDefaultModel,
-  getModelOptions,
-  normalizeModelSlug,
-  resolveSelectableModel,
-} from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import {
+  normalizeCustomModelSlugs,
+  resolveAppModelSelectionState,
+  type CustomModelSettings,
+} from "./modelSelection";
 
 export const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
-const MAX_CUSTOM_MODEL_COUNT = 32;
-export const MAX_CUSTOM_MODEL_LENGTH = 256;
 
 export const TIMESTAMP_FORMAT_OPTIONS = ["locale", "12-hour", "24-hour"] as const;
 export type TimestampFormat = (typeof TIMESTAMP_FORMAT_OPTIONS)[number];
@@ -27,6 +24,7 @@ export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 export const SIDEBAR_PROJECT_SORT_ORDER_OPTIONS = ["updated_at", "created_at", "manual"] as const;
 export type SidebarProjectSortOrder = (typeof SIDEBAR_PROJECT_SORT_ORDER_OPTIONS)[number];
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
+
 export const SIDEBAR_THREAD_SORT_ORDER_OPTIONS = ["updated_at", "created_at"] as const;
 export type SidebarThreadSortOrder = (typeof SIDEBAR_THREAD_SORT_ORDER_OPTIONS)[number];
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
@@ -46,21 +44,9 @@ export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
 
 export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
 
-type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels" | "customKiroModels";
-export type ProviderCustomModelConfig = {
-  provider: ProviderKind;
-  settingsKey: CustomModelSettingsKey;
-  defaultSettingsKey: CustomModelSettingsKey;
-  title: string;
-  description: string;
-  placeholder: string;
-  example: string;
-};
-
-const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
-  codex: new Set(getModelOptions("codex").map((option) => option.slug)),
-  claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
-  kiro: new Set(getModelOptions("kiro").map((option) => option.slug)),
+const DEFAULT_GIT_TEXT_GENERATION_MODEL_SELECTION = {
+  provider: "codex" as const,
+  model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
 };
 
 const SettingsPathSchema = Schema.String.check(Schema.isMaxLength(4096)).pipe(
@@ -132,11 +118,11 @@ export const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR)),
     Schema.withDecodingDefault(() => DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR),
   ),
-  threadIdDisplayMode: Schema.Literals(["hidden", "composer", "message"]).pipe(
+  threadIdDisplayMode: Schema.Literals(THREAD_ID_DISPLAY_MODE_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_THREAD_ID_DISPLAY_MODE)),
     Schema.withDecodingDefault(() => DEFAULT_THREAD_ID_DISPLAY_MODE),
   ),
-  timestampFormat: Schema.Literals(["locale", "12-hour", "24-hour"]).pipe(
+  timestampFormat: Schema.Literals(TIMESTAMP_FORMAT_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_TIMESTAMP_FORMAT)),
     Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT),
   ),
@@ -148,52 +134,30 @@ export const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some([])),
     Schema.withDecodingDefault(() => []),
   ),
-  textGenerationModel: Schema.optional(TrimmedNonEmptyString),
   customKiroModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
     Schema.withDecodingDefault(() => []),
   ),
+  textGenerationModelSelection: ModelSelection.pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_TEXT_GENERATION_MODEL_SELECTION)),
+    Schema.withDecodingDefault(() => DEFAULT_GIT_TEXT_GENERATION_MODEL_SELECTION),
+  ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 
-export interface AppModelOption {
-  slug: string;
-  name: string;
-  isCustom: boolean;
-}
-
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
 
-const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
-  codex: {
-    provider: "codex",
-    settingsKey: "customCodexModels",
-    defaultSettingsKey: "customCodexModels",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-  claudeAgent: {
-    provider: "claudeAgent",
-    settingsKey: "customClaudeModels",
-    defaultSettingsKey: "customClaudeModels",
-    title: "Claude",
-    description: "Save additional Claude model slugs for the picker and `/model` command.",
-    placeholder: "your-claude-model-slug",
-    example: "claude-sonnet-5-0",
-  },
-  kiro: {
-    provider: "kiro",
-    settingsKey: "customKiroModels",
-    defaultSettingsKey: "customKiroModels",
-    title: "Kiro CLI",
-    description: "Save additional Kiro model slugs for the picker and `/model` command.",
-    placeholder: "your-kiro-model-slug",
-    example: "claude-sonnet4.6",
-  },
-};
-export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
+function normalizeAppSettings(
+  settings: AppSettings & CustomModelSettings,
+): AppSettings {
+  return {
+    ...settings,
+    customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
+    customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
+    customKiroModels: normalizeCustomModelSlugs(settings.customKiroModels, "kiro"),
+    textGenerationModelSelection: resolveAppModelSelectionState(settings),
+  };
+}
 
 export function getCodexHostOverride(
   settings: Pick<AppSettings, "codexBinaryPath" | "codexHomePath" | "codexRemoteOverrides">,
@@ -290,157 +254,25 @@ export function buildKiroHostOverridePatch(
   return { kiroRemoteOverrides };
 }
 
-export function normalizeCustomModelSlugs(
-  models: Iterable<string | null | undefined>,
-  provider: ProviderKind = "codex",
-): string[] {
-  const normalizedModels: string[] = [];
-  const seen = new Set<string>();
-  const builtInModelSlugs = BUILT_IN_MODEL_SLUGS_BY_PROVIDER[provider];
-
-  for (const candidate of models) {
-    const normalized = normalizeModelSlug(candidate, provider);
-    if (
-      !normalized ||
-      normalized.length > MAX_CUSTOM_MODEL_LENGTH ||
-      builtInModelSlugs.has(normalized) ||
-      seen.has(normalized)
-    ) {
-      continue;
-    }
-
-    seen.add(normalized);
-    normalizedModels.push(normalized);
-    if (normalizedModels.length >= MAX_CUSTOM_MODEL_COUNT) {
-      break;
-    }
-  }
-
-  return normalizedModels;
-}
-
-function normalizeAppSettings(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
-    customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
-    customKiroModels: normalizeCustomModelSlugs(settings.customKiroModels, "kiro"),
-  };
-}
-
-export function getCustomModelsForProvider(
-  settings: Pick<AppSettings, CustomModelSettingsKey>,
-  provider: ProviderKind,
-): readonly string[] {
-  return settings[PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey];
-}
-
-export function getDefaultCustomModelsForProvider(
-  defaults: Pick<AppSettings, CustomModelSettingsKey>,
-  provider: ProviderKind,
-): readonly string[] {
-  return defaults[PROVIDER_CUSTOM_MODEL_CONFIG[provider].defaultSettingsKey];
-}
-
-export function patchCustomModels(
-  provider: ProviderKind,
-  models: string[],
-): Partial<Pick<AppSettings, CustomModelSettingsKey>> {
-  return {
-    [PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey]: models,
-  };
-}
-
-export function getCustomModelsByProvider(
-  settings: Pick<AppSettings, CustomModelSettingsKey>,
-): Record<ProviderKind, readonly string[]> {
-  return {
-    codex: getCustomModelsForProvider(settings, "codex"),
-    claudeAgent: getCustomModelsForProvider(settings, "claudeAgent"),
-    kiro: getCustomModelsForProvider(settings, "kiro"),
-  };
-}
-
-export function getAppModelOptions(
-  provider: ProviderKind,
-  customModels: readonly string[],
-  selectedModel?: string | null,
-): AppModelOption[] {
-  const options: AppModelOption[] = getModelOptions(provider).map(({ slug, name }) => ({
-    slug,
-    name,
-    isCustom: false,
-  }));
-  const seen = new Set(options.map((option) => option.slug));
-  const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
-
-  for (const slug of normalizeCustomModelSlugs(customModels, provider)) {
-    if (seen.has(slug)) {
-      continue;
-    }
-
-    seen.add(slug);
-    options.push({
-      slug,
-      name: slug,
-      isCustom: true,
-    });
-  }
-
-  const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
-  const selectedModelMatchesExistingName =
-    typeof trimmedSelectedModel === "string" &&
-    options.some((option) => option.name.toLowerCase() === trimmedSelectedModel);
-  if (
-    normalizedSelectedModel &&
-    !seen.has(normalizedSelectedModel) &&
-    !selectedModelMatchesExistingName
-  ) {
-    options.push({
-      slug: normalizedSelectedModel,
-      name: normalizedSelectedModel,
-      isCustom: true,
-    });
-  }
-
-  return options;
-}
-
-export function resolveAppModelSelection(
-  provider: ProviderKind,
-  customModels: Record<ProviderKind, readonly string[]>,
-  selectedModel: string | null | undefined,
-): string {
-  const customModelsForProvider = customModels[provider];
-  const options = getAppModelOptions(provider, customModelsForProvider, selectedModel);
-  return resolveSelectableModel(provider, selectedModel, options) ?? getDefaultModel(provider);
-}
-
-export function getCustomModelOptionsByProvider(
-  settings: Pick<AppSettings, CustomModelSettingsKey>,
-): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
-  const customModelsByProvider = getCustomModelsByProvider(settings);
-  return {
-    codex: getAppModelOptions("codex", customModelsByProvider.codex),
-    claudeAgent: getAppModelOptions("claudeAgent", customModelsByProvider.claudeAgent),
-    kiro: getAppModelOptions("kiro", customModelsByProvider.kiro),
-  };
-}
-
 export function buildGitRequestSettings(
-  settings: Pick<AppSettings, "gitCommitPrompt" | "gitHubBinaryPath" | "textGenerationModel">,
+  settings: Pick<
+    AppSettings,
+    | "gitCommitPrompt"
+    | "gitHubBinaryPath"
+    | "textGenerationModelSelection"
+    | "customCodexModels"
+    | "customClaudeModels"
+    | "customKiroModels"
+  >,
 ): GitRequestSettings | undefined {
   const githubBinaryPath = settings.gitHubBinaryPath.trim();
   const commitPrompt = settings.gitCommitPrompt.trim();
-  const textGenerationModel = settings.textGenerationModel?.trim() ?? "";
-  if (!githubBinaryPath && !commitPrompt && !textGenerationModel) {
-    return undefined;
-  }
+  const textGenerationModelSelection = resolveAppModelSelectionState(settings);
 
   return {
     ...(githubBinaryPath ? { githubBinaryPath } : {}),
     ...(commitPrompt ? { commitPrompt } : {}),
-    ...(textGenerationModel ? { textGenerationModel } : {}),
+    textGenerationModelSelection,
   };
 }
 

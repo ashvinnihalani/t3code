@@ -273,6 +273,7 @@ export default function GitActionsControl({
       target: gitTarget,
       queryClient,
       ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+      modelSelection: settings.textGenerationModelSelection,
     }),
   );
   const pullMutation = useMutation(gitPullMutationOptions({ target: gitTarget, queryClient }));

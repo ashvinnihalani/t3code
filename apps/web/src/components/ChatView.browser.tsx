@@ -305,6 +305,10 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     customCodexModels: [],
     customClaudeModels: [],
     customKiroModels: [],
+    textGenerationModelSelection: {
+      provider: "codex",
+      model: "gpt-5.4-mini",
+    },
     ...overrides,
   };
 }

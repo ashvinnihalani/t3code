@@ -9,22 +9,25 @@ import {
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
   DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
   DEFAULT_TIMESTAMP_FORMAT,
-  MODEL_PROVIDER_SETTINGS,
   buildCodexHostOverridePatch,
   buildGitRequestSettings,
   buildKiroHostOverridePatch,
-  getAppModelOptions,
   getCodexHostOverride,
+  getKiroHostOverride,
+  getProviderStartOptions,
+} from "./appSettings";
+import {
+  getAppModelOptions,
   getCustomModelOptionsByProvider,
   getCustomModelsByProvider,
   getCustomModelsForProvider,
   getDefaultCustomModelsForProvider,
-  getKiroHostOverride,
-  getProviderStartOptions,
+  MODEL_PROVIDER_SETTINGS,
   normalizeCustomModelSlugs,
   patchCustomModels,
+  resolveAppModelSelectionState,
   resolveAppModelSelection,
-} from "./appSettings";
+} from "./modelSelection";
 
 describe("normalizeCustomModelSlugs", () => {
   it("normalizes aliases, removes built-ins, and deduplicates values", () => {
@@ -381,14 +384,25 @@ describe("AppSettingsSchema", () => {
 });
 
 describe("buildGitRequestSettings", () => {
-  it("omits empty git request settings", () => {
+  it("returns the default git model selection when overrides are empty", () => {
     expect(
       buildGitRequestSettings({
         gitCommitPrompt: "   ",
         gitHubBinaryPath: "",
-        textGenerationModel: undefined,
+        textGenerationModelSelection: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+        },
+        customCodexModels: [],
+        customClaudeModels: [],
+        customKiroModels: [],
       }),
-    ).toBeUndefined();
+    ).toEqual({
+      textGenerationModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+    });
   });
 
   it("returns trimmed git request settings", () => {
@@ -396,12 +410,21 @@ describe("buildGitRequestSettings", () => {
       buildGitRequestSettings({
         gitCommitPrompt: "  prefer concise infra-focused commits  ",
         gitHubBinaryPath: "  /opt/bin/gh-custom  ",
-        textGenerationModel: "  gpt-5.4-mini  ",
+        textGenerationModelSelection: {
+          provider: "codex",
+          model: "  gpt-5.4-mini  ",
+        },
+        customCodexModels: [],
+        customClaudeModels: [],
+        customKiroModels: [],
       }),
     ).toEqual({
       commitPrompt: "prefer concise infra-focused commits",
       githubBinaryPath: "/opt/bin/gh-custom",
-      textGenerationModel: "gpt-5.4-mini",
+      textGenerationModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
     });
   });
 });
@@ -560,6 +583,64 @@ describe("kiro host overrides", () => {
       ),
     ).toEqual({
       kiroRemoteOverrides: {},
+    });
+  });
+});
+
+describe("resolveAppModelSelectionState", () => {
+  it("falls back to the default git-writing codex selection", () => {
+    expect(
+      resolveAppModelSelectionState({
+        customCodexModels: [],
+        customClaudeModels: [],
+        customKiroModels: [],
+        textGenerationModelSelection: undefined,
+      }),
+    ).toEqual({
+      provider: "codex",
+      model: "gpt-5.4-mini",
+    });
+  });
+
+  it("preserves the selected provider and resolves saved custom models", () => {
+    expect(
+      resolveAppModelSelectionState({
+        customCodexModels: [],
+        customClaudeModels: ["claude/custom-haiku"],
+        customKiroModels: [],
+        textGenerationModelSelection: {
+          provider: "claudeAgent",
+          model: "claude/custom-haiku",
+        },
+      }),
+    ).toEqual({
+      provider: "claudeAgent",
+      model: "claude/custom-haiku",
+    });
+  });
+
+  it("normalizes provider options against the resolved model capabilities", () => {
+    expect(
+      resolveAppModelSelectionState({
+        customCodexModels: [],
+        customClaudeModels: [],
+        customKiroModels: [],
+        textGenerationModelSelection: {
+          provider: "claudeAgent",
+          model: "claude-haiku-4-5",
+          options: {
+            effort: "max",
+            thinking: false,
+            fastMode: true,
+          },
+        },
+      }),
+    ).toEqual({
+      provider: "claudeAgent",
+      model: "claude-haiku-4-5",
+      options: {
+        thinking: false,
+      },
     });
   });
 });

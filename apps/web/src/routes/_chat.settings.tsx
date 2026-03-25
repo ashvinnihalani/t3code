@@ -2,30 +2,32 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
-  type DesktopAppCloseBehavior,
-  type ProviderKind,
-} from "@t3tools/contracts";
+import { type DesktopAppCloseBehavior, type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
   GIT_DEFAULT_ACTION_OPTIONS,
-  MAX_CUSTOM_MODEL_LENGTH,
-  MODEL_PROVIDER_SETTINGS,
   THREAD_ID_DISPLAY_MODE_OPTIONS,
   type GitDefaultAction,
   type ThreadIdDisplayMode,
   buildCodexHostOverridePatch,
   buildKiroHostOverridePatch,
-  getAppModelOptions,
   getCodexHostOverride,
-  getCustomModelsForProvider,
-  getDefaultCustomModelsForProvider,
   getKiroHostOverride,
-  patchCustomModels,
+  getProviderStartOptions,
   useAppSettings,
 } from "../appSettings";
+import {
+  getCustomModelOptionsByProvider,
+  getCustomModelsForProvider,
+  getDefaultCustomModelsForProvider,
+  MAX_CUSTOM_MODEL_LENGTH,
+  MODEL_PROVIDER_SETTINGS,
+  patchCustomModels,
+  resolveAppModelSelectionState,
+} from "../modelSelection";
 import { APP_VERSION } from "../branding";
+import { ProviderModelPicker } from "../components/chat/ProviderModelPicker";
+import { TraitsPicker } from "../components/chat/TraitsPicker";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
@@ -334,21 +336,19 @@ function SettingsRouteView() {
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
-  const gitTextGenerationModelOptions = getAppModelOptions(
-    "codex",
-    settings.customCodexModels,
-    settings.textGenerationModel,
+  const textGenerationModelSelection = resolveAppModelSelectionState(settings);
+  const textGenProvider = textGenerationModelSelection.provider;
+  const textGenModel = textGenerationModelSelection.model;
+  const textGenModelOptions = textGenerationModelSelection.options;
+  const gitModelOptionsByProvider = getCustomModelOptionsByProvider(
+    settings,
+    textGenProvider,
+    textGenModel,
   );
-  const currentGitTextGenerationModel =
-    settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
-  const defaultGitTextGenerationModel =
-    defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+  const defaultGitTextGenerationModelSelection = resolveAppModelSelectionState(defaults);
   const isGitTextGenerationModelDirty =
-    currentGitTextGenerationModel !== defaultGitTextGenerationModel;
-  const selectedGitTextGenerationModelLabel =
-    gitTextGenerationModelOptions.find((option) => option.slug === currentGitTextGenerationModel)
-      ?.name ?? currentGitTextGenerationModel;
-
+    JSON.stringify(textGenerationModelSelection) !==
+    JSON.stringify(defaultGitTextGenerationModelSelection);
   const selectedCustomModelProviderSettings = MODEL_PROVIDER_SETTINGS.find(
     (providerSettings) => providerSettings.provider === selectedCustomModelProvider,
   )!;
@@ -376,8 +376,7 @@ function SettingsRouteView() {
   const hasGitOverrides =
     settings.gitDefaultAction !== defaults.gitDefaultAction ||
     settings.gitCommitPrompt !== defaults.gitCommitPrompt ||
-    settings.gitHubBinaryPath !== defaults.gitHubBinaryPath ||
-    isGitTextGenerationModelDirty;
+    settings.gitHubBinaryPath !== defaults.gitHubBinaryPath;
 
   const isInstallSettingsDirty =
     settings.claudeBinaryPath !== defaults.claudeBinaryPath ||
@@ -407,6 +406,7 @@ function SettingsRouteView() {
     ...(settings.desktopAppCloseBehavior !== defaults.desktopAppCloseBehavior
       ? ["App close behavior"]
       : []),
+    ...(isGitTextGenerationModelDirty ? ["Git writing model"] : []),
     ...(hasGitOverrides ? ["Git settings"] : []),
     ...(hasCustomModelOverrides ? ["Custom models"] : []),
     ...(isInstallSettingsDirty ? ["Provider installs"] : []),
@@ -919,43 +919,61 @@ function SettingsRouteView() {
 
               <SettingsRow
                 title="Git writing model"
-                description="Used for generated commit messages, PR titles, and branch names."
+                description="Provider and model used for auto-generated git content."
                 resetAction={
-                  isGitTextGenerationModelDirty ? (
+                  JSON.stringify(settings.textGenerationModelSelection ?? null) !==
+                  JSON.stringify(defaults.textGenerationModelSelection ?? null) ? (
                     <SettingResetButton
                       label="git writing model"
-                      onClick={() =>
+                      onClick={() => {
                         updateSettings({
-                          textGenerationModel: defaults.textGenerationModel,
-                        })
-                      }
+                          textGenerationModelSelection: defaults.textGenerationModelSelection,
+                        });
+                      }}
                     />
                   ) : null
                 }
                 control={
-                  <Select
-                    value={currentGitTextGenerationModel}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      updateSettings({
-                        textGenerationModel: value,
-                      });
-                    }}
-                  >
-                    <SelectTrigger
-                      className="w-full sm:w-52"
-                      aria-label="Git text generation model"
-                    >
-                      <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end" alignItemWithTrigger={false}>
-                      {gitTextGenerationModelOptions.map((option) => (
-                        <SelectItem hideIndicator key={option.slug} value={option.slug}>
-                          {option.name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <ProviderModelPicker
+                      provider={textGenProvider}
+                      model={textGenModel}
+                      lockedProvider={null}
+                      modelOptionsByProvider={gitModelOptionsByProvider}
+                      triggerVariant="outline"
+                      triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                      onProviderModelChange={(provider, model) => {
+                        updateSettings({
+                          textGenerationModelSelection: resolveAppModelSelectionState({
+                            ...settings,
+                            textGenerationModelSelection: { provider, model },
+                          }),
+                        });
+                      }}
+                    />
+                    <TraitsPicker
+                      provider={textGenProvider}
+                      model={textGenModel}
+                      prompt=""
+                      onPromptChange={() => {}}
+                      modelOptions={textGenModelOptions}
+                      allowPromptInjectedEffort={false}
+                      triggerVariant="outline"
+                      triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                      onModelOptionsChange={(nextOptions) => {
+                        updateSettings({
+                          textGenerationModelSelection: resolveAppModelSelectionState({
+                            ...settings,
+                            textGenerationModelSelection: {
+                              provider: textGenProvider,
+                              model: textGenModel,
+                              ...(nextOptions ? { options: nextOptions } : {}),
+                            },
+                          }),
+                        });
+                      }}
+                    />
+                  </div>
                 }
               />
 

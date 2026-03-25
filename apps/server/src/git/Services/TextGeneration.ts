@@ -8,9 +8,12 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
-import type { ChatAttachment, ProjectRemoteTarget } from "@t3tools/contracts";
+import type { ChatAttachment, ModelSelection, ProjectRemoteTarget } from "@t3tools/contracts";
 
 import type { TextGenerationError } from "../Errors.ts";
+
+/** Providers that support git text generation (commit messages, PR content, branch names). */
+export type TextGenerationProvider = "codex" | "claudeAgent";
 
 export interface CommitMessageGenerationInput {
   cwd: string;
@@ -21,8 +24,8 @@ export interface CommitMessageGenerationInput {
   systemPrompt?: string | null;
   /** When true, the model also returns a semantic branch name for the change. */
   includeBranch?: boolean;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface CommitMessageGenerationResult {
@@ -41,8 +44,8 @@ export interface PrContentGenerationInput {
   diffSummary: string;
   diffPatch: string;
   systemPrompt?: string | null;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface PrContentGenerationResult {
@@ -56,8 +59,8 @@ export interface BranchNameGenerationInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   systemPrompt?: string | null;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface BranchNameGenerationResult {

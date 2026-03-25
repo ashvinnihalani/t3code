@@ -6,7 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect, vi } from "vitest";
-import type { GitActionProgressEvent, ProjectRemoteTarget } from "@t3tools/contracts";
+import type { GitActionProgressEvent, ModelSelection, ProjectRemoteTarget } from "@t3tools/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
@@ -20,6 +20,11 @@ import { type TextGenerationShape, TextGeneration } from "../Services/TextGenera
 import { GitCoreLive } from "./GitCore.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
+
+const DEFAULT_TEST_MODEL_SELECTION = {
+  provider: "codex",
+  model: "gpt-5.4-mini",
+} as const;
 
 interface FakeGhScenario {
   prListSequence?: string[];
@@ -50,7 +55,7 @@ interface FakeGitTextGeneration {
     stagedPatch: string;
     includeBranch?: boolean;
     systemPrompt?: string | null;
-    model?: string;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<
     { subject: string; body: string; branch?: string | undefined },
     TextGenerationError
@@ -64,14 +69,14 @@ interface FakeGitTextGeneration {
     diffSummary: string;
     diffPatch: string;
     systemPrompt?: string | null;
-    model?: string;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<{ title: string; body: string }, TextGenerationError>;
   generateBranchName: (input: {
     cwd: string;
     remote?: ProjectRemoteTarget | null;
     message: string;
     systemPrompt?: string | null;
-    model?: string;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<{ branch: string }, TextGenerationError>;
 }
 
@@ -467,7 +472,7 @@ function runStackedAction(
     settings?: {
       githubBinaryPath?: string;
       commitPrompt?: string;
-      textGenerationModel?: string;
+      textGenerationModelSelection?: ModelSelection;
     };
   },
   options?: Parameters<GitManagerShape["runStackedAction"]>[1],
@@ -476,6 +481,7 @@ function runStackedAction(
     {
       ...input,
       actionId: input.actionId ?? "test-action-id",
+      modelSelection: DEFAULT_TEST_MODEL_SELECTION,
     },
     options,
   );
@@ -1369,7 +1375,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature-shared-git-prompt"]);
 
       let receivedSystemPrompt: string | null | undefined;
-      let receivedModel: string | undefined;
+      let receivedModelSelection: ModelSelection | undefined;
       const { manager } = yield* makeManager({
         ghScenario: {
           prListSequence: [
@@ -1389,7 +1395,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           generatePrContent: (input) =>
             Effect.sync(() => {
               receivedSystemPrompt = input.systemPrompt;
-              receivedModel = input.model;
+              receivedModelSelection = input.modelSelection;
               return {
                 title: "Add stacked git actions",
                 body: "## Summary\n- Add stacked git workflow\n\n## Testing\n- Not run",
@@ -1403,13 +1409,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         action: "commit_push_pr",
         settings: {
           commitPrompt: "Prefer concise infra-focused wording.",
-          textGenerationModel: "gpt-5.4-mini",
         },
       });
 
       expect(result.pr.status).toBe("created");
       expect(receivedSystemPrompt).toBe("Prefer concise infra-focused wording.");
-      expect(receivedModel).toBe("gpt-5.4-mini");
+      expect(receivedModelSelection).toEqual(DEFAULT_TEST_MODEL_SELECTION);
     }),
   );
 
