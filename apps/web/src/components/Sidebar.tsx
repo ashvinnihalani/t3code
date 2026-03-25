@@ -692,7 +692,11 @@ export default function Sidebar() {
           title,
           workspaceRoot: cwd,
           remote: input.remote,
-          defaultModel: DEFAULT_MODEL_BY_PROVIDER.codex,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          remote: input.remote,
           createdAt,
         });
         await handleNewThread(projectId, {

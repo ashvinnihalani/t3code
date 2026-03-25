@@ -740,8 +740,31 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("routes explicit claudeAgent provider session starts to the claude adapter", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+
+      const session = yield* provider.startSession(asThreadId("thread-claude"), {
+        provider: "claudeAgent",
+        threadId: asThreadId("thread-claude"),
+        cwd: "/tmp/project-claude",
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(session.provider, "claudeAgent");
+      assert.equal(routing.claude.startSession.mock.calls.length, 1);
+      const startInput = routing.claude.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof startInput === "object" && startInput !== null, true);
+      if (startInput && typeof startInput === "object") {
+        const startPayload = startInput as { provider?: string; cwd?: string };
+        assert.equal(startPayload.provider, "claudeAgent");
+        assert.equal(startPayload.cwd, "/tmp/project-claude");
+      }
+    }),
+  );
+
   it.effect(
-    "recovers stale sessions for sendTurn using persisted cwd, model options, and provider options",
+    "recovers stale sessions for sendTurn using persisted cwd, model selection, and provider options",
     () =>
       Effect.gen(function* () {
         const provider = yield* ProviderService;
@@ -751,9 +774,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
           provider: "codex",
           threadId: asThreadId("thread-1"),
           cwd: "/tmp/project-send-turn",
-          model: "gpt-5.3-codex",
-          modelOptions: {
-            codex: {
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
               reasoningEffort: "high",
               fastMode: true,
             },
@@ -783,15 +807,17 @@ routing.layer("ProviderServiceLive routing", (it) => {
           const startPayload = resumedStartInput as {
             provider?: string;
             cwd?: string;
-            modelOptions?: unknown;
+            modelSelection?: unknown;
             providerOptions?: unknown;
             resumeCursor?: unknown;
             threadId?: string;
           };
           assert.equal(startPayload.provider, "codex");
           assert.equal(startPayload.cwd, "/tmp/project-send-turn");
-          assert.deepEqual(startPayload.modelOptions, {
-            codex: {
+          assert.deepEqual(startPayload.modelSelection, {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
               reasoningEffort: "high",
               fastMode: true,
             },
@@ -826,6 +852,101 @@ routing.layer("ProviderServiceLive routing", (it) => {
           }
         }
       }),
+  );
+
+  it.effect("recovers stale sessions for sendTurn using persisted cwd", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-1"), {
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        cwd: "/tmp/project-send-turn",
+        runtimeMode: "full-access",
+      });
+
+      yield* routing.codex.stopAll();
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "resume",
+        attachments: [],
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const resumedStartInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+      if (resumedStartInput && typeof resumedStartInput === "object") {
+        const startPayload = resumedStartInput as {
+          provider?: string;
+          cwd?: string;
+          resumeCursor?: unknown;
+          threadId?: string;
+        };
+        assert.equal(startPayload.provider, "codex");
+        assert.equal(startPayload.cwd, "/tmp/project-send-turn");
+        assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
+        assert.equal(startPayload.threadId, initial.threadId);
+      }
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("recovers stale claudeAgent sessions for sendTurn using persisted cwd", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-claude-send-turn"), {
+        provider: "claudeAgent",
+        threadId: asThreadId("thread-claude-send-turn"),
+        cwd: "/tmp/project-claude-send-turn",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: {
+            effort: "max",
+          },
+        },
+        runtimeMode: "full-access",
+      });
+
+      yield* routing.claude.stopAll();
+      routing.claude.startSession.mockClear();
+      routing.claude.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "resume with claude",
+        attachments: [],
+      });
+
+      assert.equal(routing.claude.startSession.mock.calls.length, 1);
+      const resumedStartInput = routing.claude.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+      if (resumedStartInput && typeof resumedStartInput === "object") {
+        const startPayload = resumedStartInput as {
+          provider?: string;
+          cwd?: string;
+          modelSelection?: unknown;
+          resumeCursor?: unknown;
+          threadId?: string;
+        };
+        assert.equal(startPayload.provider, "claudeAgent");
+        assert.equal(startPayload.cwd, "/tmp/project-claude-send-turn");
+        assert.deepEqual(startPayload.modelSelection, {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: {
+            effort: "max",
+          },
+        });
+        assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
+        assert.equal(startPayload.threadId, initial.threadId);
+      }
+      assert.equal(routing.claude.sendTurn.mock.calls.length, 1);
+    }),
   );
 
   it.effect("lists no sessions after adapter runtime clears", () =>

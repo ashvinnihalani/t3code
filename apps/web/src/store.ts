@@ -1,6 +1,5 @@
 import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_KIND,
   type ProviderKind,
   type ProjectRemoteTarget,
@@ -8,12 +7,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
-import {
-  getModelOptions,
-  normalizeModelSlug,
-  resolveModelSlug,
-  resolveModelSlugForProvider,
-} from "@t3tools/shared/model";
+import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -161,18 +155,24 @@ function mapProjectsFromReadModel(
       name: project.title,
       cwd: project.workspaceRoot,
       remote: project.remote ?? null,
-      model: resolveModelSlug(
-        existing?.model ?? project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex,
-      ),
+      defaultModelSelection:
+        existing?.defaultModelSelection ??
+        (project.defaultModelSelection
+          ? {
+              ...project.defaultModelSelection,
+              model: resolveModelSlugForProvider(
+                project.defaultModelSelection.provider,
+                project.defaultModelSelection.model,
+              ),
+            }
+          : null),
+      remote: project.remote ?? null,
       expanded: true,
       scripts: project.scripts.map((script) => ({ ...script })),
     } satisfies Project;
     const projectKey = projectPersistenceKey(nextProject);
     return {
       ...nextProject,
-      model:
-        existing?.model ??
-        resolveModelSlug(project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex),
       expanded:
         existing?.expanded ??
         (persistedExpandedProjectKeys.size > 0
@@ -229,33 +229,6 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   }
   return DEFAULT_PROVIDER_KIND;
 }
-
-const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
-  codex: new Set<string>(getModelOptions("codex").map((option) => option.slug)),
-  claudeAgent: new Set<string>(getModelOptions("claudeAgent").map((option) => option.slug)),
-  kiro: new Set<string>(getModelOptions("kiro").map((option) => option.slug)),
-};
-
-function inferProviderForThreadModel(input: {
-  readonly model: string;
-  readonly sessionProviderName: string | null;
-}): ProviderKind {
-  if (
-    input.sessionProviderName === "codex" ||
-    input.sessionProviderName === "claudeAgent" ||
-    input.sessionProviderName === "kiro"
-  ) {
-    return input.sessionProviderName;
-  }
-  for (const provider of Object.keys(BUILT_IN_MODEL_SLUGS_BY_PROVIDER) as ProviderKind[]) {
-    const normalizedModel = normalizeModelSlug(input.model, provider);
-    if (normalizedModel && BUILT_IN_MODEL_SLUGS_BY_PROVIDER[provider].has(normalizedModel)) {
-      return provider;
-    }
-  }
-  return DEFAULT_PROVIDER_KIND;
-}
-
 function resolveWsHttpOrigin(): string {
   if (typeof window === "undefined") return "";
   const bridgeWsUrl = window.desktopBridge?.getWsUrl?.();
@@ -311,13 +284,13 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         codexThreadId: null,
         projectId: thread.projectId,
         title: thread.title,
-        model: resolveModelSlugForProvider(
-          inferProviderForThreadModel({
-            model: thread.model,
-            sessionProviderName: thread.session?.providerName ?? null,
-          }),
-          thread.model,
-        ),
+        modelSelection: {
+          ...thread.modelSelection,
+          model: resolveModelSlugForProvider(
+            thread.modelSelection.provider,
+            thread.modelSelection.model,
+          ),
+        },
         runtimeMode: thread.runtimeMode,
         interactionMode: thread.interactionMode,
         session: thread.session
