@@ -9,6 +9,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { buildGitRequestSettings, useAppSettings } from "../appSettings";
+import { resolveAppModelSelectionState } from "../modelSelection";
 import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
@@ -226,6 +227,11 @@ export default function GitActionsControl({
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
+  const gitActionModelSelection = useMemo(
+    () =>
+      gitRequestSettings.textGenerationModelSelection ?? resolveAppModelSelectionState(settings),
+    [gitRequestSettings.textGenerationModelSelection, settings],
+  );
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
 
   const updateActiveProgressToast = useCallback(() => {
@@ -273,7 +279,7 @@ export default function GitActionsControl({
       target: gitTarget,
       queryClient,
       ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
-      modelSelection: settings.textGenerationModelSelection,
+      modelSelection: gitActionModelSelection,
     }),
   );
   const pullMutation = useMutation(gitPullMutationOptions({ target: gitTarget, queryClient }));

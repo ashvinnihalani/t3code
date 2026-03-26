@@ -318,7 +318,7 @@ export function buildGitRequestSettings(
     | "customClaudeModels"
     | "customKiroModels"
   >,
-): GitRequestSettings | undefined {
+): GitRequestSettings {
   const githubBinaryPath = settings.gitHubBinaryPath.trim();
   const commitPrompt = settings.gitCommitPrompt.trim();
   const textGenerationModelSelection = resolveAppModelSelectionState(settings);
