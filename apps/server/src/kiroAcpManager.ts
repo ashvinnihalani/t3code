@@ -859,7 +859,7 @@ export class KiroAcpManager extends EventEmitter {
       }),
     );
     this.emitModeMetadata(session);
-    await this.refreshContextWindow(session);
+    void this.refreshContextWindow(session);
 
     return {
       provider: PROVIDER,

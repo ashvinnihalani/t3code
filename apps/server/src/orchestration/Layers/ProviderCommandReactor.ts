@@ -20,6 +20,7 @@ import { type DrainableWorker, makeDrainableWorker } from "@t3tools/shared/Drain
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { createLogger } from "../../logger.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { readProviderThreadIdFromResumeCursor } from "../../provider/remoteSessionMetadata.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
@@ -42,6 +43,8 @@ type ProviderIntentEvent = Extract<
       | "thread.session-stop-requested";
   }
 >;
+
+const kiroLogger = createLogger("kiro-acp");
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -458,14 +461,16 @@ const make = Effect.gen(function* () {
       provider: thread.modelSelection.provider,
       runtimeMode: thread.runtimeMode,
     });
-    yield* Effect.logInfo("provider command reactor ensuring session for turn", {
-      threadId: input.threadId,
-      provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
-      model: input.modelSelection?.model ?? thread.modelSelection.model,
-      runtimeMode: thread.runtimeMode,
-      attachmentCount: input.attachments?.length ?? 0,
-      hasInput: input.messageText.length > 0,
-    });
+    if ((input.modelSelection?.provider ?? thread.modelSelection.provider) === "kiro") {
+      kiroLogger.info("provider command reactor ensuring session for turn", {
+        threadId: input.threadId,
+        provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
+        model: input.modelSelection?.model ?? thread.modelSelection.model,
+        runtimeMode: thread.runtimeMode,
+        attachmentCount: input.attachments?.length ?? 0,
+        hasInput: input.messageText.length > 0,
+      });
+    }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
@@ -496,15 +501,17 @@ const make = Effect.gen(function* () {
           : requestedModelSelection
         : input.modelSelection;
 
-    yield* Effect.logInfo("provider command reactor dispatching provider sendTurn", {
-      threadId: input.threadId,
-      provider: activeSession?.provider ?? thread.modelSelection.provider,
-      sessionRuntimeMode: activeSession?.runtimeMode ?? null,
-      model: modelForTurn?.model ?? activeSession?.model ?? null,
-      interactionMode: input.interactionMode ?? thread.interactionMode,
-      attachmentCount: normalizedAttachments.length,
-      hasInput: normalizedInput !== undefined,
-    });
+    if ((activeSession?.provider ?? thread.modelSelection.provider) === "kiro") {
+      kiroLogger.info("provider command reactor dispatching provider sendTurn", {
+        threadId: input.threadId,
+        provider: activeSession?.provider ?? thread.modelSelection.provider,
+        sessionRuntimeMode: activeSession?.runtimeMode ?? null,
+        model: modelForTurn?.model ?? activeSession?.model ?? null,
+        interactionMode: input.interactionMode ?? thread.interactionMode,
+        attachmentCount: normalizedAttachments.length,
+        hasInput: normalizedInput !== undefined,
+      });
+    }
     yield* providerService.sendTurn({
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),

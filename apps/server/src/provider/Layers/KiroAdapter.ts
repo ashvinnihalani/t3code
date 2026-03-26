@@ -16,7 +16,7 @@ import { createLogger } from "../../logger.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "kiro" as const;
-const logger = createLogger("kiro-adapter");
+const logger = createLogger("kiro-acp");
 
 export interface KiroAdapterLiveOptions {
   readonly manager?: KiroAcpManager;
