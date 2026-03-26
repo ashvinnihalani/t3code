@@ -5,15 +5,16 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { type DesktopAppCloseBehavior, type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
+  buildClaudeHostOverridePatch,
   GIT_DEFAULT_ACTION_OPTIONS,
   THREAD_ID_DISPLAY_MODE_OPTIONS,
   type GitDefaultAction,
   type ThreadIdDisplayMode,
+  getClaudeHostOverride,
   buildCodexHostOverridePatch,
   buildKiroHostOverridePatch,
   getCodexHostOverride,
   getKiroHostOverride,
-  getProviderStartOptions,
   useAppSettings,
 } from "../appSettings";
 import {
@@ -114,7 +115,10 @@ type InstallProviderSettings = {
   binaryPathKey: InstallBinarySettingsKey;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
+  binaryLabel?: string;
   homePathKey?: "codexHomePath";
+  localDescription?: string;
+  remoteDescription?: string;
   homePlaceholder?: string;
   homeDescription?: ReactNode;
 };
@@ -124,12 +128,15 @@ const INSTALL_PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     provider: "codex",
     title: "Codex",
     binaryPathKey: "codexBinaryPath",
+    binaryLabel: "Codex binary path",
     binaryPlaceholder: "Codex binary path",
     binaryDescription: (
       <>
         Leave blank to use <code>codex</code> from your PATH.
       </>
     ),
+    localDescription: "Override the CLI used for new local sessions.",
+    remoteDescription: "Override the Codex binary and CODEX_HOME for a specific SSH host.",
     homePathKey: "codexHomePath",
     homePlaceholder: "CODEX_HOME",
     homeDescription: "Optional custom Codex home and config directory.",
@@ -138,23 +145,29 @@ const INSTALL_PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     provider: "claudeAgent",
     title: "Claude",
     binaryPathKey: "claudeBinaryPath",
+    binaryLabel: "Claude binary path",
     binaryPlaceholder: "Claude binary path",
     binaryDescription: (
       <>
         Leave blank to use <code>claude</code> from your PATH.
       </>
     ),
+    localDescription: "Override the CLI used for new local sessions.",
+    remoteDescription: "Override the Claude binary for a specific SSH host.",
   },
   {
     provider: "kiro",
     title: "Kiro CLI",
     binaryPathKey: "kiroBinaryPath",
+    binaryLabel: "Kiro binary path",
     binaryPlaceholder: "Kiro binary path",
     binaryDescription: (
       <>
         Leave blank to use <code>kiro-cli</code> from your PATH.
       </>
     ),
+    localDescription: "Override the CLI used for new local sessions.",
+    remoteDescription: "Override the Kiro CLI binary for a specific SSH host.",
   },
 ];
 
@@ -249,6 +262,8 @@ function arraysEqual(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+type OverrideMode = "local" | "ssh";
+
 function SettingsRouteView() {
   const { theme, setTheme } = useTheme();
   const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
@@ -257,10 +272,35 @@ function SettingsRouteView() {
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(settings.codexBinaryPath || settings.codexHomePath),
-    claudeAgent: Boolean(settings.claudeBinaryPath),
-    kiro: Boolean(settings.kiroBinaryPath),
+    claudeAgent: Boolean(
+      settings.claudeBinaryPath || Object.keys(settings.claudeRemoteOverrides).length > 0,
+    ),
+    codex: Boolean(
+      settings.codexBinaryPath ||
+      settings.codexHomePath ||
+      Object.keys(settings.codexRemoteOverrides).length > 0,
+    ),
+    kiro: Boolean(settings.kiroBinaryPath || Object.keys(settings.kiroRemoteOverrides).length > 0),
   });
+  const [providerOverrideMode, setProviderOverrideMode] = useState<
+    Record<ProviderKind, OverrideMode>
+  >({
+    codex:
+      Object.keys(settings.codexRemoteOverrides).length > 0 &&
+      !settings.codexBinaryPath &&
+      !settings.codexHomePath
+        ? "ssh"
+        : "local",
+    claudeAgent:
+      Object.keys(settings.claudeRemoteOverrides).length > 0 && !settings.claudeBinaryPath
+        ? "ssh"
+        : "local",
+    kiro:
+      Object.keys(settings.kiroRemoteOverrides).length > 0 && !settings.kiroBinaryPath
+        ? "ssh"
+        : "local",
+  });
+  const [selectedClaudeRemoteHost, setSelectedClaudeRemoteHost] = useState<string | null>(null);
   const [selectedCodexRemoteHost, setSelectedCodexRemoteHost] = useState<string | null>(null);
   const [selectedKiroRemoteHost, setSelectedKiroRemoteHost] = useState<string | null>(null);
   const [selectedCustomModelProvider, setSelectedCustomModelProvider] =
@@ -289,20 +329,20 @@ function SettingsRouteView() {
     [projects],
   );
 
-  const codexRemoteHosts = useMemo(
-    () =>
-      Array.from(
-        new Set([...sshProjectHostAliases, ...Object.keys(settings.codexRemoteOverrides)]),
-      ).toSorted((left, right) => left.localeCompare(right)),
-    [settings.codexRemoteOverrides, sshProjectHostAliases],
-  );
-  const kiroRemoteHosts = useMemo(
-    () =>
-      Array.from(
-        new Set([...sshProjectHostAliases, ...Object.keys(settings.kiroRemoteOverrides)]),
-      ).toSorted((left, right) => left.localeCompare(right)),
-    [settings.kiroRemoteOverrides, sshProjectHostAliases],
-  );
+  const claudeRemoteHosts = sshProjectHostAliases;
+  const codexRemoteHosts = sshProjectHostAliases;
+  const kiroRemoteHosts = sshProjectHostAliases;
+
+  useEffect(() => {
+    if (claudeRemoteHosts.length === 0) {
+      setSelectedClaudeRemoteHost(null);
+      return;
+    }
+
+    if (!selectedClaudeRemoteHost || !claudeRemoteHosts.includes(selectedClaudeRemoteHost)) {
+      setSelectedClaudeRemoteHost(claudeRemoteHosts[0] ?? null);
+    }
+  }, [claudeRemoteHosts, selectedClaudeRemoteHost]);
 
   useEffect(() => {
     if (codexRemoteHosts.length === 0) {
@@ -326,6 +366,9 @@ function SettingsRouteView() {
     }
   }, [kiroRemoteHosts, selectedKiroRemoteHost]);
 
+  const selectedClaudeRemoteOverride = selectedClaudeRemoteHost
+    ? getClaudeHostOverride(settings, selectedClaudeRemoteHost)
+    : null;
   const selectedCodexRemoteOverride = selectedCodexRemoteHost
     ? getCodexHostOverride(settings, selectedCodexRemoteHost)
     : null;
@@ -384,12 +427,20 @@ function SettingsRouteView() {
     settings.codexHomePath !== defaults.codexHomePath ||
     settings.kiroBinaryPath !== defaults.kiroBinaryPath;
 
+  const hasClaudeRemoteOverrides = Object.keys(settings.claudeRemoteOverrides).length > 0;
   const hasCodexRemoteOverrides = Object.keys(settings.codexRemoteOverrides).length > 0;
   const hasKiroRemoteOverrides = Object.keys(settings.kiroRemoteOverrides).length > 0;
+  const hasSelectedClaudeRemoteOverride = Boolean(selectedClaudeRemoteOverride?.binaryPath);
   const hasSelectedCodexRemoteOverride = Boolean(
     selectedCodexRemoteOverride?.binaryPath || selectedCodexRemoteOverride?.homePath,
   );
   const hasSelectedKiroRemoteOverride = Boolean(selectedKiroRemoteOverride?.binaryPath);
+
+  const hasCodexLocalOverride =
+    settings.codexBinaryPath !== defaults.codexBinaryPath ||
+    settings.codexHomePath !== defaults.codexHomePath;
+  const hasClaudeLocalOverride = settings.claudeBinaryPath !== defaults.claudeBinaryPath;
+  const hasKiroLocalOverride = settings.kiroBinaryPath !== defaults.kiroBinaryPath;
 
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
@@ -410,6 +461,7 @@ function SettingsRouteView() {
     ...(hasGitOverrides ? ["Git settings"] : []),
     ...(hasCustomModelOverrides ? ["Custom models"] : []),
     ...(isInstallSettingsDirty ? ["Provider installs"] : []),
+    ...(hasClaudeRemoteOverrides ? ["Claude SSH overrides"] : []),
     ...(hasCodexRemoteOverrides ? ["Codex SSH overrides"] : []),
     ...(hasKiroRemoteOverrides ? ["Kiro SSH overrides"] : []),
   ];
@@ -1182,22 +1234,33 @@ function SettingsRouteView() {
             <SettingsSection title="Advanced">
               <SettingsRow
                 title="Provider installs"
-                description="Override the CLI used for new local sessions. SSH-specific overrides are configured below."
+                description="Override local installs and SSH host-specific binaries for each provider."
                 resetAction={
-                  isInstallSettingsDirty ? (
+                  isInstallSettingsDirty ||
+                  hasClaudeRemoteOverrides ||
+                  hasCodexRemoteOverrides ||
+                  hasKiroRemoteOverrides ? (
                     <SettingResetButton
                       label="provider installs"
                       onClick={() => {
                         updateSettings({
                           claudeBinaryPath: defaults.claudeBinaryPath,
+                          claudeRemoteOverrides: defaults.claudeRemoteOverrides,
                           codexBinaryPath: defaults.codexBinaryPath,
                           codexHomePath: defaults.codexHomePath,
+                          codexRemoteOverrides: defaults.codexRemoteOverrides,
                           kiroBinaryPath: defaults.kiroBinaryPath,
+                          kiroRemoteOverrides: defaults.kiroRemoteOverrides,
                         });
                         setOpenInstallProviders({
                           codex: false,
                           claudeAgent: false,
                           kiro: false,
+                        });
+                        setProviderOverrideMode({
+                          codex: "local",
+                          claudeAgent: "local",
+                          kiro: "local",
                         });
                       }}
                     />
@@ -1208,19 +1271,129 @@ function SettingsRouteView() {
                   <div className="space-y-2">
                     {INSTALL_PROVIDER_SETTINGS.map((providerSettings) => {
                       const isOpen = openInstallProviders[providerSettings.provider];
-                      const isDirty =
+                      const selectedMode = providerOverrideMode[providerSettings.provider];
+                      const supportsRemote =
+                        providerSettings.provider === "claudeAgent" ||
+                        providerSettings.provider === "codex" ||
+                        providerSettings.provider === "kiro";
+                      const remoteHosts =
+                        providerSettings.provider === "claudeAgent"
+                          ? claudeRemoteHosts
+                          : providerSettings.provider === "codex"
+                            ? codexRemoteHosts
+                            : providerSettings.provider === "kiro"
+                              ? kiroRemoteHosts
+                              : [];
+                      const selectedRemoteHost =
+                        providerSettings.provider === "claudeAgent"
+                          ? selectedClaudeRemoteHost
+                          : providerSettings.provider === "codex"
+                            ? selectedCodexRemoteHost
+                            : providerSettings.provider === "kiro"
+                              ? selectedKiroRemoteHost
+                              : null;
+                      const selectedRemoteOverride =
+                        providerSettings.provider === "claudeAgent"
+                          ? selectedClaudeRemoteOverride
+                          : providerSettings.provider === "codex"
+                            ? selectedCodexRemoteOverride
+                            : providerSettings.provider === "kiro"
+                              ? selectedKiroRemoteOverride
+                              : null;
+                      const canSelectRemote = supportsRemote && remoteHosts.length > 0;
+                      const effectiveSelectedMode =
+                        selectedMode === "ssh" && canSelectRemote ? "ssh" : "local";
+                      const isLocalDirty =
                         providerSettings.provider === "codex"
-                          ? settings.codexBinaryPath !== defaults.codexBinaryPath ||
-                            settings.codexHomePath !== defaults.codexHomePath
+                          ? hasCodexLocalOverride
                           : providerSettings.provider === "claudeAgent"
-                            ? settings.claudeBinaryPath !== defaults.claudeBinaryPath
-                            : settings.kiroBinaryPath !== defaults.kiroBinaryPath;
+                            ? hasClaudeLocalOverride
+                            : hasKiroLocalOverride;
+                      const isRemoteDirty =
+                        providerSettings.provider === "claudeAgent"
+                          ? hasClaudeRemoteOverrides
+                          : providerSettings.provider === "codex"
+                            ? hasCodexRemoteOverrides
+                            : providerSettings.provider === "kiro"
+                              ? hasKiroRemoteOverrides
+                              : false;
+                      const isSelectedRemoteDirty =
+                        providerSettings.provider === "claudeAgent"
+                          ? hasSelectedClaudeRemoteOverride
+                          : providerSettings.provider === "codex"
+                            ? hasSelectedCodexRemoteOverride
+                            : providerSettings.provider === "kiro"
+                              ? hasSelectedKiroRemoteOverride
+                              : false;
+                      const isDirty = isLocalDirty || isRemoteDirty;
                       const binaryPathValue =
                         providerSettings.binaryPathKey === "claudeBinaryPath"
                           ? settings.claudeBinaryPath
                           : providerSettings.binaryPathKey === "kiroBinaryPath"
                             ? settings.kiroBinaryPath
                             : settings.codexBinaryPath;
+                      const resetAction =
+                        effectiveSelectedMode === "local" ? (
+                          isLocalDirty ? (
+                            <SettingResetButton
+                              label={`${providerSettings.title.toLowerCase()} local override`}
+                              onClick={() => {
+                                if (providerSettings.provider === "codex") {
+                                  updateSettings({
+                                    codexBinaryPath: defaults.codexBinaryPath,
+                                    codexHomePath: defaults.codexHomePath,
+                                  });
+                                  return;
+                                }
+                                if (providerSettings.provider === "claudeAgent") {
+                                  updateSettings({
+                                    claudeBinaryPath: defaults.claudeBinaryPath,
+                                  });
+                                  return;
+                                }
+                                updateSettings({
+                                  kiroBinaryPath: defaults.kiroBinaryPath,
+                                });
+                              }}
+                            />
+                          ) : null
+                        ) : supportsRemote && selectedRemoteHost && isSelectedRemoteDirty ? (
+                          <SettingResetButton
+                            label={`${providerSettings.title.toLowerCase()} ssh override`}
+                            onClick={() => {
+                              if (providerSettings.provider === "claudeAgent") {
+                                updateSettings(
+                                  buildClaudeHostOverridePatch(
+                                    settings,
+                                    { binaryPath: "" },
+                                    selectedRemoteHost,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (providerSettings.provider === "codex") {
+                                updateSettings(
+                                  buildCodexHostOverridePatch(
+                                    settings,
+                                    {
+                                      binaryPath: "",
+                                      homePath: "",
+                                    },
+                                    selectedRemoteHost,
+                                  ),
+                                );
+                                return;
+                              }
+                              updateSettings(
+                                buildKiroHostOverridePatch(
+                                  settings,
+                                  { binaryPath: "" },
+                                  selectedRemoteHost,
+                                ),
+                              );
+                            }}
+                          />
+                        ) : null;
 
                       return (
                         <Collapsible
@@ -1261,61 +1434,258 @@ function SettingsRouteView() {
                             <CollapsibleContent>
                               <div className="border-t border-border/70 px-4 py-4">
                                 <div className="space-y-3">
-                                  <label
-                                    htmlFor={`provider-install-${providerSettings.binaryPathKey}`}
-                                    className="block"
-                                  >
-                                    <span className="block text-xs font-medium text-foreground">
-                                      {providerSettings.title} binary path
+                                  <div className="flex items-start justify-between gap-3">
+                                    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                      {(effectiveSelectedMode === "ssh"
+                                        ? providerSettings.remoteDescription
+                                        : providerSettings.localDescription) ??
+                                        "Override the provider binary path."}
+                                    </p>
+                                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                                      {resetAction}
                                     </span>
-                                    <Input
-                                      id={`provider-install-${providerSettings.binaryPathKey}`}
-                                      className="mt-1"
-                                      value={binaryPathValue}
-                                      onChange={(event) =>
-                                        updateSettings(
-                                          providerSettings.binaryPathKey === "claudeBinaryPath"
-                                            ? { claudeBinaryPath: event.target.value }
-                                            : providerSettings.binaryPathKey === "kiroBinaryPath"
-                                              ? { kiroBinaryPath: event.target.value }
-                                              : { codexBinaryPath: event.target.value },
-                                        )
-                                      }
-                                      placeholder={providerSettings.binaryPlaceholder}
-                                      spellCheck={false}
-                                    />
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.binaryDescription}
-                                    </span>
-                                  </label>
+                                  </div>
 
-                                  {providerSettings.homePathKey ? (
+                                  {supportsRemote ? (
                                     <label
-                                      htmlFor={`provider-install-${providerSettings.homePathKey}`}
+                                      htmlFor={`provider-install-mode-${providerSettings.provider}`}
                                       className="block"
                                     >
                                       <span className="block text-xs font-medium text-foreground">
-                                        CODEX_HOME path
+                                        Override target
                                       </span>
-                                      <Input
-                                        id={`provider-install-${providerSettings.homePathKey}`}
-                                        className="mt-1"
-                                        value={settings.codexHomePath}
-                                        onChange={(event) =>
-                                          updateSettings({
-                                            codexHomePath: event.target.value,
-                                          })
-                                        }
-                                        placeholder={providerSettings.homePlaceholder}
-                                        spellCheck={false}
-                                      />
-                                      {providerSettings.homeDescription ? (
-                                        <span className="mt-1 block text-xs text-muted-foreground">
-                                          {providerSettings.homeDescription}
-                                        </span>
-                                      ) : null}
+                                      <Select
+                                        value={effectiveSelectedMode}
+                                        onValueChange={(value) => {
+                                          if (value !== "local" && value !== "ssh") return;
+                                          if (value === "ssh" && !canSelectRemote) return;
+                                          setProviderOverrideMode((existing) => ({
+                                            ...existing,
+                                            [providerSettings.provider]: value,
+                                          }));
+                                        }}
+                                      >
+                                        <SelectTrigger
+                                          id={`provider-install-mode-${providerSettings.provider}`}
+                                          className="mt-1 w-full"
+                                          disabled={!canSelectRemote}
+                                          aria-label={`${providerSettings.title} override target`}
+                                        >
+                                          <SelectValue>
+                                            {effectiveSelectedMode === "ssh" ? "SSH host" : "Local"}
+                                          </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectPopup align="start" alignItemWithTrigger={false}>
+                                          <SelectItem hideIndicator value="local">
+                                            Local
+                                          </SelectItem>
+                                          {canSelectRemote ? (
+                                            <SelectItem hideIndicator value="ssh">
+                                              SSH host
+                                            </SelectItem>
+                                          ) : null}
+                                        </SelectPopup>
+                                      </Select>
                                     </label>
                                   ) : null}
+
+                                  {effectiveSelectedMode === "ssh" && supportsRemote ? (
+                                    remoteHosts.length > 0 ? (
+                                      <>
+                                        <label
+                                          htmlFor={`provider-install-ssh-host-${providerSettings.provider}`}
+                                          className="block"
+                                        >
+                                          <span className="block text-xs font-medium text-foreground">
+                                            SSH host
+                                          </span>
+                                          <Select
+                                            value={selectedRemoteHost ?? ""}
+                                            onValueChange={(value) => {
+                                              if (typeof value !== "string") return;
+                                              if (!remoteHosts.includes(value)) return;
+                                              if (providerSettings.provider === "claudeAgent") {
+                                                setSelectedClaudeRemoteHost(value);
+                                                return;
+                                              }
+                                              if (providerSettings.provider === "codex") {
+                                                setSelectedCodexRemoteHost(value);
+                                                return;
+                                              }
+                                              setSelectedKiroRemoteHost(value);
+                                            }}
+                                          >
+                                            <SelectTrigger
+                                              id={`provider-install-ssh-host-${providerSettings.provider}`}
+                                              className="mt-1 w-full"
+                                              aria-label={`${providerSettings.title} SSH override host`}
+                                            >
+                                              <SelectValue>
+                                                {selectedRemoteHost ?? "Select host"}
+                                              </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectPopup align="start" alignItemWithTrigger={false}>
+                                              {remoteHosts.map((hostAlias) => (
+                                                <SelectItem
+                                                  hideIndicator
+                                                  key={hostAlias}
+                                                  value={hostAlias}
+                                                >
+                                                  {hostAlias}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectPopup>
+                                          </Select>
+                                        </label>
+
+                                        <label
+                                          htmlFor={`provider-install-ssh-binary-${providerSettings.provider}`}
+                                          className="block"
+                                        >
+                                          <span className="block text-xs font-medium text-foreground">
+                                            {providerSettings.binaryLabel ??
+                                              `${providerSettings.title} binary path`}
+                                          </span>
+                                          <Input
+                                            id={`provider-install-ssh-binary-${providerSettings.provider}`}
+                                            className="mt-1"
+                                            value={selectedRemoteOverride?.binaryPath ?? ""}
+                                            onChange={(event) => {
+                                              if (!selectedRemoteHost) return;
+                                              if (providerSettings.provider === "claudeAgent") {
+                                                updateSettings(
+                                                  buildClaudeHostOverridePatch(
+                                                    settings,
+                                                    { binaryPath: event.target.value },
+                                                    selectedRemoteHost,
+                                                  ),
+                                                );
+                                                return;
+                                              }
+                                              if (providerSettings.provider === "codex") {
+                                                updateSettings(
+                                                  buildCodexHostOverridePatch(
+                                                    settings,
+                                                    { binaryPath: event.target.value },
+                                                    selectedRemoteHost,
+                                                  ),
+                                                );
+                                                return;
+                                              }
+                                              updateSettings(
+                                                buildKiroHostOverridePatch(
+                                                  settings,
+                                                  { binaryPath: event.target.value },
+                                                  selectedRemoteHost,
+                                                ),
+                                              );
+                                            }}
+                                            placeholder={
+                                              providerSettings.provider === "claudeAgent"
+                                                ? "claude"
+                                                : providerSettings.provider === "kiro"
+                                                  ? "kiro-cli"
+                                                  : "codex"
+                                            }
+                                            spellCheck={false}
+                                          />
+                                        </label>
+
+                                        {providerSettings.provider === "codex" ? (
+                                          <label
+                                            htmlFor="provider-install-ssh-home-codex"
+                                            className="block"
+                                          >
+                                            <span className="block text-xs font-medium text-foreground">
+                                              CODEX_HOME path
+                                            </span>
+                                            <Input
+                                              id="provider-install-ssh-home-codex"
+                                              className="mt-1"
+                                              value={selectedCodexRemoteOverride?.homePath ?? ""}
+                                              onChange={(event) => {
+                                                if (!selectedCodexRemoteHost) return;
+                                                updateSettings(
+                                                  buildCodexHostOverridePatch(
+                                                    settings,
+                                                    { homePath: event.target.value },
+                                                    selectedCodexRemoteHost,
+                                                  ),
+                                                );
+                                              }}
+                                              placeholder="/home/you/.codex"
+                                              spellCheck={false}
+                                            />
+                                          </label>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                                        Open an SSH project to configure per-host{" "}
+                                        {providerSettings.title} overrides.
+                                      </div>
+                                    )
+                                  ) : (
+                                    <>
+                                      <label
+                                        htmlFor={`provider-install-${providerSettings.binaryPathKey}`}
+                                        className="block"
+                                      >
+                                        <span className="block text-xs font-medium text-foreground">
+                                          {providerSettings.binaryLabel ??
+                                            `${providerSettings.title} binary path`}
+                                        </span>
+                                        <Input
+                                          id={`provider-install-${providerSettings.binaryPathKey}`}
+                                          className="mt-1"
+                                          value={binaryPathValue}
+                                          onChange={(event) =>
+                                            updateSettings(
+                                              providerSettings.binaryPathKey === "claudeBinaryPath"
+                                                ? { claudeBinaryPath: event.target.value }
+                                                : providerSettings.binaryPathKey ===
+                                                    "kiroBinaryPath"
+                                                  ? { kiroBinaryPath: event.target.value }
+                                                  : { codexBinaryPath: event.target.value },
+                                            )
+                                          }
+                                          placeholder={providerSettings.binaryPlaceholder}
+                                          spellCheck={false}
+                                        />
+                                        <span className="mt-1 block text-xs text-muted-foreground">
+                                          {providerSettings.binaryDescription}
+                                        </span>
+                                      </label>
+
+                                      {providerSettings.homePathKey ? (
+                                        <label
+                                          htmlFor={`provider-install-${providerSettings.homePathKey}`}
+                                          className="block"
+                                        >
+                                          <span className="block text-xs font-medium text-foreground">
+                                            CODEX_HOME path
+                                          </span>
+                                          <Input
+                                            id={`provider-install-${providerSettings.homePathKey}`}
+                                            className="mt-1"
+                                            value={settings.codexHomePath}
+                                            onChange={(event) =>
+                                              updateSettings({
+                                                codexHomePath: event.target.value,
+                                              })
+                                            }
+                                            placeholder={providerSettings.homePlaceholder}
+                                            spellCheck={false}
+                                          />
+                                          {providerSettings.homeDescription ? (
+                                            <span className="mt-1 block text-xs text-muted-foreground">
+                                              {providerSettings.homeDescription}
+                                            </span>
+                                          ) : null}
+                                        </label>
+                                      ) : null}
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </CollapsibleContent>
@@ -1324,196 +1694,6 @@ function SettingsRouteView() {
                       );
                     })}
                   </div>
-                </div>
-              </SettingsRow>
-
-              <SettingsRow
-                title="Codex SSH overrides"
-                description="Override the Codex binary and CODEX_HOME for specific SSH hosts. Local installs are configured above."
-                resetAction={
-                  hasSelectedCodexRemoteOverride && selectedCodexRemoteHost ? (
-                    <SettingResetButton
-                      label="codex ssh override"
-                      onClick={() =>
-                        updateSettings(
-                          buildCodexHostOverridePatch(
-                            settings,
-                            {
-                              binaryPath: "",
-                              homePath: "",
-                            },
-                            selectedCodexRemoteHost,
-                          ),
-                        )
-                      }
-                    />
-                  ) : null
-                }
-              >
-                <div className="mt-4 border-t border-border pt-4">
-                  {codexRemoteHosts.length > 0 ? (
-                    <div className="space-y-3">
-                      <label htmlFor="codex-ssh-host" className="block">
-                        <span className="block text-xs font-medium text-foreground">SSH host</span>
-                        <Select
-                          value={selectedCodexRemoteHost ?? ""}
-                          onValueChange={(value) => {
-                            if (typeof value !== "string") return;
-                            if (!codexRemoteHosts.includes(value)) return;
-                            setSelectedCodexRemoteHost(value);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="codex-ssh-host"
-                            className="mt-1 w-full"
-                            aria-label="Codex SSH override host"
-                          >
-                            <SelectValue>{selectedCodexRemoteHost ?? "Select host"}</SelectValue>
-                          </SelectTrigger>
-                          <SelectPopup align="start" alignItemWithTrigger={false}>
-                            {codexRemoteHosts.map((hostAlias) => (
-                              <SelectItem hideIndicator key={hostAlias} value={hostAlias}>
-                                {hostAlias}
-                              </SelectItem>
-                            ))}
-                          </SelectPopup>
-                        </Select>
-                      </label>
-
-                      <label htmlFor="codex-ssh-binary-path" className="block">
-                        <span className="block text-xs font-medium text-foreground">
-                          Codex binary path
-                        </span>
-                        <Input
-                          id="codex-ssh-binary-path"
-                          className="mt-1"
-                          value={selectedCodexRemoteOverride?.binaryPath ?? ""}
-                          onChange={(event) => {
-                            if (!selectedCodexRemoteHost) return;
-                            updateSettings(
-                              buildCodexHostOverridePatch(
-                                settings,
-                                { binaryPath: event.target.value },
-                                selectedCodexRemoteHost,
-                              ),
-                            );
-                          }}
-                          placeholder="codex"
-                          spellCheck={false}
-                        />
-                      </label>
-
-                      <label htmlFor="codex-ssh-home-path" className="block">
-                        <span className="block text-xs font-medium text-foreground">
-                          CODEX_HOME path
-                        </span>
-                        <Input
-                          id="codex-ssh-home-path"
-                          className="mt-1"
-                          value={selectedCodexRemoteOverride?.homePath ?? ""}
-                          onChange={(event) => {
-                            if (!selectedCodexRemoteHost) return;
-                            updateSettings(
-                              buildCodexHostOverridePatch(
-                                settings,
-                                { homePath: event.target.value },
-                                selectedCodexRemoteHost,
-                              ),
-                            );
-                          }}
-                          placeholder="/home/you/.codex"
-                          spellCheck={false}
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
-                      Open an SSH project to configure per-host Codex overrides.
-                    </div>
-                  )}
-                </div>
-              </SettingsRow>
-
-              <SettingsRow
-                title="Kiro SSH overrides"
-                description="Override the Kiro CLI binary for specific SSH hosts. Local installs are configured above."
-                resetAction={
-                  hasSelectedKiroRemoteOverride && selectedKiroRemoteHost ? (
-                    <SettingResetButton
-                      label="kiro ssh override"
-                      onClick={() =>
-                        updateSettings(
-                          buildKiroHostOverridePatch(
-                            settings,
-                            {
-                              binaryPath: "",
-                            },
-                            selectedKiroRemoteHost,
-                          ),
-                        )
-                      }
-                    />
-                  ) : null
-                }
-              >
-                <div className="mt-4 border-t border-border pt-4">
-                  {kiroRemoteHosts.length > 0 ? (
-                    <div className="space-y-3">
-                      <label htmlFor="kiro-ssh-host" className="block">
-                        <span className="block text-xs font-medium text-foreground">SSH host</span>
-                        <Select
-                          value={selectedKiroRemoteHost ?? ""}
-                          onValueChange={(value) => {
-                            if (typeof value !== "string") return;
-                            if (!kiroRemoteHosts.includes(value)) return;
-                            setSelectedKiroRemoteHost(value);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="kiro-ssh-host"
-                            className="mt-1 w-full"
-                            aria-label="Kiro SSH override host"
-                          >
-                            <SelectValue>{selectedKiroRemoteHost ?? "Select host"}</SelectValue>
-                          </SelectTrigger>
-                          <SelectPopup align="start" alignItemWithTrigger={false}>
-                            {kiroRemoteHosts.map((hostAlias) => (
-                              <SelectItem hideIndicator key={hostAlias} value={hostAlias}>
-                                {hostAlias}
-                              </SelectItem>
-                            ))}
-                          </SelectPopup>
-                        </Select>
-                      </label>
-
-                      <label htmlFor="kiro-ssh-binary-path" className="block">
-                        <span className="block text-xs font-medium text-foreground">
-                          Kiro binary path
-                        </span>
-                        <Input
-                          id="kiro-ssh-binary-path"
-                          className="mt-1"
-                          value={selectedKiroRemoteOverride?.binaryPath ?? ""}
-                          onChange={(event) => {
-                            if (!selectedKiroRemoteHost) return;
-                            updateSettings(
-                              buildKiroHostOverridePatch(
-                                settings,
-                                { binaryPath: event.target.value },
-                                selectedKiroRemoteHost,
-                              ),
-                            );
-                          }}
-                          placeholder="kiro-cli"
-                          spellCheck={false}
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
-                      Open an SSH project to configure per-host Kiro overrides.
-                    </div>
-                  )}
                 </div>
               </SettingsRow>
 
