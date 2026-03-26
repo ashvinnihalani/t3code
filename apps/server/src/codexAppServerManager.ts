@@ -32,7 +32,6 @@ import {
   isCodexCliVersionSupported,
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
-import { createLogger } from "./logger";
 
 type PendingRequestKey = string;
 
@@ -177,7 +176,6 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
 const CODEX_DEFAULT_MODEL = "gpt-5.3-codex";
 const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_DISABLED_PLAN_TYPES = new Set<CodexPlanType>(["free", "go", "plus"]);
-const logger = createLogger("codex-app-server");
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object") {
@@ -216,32 +214,6 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
     type: "unknown",
     planType: null,
     sparkEnabled: true,
-  };
-}
-
-function summarizeCodexModelList(response: unknown) {
-  const record = asObject(response);
-  const models = Array.isArray(record?.models) ? record.models : [];
-  const modelIds = models
-    .map((entry) => asString(asObject(entry)?.id) ?? asString(asObject(entry)?.model))
-    .filter((value): value is string => value !== undefined);
-
-  return {
-    modelCount: models.length,
-    modelIds: modelIds.slice(0, 10),
-    hasMore: record?.nextCursor !== null && record?.nextCursor !== undefined,
-  };
-}
-
-function summarizeCodexAccountRead(response: unknown) {
-  const record = asObject(response);
-  const account = asObject(record?.account) ?? record;
-
-  return {
-    type: asString(account?.type) ?? "unknown",
-    planType: asString(account?.planType) ?? null,
-    requiresOpenaiAuth:
-      typeof record?.requiresOpenaiAuth === "boolean" ? record.requiresOpenaiAuth : undefined,
   };
 }
 
@@ -651,25 +623,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.writeMessage(context, { method: "initialized" });
       try {
         const modelListResponse = await this.sendRequest(context, "model/list", {});
-        logger.info("codex model/list loaded", summarizeCodexModelList(modelListResponse));
+        console.log("codex model/list response", modelListResponse);
       } catch (error) {
-        logger.warn("codex model/list failed", {
-          cause: error instanceof Error ? error.message : String(error),
-        });
+        console.log("codex model/list failed", error);
       }
       try {
         const accountReadResponse = await this.sendRequest(context, "account/read", {});
-        logger.info("codex account/read loaded", summarizeCodexAccountRead(accountReadResponse));
+        console.log("codex account/read response", accountReadResponse);
         context.account = readCodexAccountSnapshot(accountReadResponse);
-        logger.info("codex subscription status", {
+        console.log("codex subscription status", {
           type: context.account.type,
           planType: context.account.planType,
           sparkEnabled: context.account.sparkEnabled,
         });
       } catch (error) {
-        logger.warn("codex account/read failed", {
-          cause: error instanceof Error ? error.message : String(error),
-        });
+        console.log("codex account/read failed", error);
       }
 
       const normalizedModel = resolveCodexModelForAccount(
