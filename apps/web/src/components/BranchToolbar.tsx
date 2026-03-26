@@ -1,6 +1,6 @@
 import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -43,6 +43,7 @@ export default function BranchToolbar({
   const projects = useStore((store) => store.projects);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
   const setThreadRepoBranchAction = useStore((store) => store.setThreadRepoBranch);
+  const setThreadSelectedRepoAction = useStore((store) => store.setThreadSelectedRepo);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
@@ -70,7 +71,7 @@ export default function BranchToolbar({
       })),
     [gitRepos],
   );
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(gitRepos?.[0]?.id ?? null);
+  const selectedRepoId = serverThread?.selectedRepoId ?? draftThread?.selectedRepoId ?? null;
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -126,7 +127,20 @@ export default function BranchToolbar({
 
   const setRepoThreadBranch = useCallback(
     (repoId: string, branch: string | null, worktreePath: string | null) => {
-      if (!activeThreadId || !serverThread) return;
+      if (!activeThreadId) return;
+      if (!serverThread) {
+        setDraftThreadContext(threadId, {
+          selectedRepoId: repoId,
+          branch,
+          worktreePath,
+          envMode: resolveDraftEnvModeAfterBranchChange({
+            nextWorktreePath: worktreePath,
+            currentWorktreePath: activeWorktreePath,
+            effectiveEnvMode,
+          }),
+        });
+        return;
+      }
       const existingRepoBranches = serverThread.repoBranches ?? [];
       const nextRepoBranches = existingRepoBranches.some((entry) => entry.repoId === repoId)
         ? existingRepoBranches.map((entry) =>
@@ -153,21 +167,39 @@ export default function BranchToolbar({
       }
       setThreadRepoBranchAction(activeThreadId, repoId, branch, worktreePath);
     },
-    [activeThreadId, serverThread, setThreadRepoBranchAction],
+    [
+      activeThreadId,
+      activeWorktreePath,
+      effectiveEnvMode,
+      serverThread,
+      setDraftThreadContext,
+      setThreadRepoBranchAction,
+      threadId,
+    ],
   );
 
   useEffect(() => {
     if ((gitRepos?.length ?? 0) === 0) {
-      if (selectedRepoId !== null) {
-        setSelectedRepoId(null);
-      }
       return;
     }
     if (selectedRepoId && gitRepos?.some((repo) => repo.id === selectedRepoId)) {
       return;
     }
-    setSelectedRepoId(gitRepos?.[0]?.id ?? null);
-  }, [gitRepos, selectedRepoId]);
+    const nextRepoId = gitRepos?.[0]?.id ?? null;
+    if (serverThread && activeThreadId) {
+      setThreadSelectedRepoAction(activeThreadId, nextRepoId);
+      return;
+    }
+    setDraftThreadContext(threadId, { selectedRepoId: nextRepoId });
+  }, [
+    activeThreadId,
+    gitRepos,
+    selectedRepoId,
+    serverThread,
+    setDraftThreadContext,
+    setThreadSelectedRepoAction,
+    threadId,
+  ]);
 
   if (!activeThreadId || !activeProject) return null;
 
@@ -244,7 +276,13 @@ export default function BranchToolbar({
         <div className="flex min-w-0 items-center gap-2">
           <Select
             value={selectedRepo?.id ?? ""}
-            onValueChange={(value) => setSelectedRepoId(value)}
+            onValueChange={(value) => {
+              if (serverThread && activeThreadId) {
+                setThreadSelectedRepoAction(activeThreadId, value);
+                return;
+              }
+              setDraftThreadContext(threadId, { selectedRepoId: value });
+            }}
             items={repoSelectItems}
           >
             <SelectTrigger variant="ghost" size="xs" className="max-w-40 font-medium">

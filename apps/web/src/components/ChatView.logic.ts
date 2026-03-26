@@ -40,6 +40,7 @@ export function buildLocalDraftThread(
     createdAt: draftThread.createdAt,
     latestTurn: null,
     lastVisitedAt: draftThread.createdAt,
+    selectedRepoId: draftThread.selectedRepoId ?? null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
     turnDiffSummaries: [],

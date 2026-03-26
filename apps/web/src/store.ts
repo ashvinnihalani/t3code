@@ -366,6 +366,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         updatedAt: thread.updatedAt,
         latestTurn: thread.latestTurn,
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
+        selectedRepoId:
+          existing?.selectedRepoId ??
+          projects.find((project) => project.id === thread.projectId)?.gitRepos?.[0]?.id ??
+          null,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
         repoBranches: (thread.repoBranches ?? []).map((entry) => ({
@@ -560,8 +564,26 @@ export function setThreadRepoBranch(
 
     return {
       ...thread,
+      selectedRepoId: repoId,
       repoBranches: nextRepoBranches,
       multiRepoWorktree: nextMultiRepoWorktree,
+    };
+  });
+  return threads === state.threads ? state : { ...state, threads };
+}
+
+export function setThreadSelectedRepo(
+  state: AppState,
+  threadId: ThreadId,
+  repoId: string | null,
+): AppState {
+  const threads = updateThread(state.threads, threadId, (thread) => {
+    if ((thread.selectedRepoId ?? null) === repoId) {
+      return thread;
+    }
+    return {
+      ...thread,
+      selectedRepoId: repoId,
     };
   });
   return threads === state.threads ? state : { ...state, threads };
@@ -585,6 +607,7 @@ interface AppStore extends AppState {
     branch: string | null,
     worktreePath: string | null,
   ) => void;
+  setThreadSelectedRepo: (threadId: ThreadId, repoId: string | null) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -605,6 +628,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
   setThreadRepoBranch: (threadId, repoId, branch, worktreePath) =>
     set((state) => setThreadRepoBranch(state, threadId, repoId, branch, worktreePath)),
+  setThreadSelectedRepo: (threadId, repoId) =>
+    set((state) => setThreadSelectedRepo(state, threadId, repoId)),
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

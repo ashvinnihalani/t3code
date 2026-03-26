@@ -114,6 +114,7 @@ export interface Thread {
   updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
+  selectedRepoId?: string | null | undefined;
   branch: string | null;
   worktreePath: string | null;
   repoBranches?: ThreadRepoBranch[] | undefined;
