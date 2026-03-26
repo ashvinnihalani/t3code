@@ -14,9 +14,11 @@ import {
 
 import { buildSshExecArgs } from "./sshCommand.ts";
 import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import { createLogger } from "./logger.ts";
 
 const PROVIDER = "kiro" as const;
 const DEFAULT_BINARY_PATH = "kiro-cli";
+const logger = createLogger("kiro-acp");
 
 interface KiroModeDescriptor {
   readonly id: string;
@@ -613,7 +615,9 @@ export class KiroAcpManager extends EventEmitter {
     };
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
+    let threadOpenMethod: "session/new" | "session/load" = "session/new";
     if (resumeSessionId) {
+      threadOpenMethod = "session/load";
       session.sessionId = resumeSessionId;
       session.suppressReplay = true;
       try {
@@ -653,6 +657,14 @@ export class KiroAcpManager extends EventEmitter {
       process.kill();
       throw new Error("Kiro ACP session did not return a sessionId.");
     }
+
+    logger.info("kiro thread open resolved", {
+      threadId: session.threadId,
+      threadOpenMethod,
+      requestedResumeSessionId: resumeSessionId ?? null,
+      resolvedThreadId: session.sessionId,
+      requestedCwd: input.cwd ?? null,
+    });
 
     this.sessions.set(session.threadId, session);
     if (input.model) {

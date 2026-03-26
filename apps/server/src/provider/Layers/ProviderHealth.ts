@@ -30,6 +30,16 @@ const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 const KIRO_PROVIDER = "kiro" as const;
 
+const logProviderHealthStatus = (status: ServerProviderStatus) =>
+  Effect.logInfo("provider health check resolved", {
+    provider: status.provider,
+    available: status.available,
+    status: status.status,
+    authStatus: status.authStatus,
+    checkedAt: status.checkedAt,
+    message: status.message,
+  });
+
 // ── Pure helpers ────────────────────────────────────────────────────
 
 export interface CommandResult {
@@ -771,19 +781,18 @@ export const ProviderHealthLive = Layer.effect(
     const codexStatusFiber = yield* checkCodexProviderStatus.pipe(Effect.forkScoped);
     const claudeStatusFiber = yield* checkClaudeProviderStatus.pipe(Effect.forkScoped);
     const kiroStatusFiber = yield* checkKiroProviderStatus.pipe(Effect.forkScoped);
+    const statuses = yield* Effect.all([
+      Fiber.join(codexStatusFiber),
+      Fiber.join(claudeStatusFiber),
+      Fiber.join(kiroStatusFiber),
+    ]);
+
+    for (const status of statuses) {
+      yield* logProviderHealthStatus(status);
+    }
 
     return {
-      getStatuses: Effect.all([
-        Fiber.join(codexStatusFiber),
-        Fiber.join(claudeStatusFiber),
-        Fiber.join(kiroStatusFiber),
-      ]).pipe(
-        Effect.map(([codexStatus, claudeStatus, kiroStatus]) => [
-          codexStatus,
-          claudeStatus,
-          kiroStatus,
-        ]),
-      ),
+      getStatuses: Effect.succeed(statuses),
     } satisfies ProviderHealthShape;
   }),
 );
