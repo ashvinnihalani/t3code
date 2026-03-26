@@ -1,6 +1,6 @@
 import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -60,7 +60,17 @@ export default function BranchToolbar({
     projectRemote,
   });
   const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
-  const isMultiRepoProject = ((activeProject?.gitRepos ?? []).length ?? 0) > 1;
+  const gitRepos = activeProject?.gitRepos;
+  const isMultiRepoProject = (gitRepos?.length ?? 0) > 1;
+  const repoSelectItems = useMemo(
+    () =>
+      (gitRepos ?? []).map((repo) => ({
+        value: repo.id,
+        label: repo.displayName,
+      })),
+    [gitRepos],
+  );
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(gitRepos?.[0]?.id ?? null);
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -146,7 +156,34 @@ export default function BranchToolbar({
     [activeThreadId, serverThread, setThreadRepoBranchAction],
   );
 
+  useEffect(() => {
+    if ((gitRepos?.length ?? 0) === 0) {
+      if (selectedRepoId !== null) {
+        setSelectedRepoId(null);
+      }
+      return;
+    }
+    if (selectedRepoId && gitRepos?.some((repo) => repo.id === selectedRepoId)) {
+      return;
+    }
+    setSelectedRepoId(gitRepos?.[0]?.id ?? null);
+  }, [gitRepos, selectedRepoId]);
+
   if (!activeThreadId || !activeProject) return null;
+
+  const selectedRepo =
+    (selectedRepoId ? gitRepos?.find((repo) => repo.id === selectedRepoId) : undefined) ??
+    gitRepos?.[0];
+  const selectedRepoBranch =
+    selectedRepo && serverThread
+      ? (serverThread.repoBranches?.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
+        null)
+      : null;
+  const selectedRepoWorktreePath =
+    selectedRepo && serverThread
+      ? (serverThread.multiRepoWorktree?.repos.find((entry) => entry.repoId === selectedRepo.id)
+          ?.worktreePath ?? null)
+      : null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-start justify-between px-5 pb-3 pt-1">
@@ -204,35 +241,44 @@ export default function BranchToolbar({
       </div>
 
       {isMultiRepoProject ? (
-        <div className="flex min-w-0 flex-col gap-2">
-          {(activeProject.gitRepos ?? []).map((repo) => {
-            const repoBranch =
-              serverThread?.repoBranches?.find((entry) => entry.repoId === repo.id)?.branch ?? null;
-            const repoWorktreePath =
-              serverThread?.multiRepoWorktree?.repos.find((entry) => entry.repoId === repo.id)
-                ?.worktreePath ?? null;
-            return (
-              <div key={repo.id} className="flex items-center gap-2">
-                <span className="w-28 truncate text-xs text-muted-foreground">
-                  {repo.displayName}
-                </span>
-                <BranchToolbarBranchSelector
-                  activeProjectId={activeProject.id}
-                  activeProjectCwd={repo.rootPath}
-                  activeThreadBranch={repoBranch}
-                  activeWorktreePath={repoWorktreePath}
-                  branchCwd={repoWorktreePath ?? repo.rootPath}
-                  effectiveEnvMode={effectiveEnvMode}
-                  envLocked={envLocked}
-                  onSetThreadBranch={(branch, worktreePath) =>
-                    setRepoThreadBranch(repo.id, branch, worktreePath)
-                  }
-                  {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-                  {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-                />
-              </div>
-            );
-          })}
+        <div className="flex min-w-0 items-center gap-2">
+          <Select
+            value={selectedRepo?.id ?? ""}
+            onValueChange={(value) => setSelectedRepoId(value)}
+            items={repoSelectItems}
+          >
+            <SelectTrigger variant="ghost" size="xs" className="max-w-40 font-medium">
+              <SelectValue placeholder="Select repo" />
+            </SelectTrigger>
+            <SelectPopup>
+              {(gitRepos ?? []).map((repo) => (
+                <SelectItem key={repo.id} value={repo.id}>
+                  <span className="inline-flex min-w-0 max-w-56 items-center gap-1.5">
+                    <span className="truncate">{repo.displayName}</span>
+                    <span className="truncate text-[10px] text-muted-foreground">
+                      {repo.relativePath}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          {selectedRepo ? (
+            <BranchToolbarBranchSelector
+              activeProjectId={activeProject.id}
+              activeProjectCwd={selectedRepo.rootPath}
+              activeThreadBranch={selectedRepoBranch}
+              activeWorktreePath={selectedRepoWorktreePath}
+              branchCwd={selectedRepoWorktreePath ?? selectedRepo.rootPath}
+              effectiveEnvMode={effectiveEnvMode}
+              envLocked={envLocked}
+              onSetThreadBranch={(branch, worktreePath) =>
+                setRepoThreadBranch(selectedRepo.id, branch, worktreePath)
+              }
+              {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+              {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+            />
+          ) : null}
         </div>
       ) : (
         <BranchToolbarBranchSelector
