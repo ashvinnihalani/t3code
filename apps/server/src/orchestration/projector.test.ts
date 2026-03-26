@@ -301,7 +301,10 @@ describe("orchestration projector", () => {
             threadId: "thread-1",
             projectId: "project-1",
             title: "demo",
-            model: "gpt-5.3-codex",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.3-codex",
+            },
             runtimeMode: "full-access",
             branch: null,
             worktreePath: null,

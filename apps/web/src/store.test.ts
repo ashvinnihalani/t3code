@@ -230,7 +230,10 @@ describe("store pure functions", () => {
           id: localProjectId,
           name: "Local",
           cwd: "/tmp/local",
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
           expanded: true,
           scripts: [],
         },
@@ -242,7 +245,10 @@ describe("store pure functions", () => {
             kind: "ssh",
             hostAlias: "buildbox",
           },
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
           expanded: true,
           scripts: [],
         },

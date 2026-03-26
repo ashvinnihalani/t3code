@@ -218,12 +218,15 @@ const sleep = (ms: number) =>
 
 function makeProviderServiceLayer() {
   const codex = makeFakeCodexAdapter();
+  const claudeAgent = makeFakeCodexAdapter("claudeAgent");
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
       provider === "codex"
         ? Effect.succeed(codex.adapter)
-        : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () => Effect.succeed(["codex"]),
+        : provider === "claudeAgent"
+          ? Effect.succeed(claudeAgent.adapter)
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+    listProviders: () => Effect.succeed(["codex", "claudeAgent"]),
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
@@ -248,6 +251,7 @@ function makeProviderServiceLayer() {
 
   return {
     codex,
+    claudeAgent,
     layer,
   };
 }
@@ -752,8 +756,8 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
 
       assert.equal(session.provider, "claudeAgent");
-      assert.equal(routing.claude.startSession.mock.calls.length, 1);
-      const startInput = routing.claude.startSession.mock.calls[0]?.[0];
+      assert.equal(routing.claudeAgent.startSession.mock.calls.length, 1);
+      const startInput = routing.claudeAgent.startSession.mock.calls[0]?.[0];
       assert.equal(typeof startInput === "object" && startInput !== null, true);
       if (startInput && typeof startInput === "object") {
         const startPayload = startInput as { provider?: string; cwd?: string };
@@ -912,9 +916,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
         runtimeMode: "full-access",
       });
 
-      yield* routing.claude.stopAll();
-      routing.claude.startSession.mockClear();
-      routing.claude.sendTurn.mockClear();
+      yield* routing.claudeAgent.stopAll();
+      routing.claudeAgent.startSession.mockClear();
+      routing.claudeAgent.sendTurn.mockClear();
 
       yield* provider.sendTurn({
         threadId: initial.threadId,
@@ -922,8 +926,8 @@ routing.layer("ProviderServiceLive routing", (it) => {
         attachments: [],
       });
 
-      assert.equal(routing.claude.startSession.mock.calls.length, 1);
-      const resumedStartInput = routing.claude.startSession.mock.calls[0]?.[0];
+      assert.equal(routing.claudeAgent.startSession.mock.calls.length, 1);
+      const resumedStartInput = routing.claudeAgent.startSession.mock.calls[0]?.[0];
       assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
       if (resumedStartInput && typeof resumedStartInput === "object") {
         const startPayload = resumedStartInput as {
@@ -945,13 +949,16 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
         assert.equal(startPayload.threadId, initial.threadId);
       }
-      assert.equal(routing.claude.sendTurn.mock.calls.length, 1);
+      assert.equal(routing.claudeAgent.sendTurn.mock.calls.length, 1);
     }),
   );
 
   it.effect("lists no sessions after adapter runtime clears", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
+
+      yield* routing.codex.stopAll();
+      yield* routing.claudeAgent.stopAll();
 
       yield* provider.startSession(asThreadId("thread-1"), {
         provider: "codex",
@@ -965,6 +972,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
 
       yield* routing.codex.stopAll();
+      yield* routing.claudeAgent.stopAll();
 
       const remaining = yield* provider.listSessions();
       assert.equal(remaining.length, 0);

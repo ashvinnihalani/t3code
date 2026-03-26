@@ -2746,7 +2746,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         modelSelection: selectedModelSelection,
         ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
         ...(gitRequestSettings ? { gitSettings: gitRequestSettings } : {}),
-        provider: selectedProvider,
         assistantDeliveryMode:
           selectedProvider === "kiro" || settings.enableAssistantStreaming
             ? "streaming"

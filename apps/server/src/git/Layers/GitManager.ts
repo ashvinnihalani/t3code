@@ -1366,11 +1366,7 @@ export const makeGitManager = Effect.gen(function* () {
                 Effect.flatMap(() =>
                   Effect.gen(function* () {
                     currentPhase = "push";
-                    return yield* gitCore.pushCurrentBranch(
-                      input.cwd,
-                      currentBranch,
-                      input.remote,
-                    );
+                    return yield* gitCore.pushCurrentBranch(input.cwd, currentBranch, input.remote);
                   }),
                 ),
               )
@@ -1387,12 +1383,7 @@ export const makeGitManager = Effect.gen(function* () {
                 Effect.flatMap(() =>
                   Effect.gen(function* () {
                     currentPhase = "pr";
-                    return yield* runPrStep(
-                      input.cwd,
-                      currentBranch,
-                      input.remote,
-                      input.settings,
-                    );
+                    return yield* runPrStep(input.cwd, currentBranch, input.remote, input.settings);
                   }),
                 ),
               )

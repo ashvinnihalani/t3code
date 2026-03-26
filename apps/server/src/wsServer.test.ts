@@ -392,7 +392,10 @@ async function createProjectAndThread(input: {
       projectId,
       title: input.projectId,
       workspaceRoot,
-      defaultModel: "gpt-5-codex",
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
       ...(input.remote !== undefined ? { remote: input.remote } : {}),
       createdAt,
     },
@@ -408,7 +411,10 @@ async function createProjectAndThread(input: {
       threadId,
       projectId,
       title: "Thread",
-      model: "gpt-5-codex",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
       interactionMode: "default",
       runtimeMode: "full-access",
       branch: null,

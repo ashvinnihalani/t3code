@@ -266,9 +266,8 @@ export function normalizeCodexModelOptions(
   modelOptions: CodexModelOptions | null | undefined,
 ): CodexModelOptions | undefined {
   const capabilities = getEffectiveCapabilitiesForEffortOptions("codex", model);
-  const defaultReasoningEffort =
-    (getDefaultEffort(capabilities) ??
-      DEFAULT_REASONING_EFFORT_BY_PROVIDER.codex) as CodexReasoningEffort;
+  const defaultReasoningEffort = (getDefaultEffort(capabilities) ??
+    DEFAULT_REASONING_EFFORT_BY_PROVIDER.codex) as CodexReasoningEffort;
   const resolvedReasoningEffort = trimOrNull(modelOptions?.reasoningEffort);
   const reasoningEffort =
     resolvedReasoningEffort &&

@@ -145,7 +145,10 @@ describe("StartupThreadReconciler", () => {
         projectId: asProjectId("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
-        defaultModel: "gpt-5-codex",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
         createdAt,
       }),
     );
@@ -156,7 +159,10 @@ describe("StartupThreadReconciler", () => {
         threadId: asThreadId("thread-1"),
         projectId: asProjectId("project-1"),
         title: "Thread",
-        model: "gpt-5-codex",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "full-access",
         branch: null,

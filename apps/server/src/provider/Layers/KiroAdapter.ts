@@ -98,7 +98,7 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
         threadId: input.threadId,
         runtimeMode: input.runtimeMode,
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.modelSelection?.model !== undefined ? { model: input.modelSelection.model } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input.providerOptions?.kiro?.binaryPath
           ? { binaryPath: input.providerOptions.kiro.binaryPath }
@@ -163,7 +163,9 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
               threadId: input.threadId,
               ...(input.input !== undefined ? { input: input.input } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
-              ...(input.model !== undefined ? { model: input.model } : {}),
+              ...(input.modelSelection?.model !== undefined
+                ? { model: input.modelSelection.model }
+                : {}),
               ...(input.interactionMode !== undefined
                 ? { interactionMode: input.interactionMode }
                 : {}),

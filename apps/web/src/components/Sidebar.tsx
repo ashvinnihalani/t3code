@@ -696,7 +696,6 @@ export default function Sidebar() {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
-          remote: input.remote,
           createdAt,
         });
         await handleNewThread(projectId, {

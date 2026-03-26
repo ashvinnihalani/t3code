@@ -1227,9 +1227,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             actionId: body.actionId,
             progressReporter: {
               publish: (event) =>
-                pushBus.publishClient(ws, WS_CHANNELS.gitActionProgress, event).pipe(
-                  Effect.asVoid,
-                ),
+                pushBus.publishClient(ws, WS_CHANNELS.gitActionProgress, event).pipe(Effect.asVoid),
             },
           },
         );

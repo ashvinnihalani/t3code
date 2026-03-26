@@ -2,12 +2,9 @@
 
 ## Why
 
-
 ## Validation
 
-
 ## Maintenance Impact
-
 
 ## UI Changes
 
