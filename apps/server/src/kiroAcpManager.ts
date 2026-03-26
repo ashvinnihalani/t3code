@@ -122,6 +122,18 @@ function normalizeNonEmpty(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeKiroModelId(value: string | undefined): string | undefined {
+  const normalized = normalizeNonEmpty(value);
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.toLowerCase() === "auto" ? undefined : normalized;
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function readKiroTextChunk(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -813,8 +825,17 @@ export class KiroAcpManager extends EventEmitter {
     });
 
     this.sessions.set(session.threadId, session);
-    if (input.model) {
-      await this.setModel(session, input.model);
+    const modelId = normalizeKiroModelId(input.model);
+    logger.info("kiro session post-open initialization", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      requestedModel: input.model ?? null,
+      normalizedModel: modelId ?? null,
+      currentModeId: session.modeState.currentModeId ?? null,
+      availableModeIds: session.modeState.availableModes.map((mode) => mode.id),
+    });
+    if (modelId) {
+      await this.setModel(session, modelId);
     }
 
     this.emit(
@@ -857,8 +878,19 @@ export class KiroAcpManager extends EventEmitter {
     input: KiroAcpSendTurnInput,
   ): Promise<{ threadId: ThreadId; turnId: TurnId; resumeCursor?: unknown }> {
     const session = this.requireSession(input.threadId);
-    if (input.model && input.model !== session.model) {
-      await this.setModel(session, input.model);
+    const modelId = normalizeKiroModelId(input.model);
+    logger.info("kiro turn sending", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      requestedModel: input.model ?? null,
+      normalizedModel: modelId ?? null,
+      requestedInteractionMode: input.interactionMode ?? "default",
+      currentModeId: session.modeState.currentModeId ?? null,
+      attachmentCount: input.attachments?.length ?? 0,
+      hasInput: Boolean(input.input && input.input.length > 0),
+    });
+    if (modelId && modelId !== session.model) {
+      await this.setModel(session, modelId);
     }
     await this.setSessionMode(session, input.interactionMode ?? "default");
 
@@ -878,6 +910,13 @@ export class KiroAcpManager extends EventEmitter {
       }),
     );
 
+    logger.info("kiro prompt dispatching", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      turnId,
+      model: session.model ?? null,
+      currentModeId: session.modeState.currentModeId ?? null,
+    });
     await session.rpc
       .request("session/prompt", {
         sessionId: session.sessionId,
@@ -890,12 +929,24 @@ export class KiroAcpManager extends EventEmitter {
         (result) => {
           const payload = asRecord(result);
           const stopReason = normalizeNonEmpty(asString(payload?.stopReason));
+          logger.info("kiro prompt resolved", {
+            threadId: session.threadId,
+            sessionId: session.sessionId,
+            turnId,
+            stopReason: stopReason ?? null,
+          });
           this.completeTurn(session, turnId, {
             state: "completed",
             ...(stopReason ? { stopReason } : {}),
           });
         },
         (error) => {
+          logger.error("kiro prompt failed", {
+            threadId: session.threadId,
+            sessionId: session.sessionId,
+            turnId,
+            error: toErrorMessage(error),
+          });
           if (session.activeTurnId !== turnId) {
             return;
           }
@@ -1147,12 +1198,33 @@ export class KiroAcpManager extends EventEmitter {
   }
 
   private async setModel(session: KiroSessionState, model: string): Promise<void> {
-    await session.rpc.request("session/set_model", {
+    logger.info("kiro set_model dispatching", {
+      threadId: session.threadId,
       sessionId: session.sessionId,
-      modelId: model,
+      previousModel: session.model ?? null,
+      model,
     });
-    session.model = model;
-    session.updatedAt = nowIso();
+    try {
+      await session.rpc.request("session/set_model", {
+        sessionId: session.sessionId,
+        modelId: model,
+      });
+      session.model = model;
+      session.updatedAt = nowIso();
+      logger.info("kiro set_model resolved", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        model,
+      });
+    } catch (error) {
+      logger.error("kiro set_model failed", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        model,
+        error: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   private async setInteractionMode(
@@ -1165,19 +1237,50 @@ export class KiroAcpManager extends EventEmitter {
       interactionMode,
     });
     if (!modeId || modeId === session.modeState.currentModeId) {
+      logger.info("kiro set_mode skipped", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        interactionMode,
+        currentModeId: session.modeState.currentModeId ?? null,
+        resolvedModeId: modeId ?? null,
+      });
       return;
     }
-    await session.rpc.request("session/set_mode", {
+    logger.info("kiro set_mode dispatching", {
+      threadId: session.threadId,
       sessionId: session.sessionId,
+      interactionMode,
+      previousModeId: session.modeState.currentModeId ?? null,
       modeId,
     });
-    session.modeState = {
-      ...session.modeState,
-      currentModeId: modeId,
-      defaultModeId: session.modeState.defaultModeId ?? defaultModeId(session.modeState),
-    };
-    session.updatedAt = nowIso();
-    this.emitModeMetadata(session);
+    try {
+      await session.rpc.request("session/set_mode", {
+        sessionId: session.sessionId,
+        modeId,
+      });
+      session.modeState = {
+        ...session.modeState,
+        currentModeId: modeId,
+        defaultModeId: session.modeState.defaultModeId ?? defaultModeId(session.modeState),
+      };
+      session.updatedAt = nowIso();
+      this.emitModeMetadata(session);
+      logger.info("kiro set_mode resolved", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        interactionMode,
+        modeId,
+      });
+    } catch (error) {
+      logger.error("kiro set_mode failed", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        interactionMode,
+        modeId,
+        error: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   private async setSessionMode(
