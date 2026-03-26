@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions, KiroModelOptions } from "./model";
+import { ModelSelection } from "./model";
 import { GitRequestSettings } from "./git";
 import { ProjectRemoteTarget } from "./remote";
 import {
@@ -45,34 +45,6 @@ export const ProviderSandboxMode = Schema.Literals([
 ]);
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
-
-export const CodexModelSelection = Schema.Struct({
-  provider: Schema.Literal("codex"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(CodexModelOptions),
-});
-export type CodexModelSelection = typeof CodexModelSelection.Type;
-
-export const ClaudeModelSelection = Schema.Struct({
-  provider: Schema.Literal("claudeAgent"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(ClaudeModelOptions),
-});
-export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
-
-export const KiroModelSelection = Schema.Struct({
-  provider: Schema.Literal("kiro"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(KiroModelOptions),
-});
-export type KiroModelSelection = typeof KiroModelSelection.Type;
-
-export const ModelSelection = Schema.Union([
-  CodexModelSelection,
-  ClaudeModelSelection,
-  KiroModelSelection,
-]);
-export type ModelSelection = typeof ModelSelection.Type;
 
 export const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),

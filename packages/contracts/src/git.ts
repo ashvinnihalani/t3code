@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
-import { ModelSelection } from "./orchestration";
+import { ModelSelection } from "./model";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 
