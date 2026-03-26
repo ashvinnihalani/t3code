@@ -147,12 +147,7 @@ describe("KiroAcpManager", () => {
   it("emits turn.completed when ACP sends turn_end", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
-    session.rpc.request = vi.fn((method: string) => {
-      if (method === "_kiro.dev/commands/execute") {
-        return Promise.resolve("Current context window (5.9% used)");
-      }
-      return Promise.resolve(undefined);
-    });
+    session.rpc.request = vi.fn(() => Promise.resolve(undefined));
     const events: Array<{ type: string; turnId?: string; payload?: unknown }> = [];
     manager.on("event", (event) => {
       events.push(event as { type: string; turnId?: string; payload?: unknown });
@@ -187,15 +182,6 @@ describe("KiroAcpManager", () => {
             stopReason: "done",
           }),
         }),
-        expect.objectContaining({
-          type: "thread.token-usage.updated",
-          payload: {
-            usage: expect.objectContaining({
-              usedPercentage: 5.9,
-              compactsAutomatically: true,
-            }),
-          },
-        }),
       ]),
     );
   });
@@ -205,14 +191,12 @@ describe("KiroAcpManager", () => {
     const session = createTestSession();
     session.activeTurnId = undefined;
     const deferred: { resolve?: (value: unknown) => void } = {};
-    session.rpc.request = vi.fn((method: string) => {
-      if (method === "_kiro.dev/commands/execute") {
-        return Promise.resolve("Current context window (6.1% used)");
-      }
-      return new Promise((resolve) => {
-        deferred.resolve = resolve;
-      });
-    });
+    session.rpc.request = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    );
     (
       manager as unknown as {
         sessions: Map<string, ReturnType<typeof createTestSession>>;
@@ -295,6 +279,61 @@ describe("KiroAcpManager", () => {
       }),
     );
     expect(session.modeState.currentModeId).toBe("code");
+  });
+
+  it("prefers kiro_default over custom current agents for default turns", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.modeState = {
+      currentModeId: "amzn-builder",
+      defaultModeId: "amzn-builder",
+      availableModes: [
+        {
+          id: "amzn-builder",
+          name: "amzn-builder",
+          description: "Managed custom builder agent",
+        },
+        {
+          id: "kiro_default",
+          name: "kiro_default",
+          description: "The default agent for Kiro CLI",
+        },
+        {
+          id: "kiro_planner",
+          name: "kiro_planner",
+          description: "Specialized planning agent",
+        },
+      ],
+    };
+    session.rpc.request = vi.fn(async (method: string) => {
+      if (method === "session/prompt") {
+        return {};
+      }
+      return null;
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.sendTurn({
+      threadId: session.threadId,
+      input: "hello",
+    });
+
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "session/set_mode", {
+      sessionId: "session-1",
+      modeId: "kiro_default",
+    });
+    expect(session.rpc.request).toHaveBeenNthCalledWith(
+      2,
+      "session/prompt",
+      expect.objectContaining({
+        sessionId: "session-1",
+      }),
+    );
+    expect(session.modeState.currentModeId).toBe("kiro_default");
   });
 
   it("uses tracked tool kinds when Kiro omits the permission request kind", async () => {
