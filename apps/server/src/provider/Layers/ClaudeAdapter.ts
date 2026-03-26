@@ -146,6 +146,7 @@ interface ClaudeSessionContext {
   streamFiber: Fiber.Fiber<void, Error> | undefined;
   readonly startedAt: string;
   readonly basePermissionMode: PermissionMode | undefined;
+  readonly threadOpenMethod: "start" | "resume";
   resumeSessionId: string | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -229,8 +230,10 @@ function claudeSessionStartedMessage(resumeState: ClaudeResumeState | undefined)
   return "Starting a new Claude Code thread.";
 }
 
-function claudeThreadConnectedMessage(providerThreadId: string): string {
-  return `Connected to thread ${providerThreadId}`;
+function claudeThreadConnectedMessage(providerThreadId: string, resumed = false): string {
+  return resumed
+    ? `Reconnected to thread ${providerThreadId}`
+    : `Connected to thread ${providerThreadId}`;
 }
 
 function isClaudeInterruptedMessage(message: string): boolean {
@@ -1261,6 +1264,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         if (context.lastThreadStartedId !== nextThreadId) {
           context.lastThreadStartedId = nextThreadId;
+          yield* Effect.logInfo("claude thread open resolved", {
+            threadId: context.session.threadId,
+            threadOpenMethod: context.threadOpenMethod,
+            resolvedThreadId: nextThreadId,
+          });
           const stamp = yield* makeEventStamp();
           yield* offerRuntimeEvent({
             type: "thread.started",
@@ -1270,7 +1278,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             threadId: context.session.threadId,
             payload: {
               providerThreadId: nextThreadId,
-              message: claudeThreadConnectedMessage(nextThreadId),
+              message: claudeThreadConnectedMessage(
+                nextThreadId,
+                context.threadOpenMethod === "resume",
+              ),
             },
             providerRefs: {},
             raw: {
@@ -2827,6 +2838,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           streamFiber: undefined,
           startedAt,
           basePermissionMode: permissionMode,
+          threadOpenMethod: existingResumeSessionId ? "resume" : "start",
           resumeSessionId: sessionId,
           pendingApprovals,
           pendingUserInputs,
