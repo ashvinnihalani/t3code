@@ -157,6 +157,14 @@ function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
+function prefixRepoFilePath(relativePath: string, filePath: string): string {
+  const normalizedFilePath = filePath.replace(/^[/\\]+/, "").replaceAll("\\", "/");
+  if (!relativePath || relativePath === ".") {
+    return normalizedFilePath;
+  }
+  return `${relativePath.replace(/\/+$/g, "")}/${normalizedFilePath}`;
+}
+
 interface DiffPanelProps {
   mode?: DiffPanelMode;
 }
@@ -188,13 +196,18 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const activeCwd =
+    activeThread?.worktreePath ??
+    activeThread?.multiRepoWorktree?.parentPath ??
+    activeProject?.cwd ??
+    null;
+  const isMultiRepoProject = (activeProject?.gitRepos?.length ?? 0) > 1;
   const gitTarget = useMemo(
     () => ({ cwd: activeCwd, projectId: activeProject?.id ?? null }),
     [activeCwd, activeProject?.id],
   );
   const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
-  const isGitRepo = gitBranchesQuery.data?.isRepo ?? true;
+  const isGitRepo = isMultiRepoProject ? true : (gitBranchesQuery.data?.isRepo ?? true);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
@@ -290,6 +303,22 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
+  const repoRenderablePatches = useMemo(
+    () =>
+      (activeCheckpointDiffQuery.data?.repoDiffs ?? []).map((repoDiff) => ({
+        repoId: repoDiff.repoId,
+        relativePath: repoDiff.relativePath,
+        displayName: repoDiff.displayName,
+        diff: repoDiff.diff,
+        files: repoDiff.files,
+        error: repoDiff.error,
+        renderablePatch: getRenderablePatch(
+          repoDiff.diff,
+          `diff-panel:${resolvedTheme}:${repoDiff.repoId}`,
+        ),
+      })),
+    [activeCheckpointDiffQuery.data?.repoDiffs, resolvedTheme],
+  );
   const renderablePatch = useMemo(
     () => getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`),
     [resolvedTheme, selectedPatch],
@@ -321,7 +350,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       patchViewportRef.current.querySelectorAll<HTMLElement>("[data-diff-file-path]"),
     ).find((element) => element.dataset.diffFilePath === selectedFilePath);
     target?.scrollIntoView({ block: "nearest" });
-  }, [selectedFilePath, renderableFiles]);
+  }, [repoRenderablePatches, renderableFiles, selectedFilePath]);
 
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
@@ -589,6 +618,99 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   </p>
                 </div>
               )
+            ) : repoRenderablePatches.length > 0 ? (
+              <div className="h-full overflow-auto px-2 pb-2" ref={patchViewportRef}>
+                <div className="space-y-4 py-2">
+                  {repoRenderablePatches.map((repoPatch) => (
+                    <section
+                      key={repoPatch.repoId}
+                      className="overflow-hidden rounded-lg border border-border/70 bg-background/60"
+                    >
+                      <div className="border-b border-border/70 px-3 py-2">
+                        <div className="text-xs font-medium text-foreground">
+                          {repoPatch.displayName}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground/75">
+                          {repoPatch.relativePath}
+                        </div>
+                      </div>
+                      {repoPatch.error ? (
+                        <div className="px-3 py-2 text-xs text-destructive">{repoPatch.error}</div>
+                      ) : !repoPatch.renderablePatch ? (
+                        <div className="px-3 py-2 text-xs text-muted-foreground/70">
+                          No net changes in this repo.
+                        </div>
+                      ) : repoPatch.renderablePatch.kind === "files" ? (
+                        <div className="space-y-2 p-2">
+                          {repoPatch.renderablePatch.files
+                            .toSorted((left, right) =>
+                              resolveFileDiffPath(left).localeCompare(
+                                resolveFileDiffPath(right),
+                                undefined,
+                                {
+                                  numeric: true,
+                                  sensitivity: "base",
+                                },
+                              ),
+                            )
+                            .map((fileDiff) => {
+                              const repoFilePath = prefixRepoFilePath(
+                                repoPatch.relativePath,
+                                resolveFileDiffPath(fileDiff),
+                              );
+                              const themedFileKey = `${repoPatch.repoId}:${buildFileDiffRenderKey(fileDiff)}:${resolvedTheme}`;
+                              return (
+                                <div
+                                  key={themedFileKey}
+                                  data-diff-file-path={repoFilePath}
+                                  className="diff-render-file rounded-md"
+                                  onClickCapture={(event) => {
+                                    const nativeEvent = event.nativeEvent as MouseEvent;
+                                    const composedPath = nativeEvent.composedPath?.() ?? [];
+                                    const clickedHeader = composedPath.some((node) => {
+                                      if (!(node instanceof Element)) return false;
+                                      return node.hasAttribute("data-title");
+                                    });
+                                    if (!clickedHeader) return;
+                                    openDiffFileInEditor(repoFilePath);
+                                  }}
+                                >
+                                  <FileDiff
+                                    fileDiff={fileDiff}
+                                    options={{
+                                      diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                                      lineDiffType: "none",
+                                      overflow: diffWordWrap ? "wrap" : "scroll",
+                                      theme: resolveDiffThemeName(resolvedTheme),
+                                      themeType: resolvedTheme as DiffThemeType,
+                                      unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 p-3">
+                          <p className="text-[11px] text-muted-foreground/75">
+                            {repoPatch.renderablePatch.reason}
+                          </p>
+                          <pre
+                            className={cn(
+                              "rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+                              diffWordWrap
+                                ? "overflow-auto whitespace-pre-wrap wrap-break-word"
+                                : "overflow-auto",
+                            )}
+                          >
+                            {repoPatch.renderablePatch.text}
+                          </pre>
+                        </div>
+                      )}
+                    </section>
+                  ))}
+                </div>
+              </div>
             ) : renderablePatch.kind === "files" ? (
               <Virtualizer
                 className="diff-render-surface h-full min-h-0 overflow-auto px-2 pb-2"

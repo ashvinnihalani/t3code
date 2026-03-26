@@ -6,8 +6,11 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  ProjectGitRepo,
   ProjectRemoteTarget,
   ProjectScript,
+  ThreadMultiRepoWorktree,
+  ThreadRepoBranch,
   ThreadId,
   TurnId,
   type OrchestrationCheckpointSummary,
@@ -50,6 +53,7 @@ const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+    gitRepos: Schema.fromJsonString(Schema.Array(ProjectGitRepo)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
   }),
@@ -64,6 +68,8 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    repoBranches: Schema.fromJsonString(Schema.Array(ThreadRepoBranch)),
+    multiRepoWorktree: Schema.NullOr(Schema.fromJsonString(ThreadMultiRepoWorktree)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -255,6 +261,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
+          git_repos_json AS "gitRepos",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -278,6 +285,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          repo_branches_json AS "repoBranches",
+          multi_repo_worktree_json AS "multiRepoWorktree",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -687,6 +696,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             remote: row.remote,
             defaultModelSelection: row.defaultModelSelection,
             scripts: row.scripts,
+            gitRepos: row.gitRepos,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
@@ -702,6 +712,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            repoBranches: row.repoBranches,
+            multiRepoWorktree: row.multiRepoWorktree,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,

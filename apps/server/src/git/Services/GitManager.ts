@@ -8,6 +8,20 @@
  */
 import {
   GitActionProgressEvent,
+  GitProjectCheckoutInput,
+  GitProjectCheckoutResult,
+  GitProjectCreateBranchInput,
+  GitProjectCreateBranchResult,
+  GitProjectCreateWorktreeInput,
+  GitProjectCreateWorktreeResult,
+  GitProjectListBranchesInput,
+  GitProjectListBranchesResult,
+  GitProjectPullInput,
+  GitProjectPullResult,
+  GitProjectRunStackedActionInput,
+  GitProjectRunStackedActionResult,
+  GitProjectStatusInput,
+  GitProjectStatusResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -16,6 +30,7 @@ import {
   GitRunStackedActionResult,
   GitStatusInput,
   GitStatusResult,
+  ProjectGitRepo,
   ProjectRemoteTarget,
 } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
@@ -42,6 +57,33 @@ export interface GitRunStackedActionExecutionInput extends GitRunStackedActionIn
   remote?: ProjectRemoteTarget | null;
 }
 
+interface GitProjectExecutionContext {
+  workspaceRoot: string;
+  gitRepos: ReadonlyArray<ProjectGitRepo>;
+  remote?: ProjectRemoteTarget | null;
+}
+
+export interface GitProjectStatusExecutionInput
+  extends GitProjectStatusInput, GitProjectExecutionContext {}
+
+export interface GitProjectListBranchesExecutionInput
+  extends GitProjectListBranchesInput, GitProjectExecutionContext {}
+
+export interface GitProjectCreateBranchExecutionInput
+  extends GitProjectCreateBranchInput, GitProjectExecutionContext {}
+
+export interface GitProjectCheckoutExecutionInput
+  extends GitProjectCheckoutInput, GitProjectExecutionContext {}
+
+export interface GitProjectCreateWorktreeExecutionInput
+  extends GitProjectCreateWorktreeInput, GitProjectExecutionContext {}
+
+export interface GitProjectPullExecutionInput
+  extends GitProjectPullInput, GitProjectExecutionContext {}
+
+export interface GitProjectRunStackedActionExecutionInput
+  extends GitProjectRunStackedActionInput, GitProjectExecutionContext {}
+
 export interface GitRunStackedActionOptions {
   readonly actionId?: string;
   readonly progressReporter?: GitActionProgressReporter;
@@ -58,6 +100,10 @@ export interface GitManagerShape {
     input: GitStatusExecutionInput,
   ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
 
+  readonly projectStatus: (
+    input: GitProjectStatusExecutionInput,
+  ) => Effect.Effect<GitProjectStatusResult, GitManagerServiceError>;
+
   /**
    * Resolve a pull request by URL/number against the current repository.
    */
@@ -72,6 +118,26 @@ export interface GitManagerShape {
     input: GitPreparePullRequestThreadExecutionInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
 
+  readonly projectListBranches: (
+    input: GitProjectListBranchesExecutionInput,
+  ) => Effect.Effect<GitProjectListBranchesResult, GitManagerServiceError>;
+
+  readonly projectCreateBranch: (
+    input: GitProjectCreateBranchExecutionInput,
+  ) => Effect.Effect<GitProjectCreateBranchResult, GitManagerServiceError>;
+
+  readonly projectCheckout: (
+    input: GitProjectCheckoutExecutionInput,
+  ) => Effect.Effect<GitProjectCheckoutResult, GitManagerServiceError>;
+
+  readonly projectCreateWorktree: (
+    input: GitProjectCreateWorktreeExecutionInput,
+  ) => Effect.Effect<GitProjectCreateWorktreeResult, GitManagerServiceError>;
+
+  readonly projectPull: (
+    input: GitProjectPullExecutionInput,
+  ) => Effect.Effect<GitProjectPullResult, GitManagerServiceError>;
+
   /**
    * Run a stacked Git action (`commit`, `commit_push`, `commit_push_pr`).
    * When `featureBranch` is set, creates and checks out a feature branch first.
@@ -80,6 +146,11 @@ export interface GitManagerShape {
     input: GitRunStackedActionExecutionInput,
     options?: GitRunStackedActionOptions,
   ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+
+  readonly projectRunStackedAction: (
+    input: GitProjectRunStackedActionExecutionInput,
+    options?: GitRunStackedActionOptions,
+  ) => Effect.Effect<GitProjectRunStackedActionResult, GitManagerServiceError>;
 }
 
 /**

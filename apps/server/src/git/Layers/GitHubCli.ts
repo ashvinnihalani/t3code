@@ -263,6 +263,13 @@ const makeGitHubCli = Effect.sync(() => {
         ),
         Effect.map(normalizePullRequestSummary),
       ),
+    getPullRequestBody: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "view", input.reference, "--json", "body", "--jq", ".body"],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
+        ...(input.remote ? { remote: input.remote } : {}),
+      }).pipe(Effect.map((result) => result.stdout)),
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,
@@ -296,6 +303,13 @@ const makeGitHubCli = Effect.sync(() => {
           "--body",
           input.body,
         ],
+        ...(input.executablePath ? { executablePath: input.executablePath } : {}),
+        ...(input.remote ? { remote: input.remote } : {}),
+      }).pipe(Effect.asVoid),
+    updatePullRequestBody: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "edit", input.reference, "--body", input.body],
         ...(input.executablePath ? { executablePath: input.executablePath } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       }).pipe(Effect.asVoid),

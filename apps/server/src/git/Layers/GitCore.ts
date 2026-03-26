@@ -28,7 +28,6 @@ import {
   type ExecuteGitInput,
   type ExecuteGitProgress,
   type ExecuteGitResult,
-  type GitCommitOptions,
   type GitCoreShape,
   type GitExecutionContext,
 } from "../Services/GitCore.ts";
@@ -573,7 +572,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 cwd: commandInput.cwd,
                 env: {
                   ...process.env,
-                  ...(normalizedEnv ?? {}),
+                  ...normalizedEnv,
                   ...trace2Monitor.env,
                 },
               }),

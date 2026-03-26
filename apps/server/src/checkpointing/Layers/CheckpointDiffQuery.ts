@@ -6,10 +6,16 @@ import {
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 
+import { parseTurnDiffFilesFromUnifiedDiff } from "../Diffs.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { CheckpointInvariantError, CheckpointUnavailableError } from "../Errors.ts";
-import { checkpointRefForThreadTurn, resolveThreadWorkspaceCwd } from "../Utils.ts";
+import {
+  checkpointRefForThreadTurn,
+  prefixRepoRelativePath,
+  resolveThreadGitRepoTargets,
+  resolveThreadWorkspaceCwd,
+} from "../Utils.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import {
   CheckpointDiffQuery,
@@ -151,11 +157,107 @@ const make = Effect.gen(function* () {
 
       const isGitRepository = yield* checkpointStore.isGitRepository(workspaceCwd);
       if (!isGitRepository) {
-        return yield* new CheckpointUnavailableError({
-          threadId: input.threadId,
-          turnCount: input.toTurnCount,
-          detail: `Turn diffs are unavailable because workspace '${workspaceCwd}' is missing or is not a git repository.`,
+        const repoTargets = resolveThreadGitRepoTargets({
+          thread,
+          projects: snapshot.projects,
         });
+        if (repoTargets.length === 0) {
+          return yield* new CheckpointUnavailableError({
+            threadId: input.threadId,
+            turnCount: input.toTurnCount,
+            detail: `Turn diffs are unavailable because workspace '${workspaceCwd}' is missing or is not a git repository.`,
+          });
+        }
+
+        const repoDiffs = yield* Effect.forEach(
+          repoTargets,
+          (repo) =>
+            Effect.gen(function* () {
+              const isRepo = yield* checkpointStore
+                .isGitRepository(repo.cwd)
+                .pipe(Effect.catch(() => Effect.succeed(false)));
+              if (!isRepo) {
+                return {
+                  repoId: repo.repoId,
+                  relativePath: repo.relativePath,
+                  displayName: repo.displayName,
+                  diff: "",
+                  error: `Repo '${repo.displayName}' is unavailable or is not a git repository.`,
+                };
+              }
+
+              const [fromExists, toExists] = yield* Effect.all(
+                [
+                  checkpointStore.hasCheckpointRef({
+                    cwd: repo.cwd,
+                    checkpointRef: fromCheckpointRef,
+                  }),
+                  checkpointStore.hasCheckpointRef({
+                    cwd: repo.cwd,
+                    checkpointRef: toCheckpointRef,
+                  }),
+                ],
+                { concurrency: "unbounded" },
+              );
+              if (!fromExists || !toExists) {
+                return {
+                  repoId: repo.repoId,
+                  relativePath: repo.relativePath,
+                  displayName: repo.displayName,
+                  diff: "",
+                  error: `Filesystem checkpoint is unavailable for '${repo.displayName}'.`,
+                };
+              }
+
+              const diff = yield* checkpointStore.diffCheckpoints({
+                cwd: repo.cwd,
+                fromCheckpointRef,
+                toCheckpointRef,
+                fallbackFromToHead: false,
+              });
+              return {
+                repoId: repo.repoId,
+                relativePath: repo.relativePath,
+                displayName: repo.displayName,
+                diff,
+                files: parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
+                  path: prefixRepoRelativePath(repo.relativePath, file.path),
+                  kind: "modified" as const,
+                  additions: file.additions,
+                  deletions: file.deletions,
+                })),
+              };
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.succeed({
+                  repoId: repo.repoId,
+                  relativePath: repo.relativePath,
+                  displayName: repo.displayName,
+                  diff: "",
+                  error: error.message,
+                }),
+              ),
+            ),
+          { concurrency: 1 },
+        );
+
+        const turnDiff: OrchestrationGetTurnDiffResultType = {
+          threadId: input.threadId,
+          fromTurnCount: input.fromTurnCount,
+          toTurnCount: input.toTurnCount,
+          diff: repoDiffs
+            .map((repoDiff) => repoDiff.diff)
+            .filter((diff) => diff.trim().length > 0)
+            .join("\n"),
+          repoDiffs,
+        };
+        if (!isTurnDiffResult(turnDiff)) {
+          return yield* new CheckpointInvariantError({
+            operation,
+            detail: "Computed turn diff result does not satisfy contract schema.",
+          });
+        }
+        return turnDiff;
       }
 
       const [fromExists, toExists] = yield* Effect.all(

@@ -80,6 +80,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           remote: command.remote,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          gitRepos: command.gitRepos ?? [],
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -110,6 +111,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.gitRepos !== undefined ? { gitRepos: command.gitRepos } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -165,6 +167,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          repoBranches: command.repoBranches ?? [],
+          multiRepoWorktree: command.multiRepoWorktree ?? null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -216,6 +220,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.repoBranches !== undefined ? { repoBranches: command.repoBranches } : {}),
+          ...(command.multiRepoWorktree !== undefined
+            ? { multiRepoWorktree: command.multiRepoWorktree }
+            : {}),
           updatedAt: occurredAt,
         },
       };

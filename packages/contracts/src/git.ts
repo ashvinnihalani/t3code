@@ -211,6 +211,62 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
 });
 export type GitPreparePullRequestThreadResult = typeof GitPreparePullRequestThreadResult.Type;
 
+export const GitProjectRepoTarget = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+});
+export type GitProjectRepoTarget = typeof GitProjectRepoTarget.Type;
+
+export const GitProjectInput = Schema.Struct({
+  projectId: ProjectId,
+});
+export type GitProjectInput = typeof GitProjectInput.Type;
+
+export const GitProjectCreateBranchInput = Schema.Struct({
+  projectId: ProjectId,
+  branch: TrimmedNonEmptyStringSchema,
+});
+export type GitProjectCreateBranchInput = typeof GitProjectCreateBranchInput.Type;
+
+export const GitProjectCheckoutInput = Schema.Struct({
+  projectId: ProjectId,
+  branch: TrimmedNonEmptyStringSchema,
+});
+export type GitProjectCheckoutInput = typeof GitProjectCheckoutInput.Type;
+
+export const GitProjectCreateWorktreeInput = Schema.Struct({
+  projectId: ProjectId,
+  branch: TrimmedNonEmptyStringSchema,
+  newBranch: Schema.optional(TrimmedNonEmptyStringSchema),
+  path: Schema.NullOr(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectCreateWorktreeInput = typeof GitProjectCreateWorktreeInput.Type;
+
+export const GitProjectPullInput = GitProjectInput;
+export type GitProjectPullInput = typeof GitProjectPullInput.Type;
+
+export const GitProjectStatusInput = Schema.Struct({
+  projectId: ProjectId,
+  settings: Schema.optional(GitRequestSettings),
+});
+export type GitProjectStatusInput = typeof GitProjectStatusInput.Type;
+
+export const GitProjectListBranchesInput = GitProjectInput;
+export type GitProjectListBranchesInput = typeof GitProjectListBranchesInput.Type;
+
+export const GitProjectRunStackedActionInput = Schema.Struct({
+  actionId: TrimmedNonEmptyStringSchema,
+  projectId: ProjectId,
+  action: GitStackedAction,
+  commitMessage: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(10_000))),
+  featureBranch: Schema.optional(Schema.Boolean),
+  settings: Schema.optional(GitRequestSettings),
+  modelSelection: ModelSelection,
+});
+export type GitProjectRunStackedActionInput = typeof GitProjectRunStackedActionInput.Type;
+
 export const GitRunStackedActionResult = Schema.Struct({
   action: GitStackedAction,
   branch: Schema.Struct({
@@ -239,6 +295,129 @@ export const GitRunStackedActionResult = Schema.Struct({
 });
 export type GitRunStackedActionResult = typeof GitRunStackedActionResult.Type;
 
+export const GitProjectBranchState = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  branches: Schema.Array(GitBranch),
+  isRepo: Schema.Boolean,
+  hasOriginRemote: Schema.Boolean,
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectBranchState = typeof GitProjectBranchState.Type;
+
+export const GitProjectListBranchesResult = Schema.Struct({
+  repos: Schema.Array(GitProjectBranchState),
+});
+export type GitProjectListBranchesResult = typeof GitProjectListBranchesResult.Type;
+
+export const GitProjectStatusRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  eligible: Schema.Boolean,
+  skippedReason: Schema.optional(
+    Schema.Literals(["clean", "no_ahead_commits", "blocked", "not_selected"]),
+  ),
+  status: GitStatusResult,
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectStatusRepoResult = typeof GitProjectStatusRepoResult.Type;
+
+export const GitProjectStatusResult = Schema.Struct({
+  repos: Schema.Array(GitProjectStatusRepoResult),
+});
+export type GitProjectStatusResult = typeof GitProjectStatusResult.Type;
+
+export const GitProjectCreateBranchRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  status: Schema.Literals(["created", "exists", "failed"]),
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectCreateBranchRepoResult = typeof GitProjectCreateBranchRepoResult.Type;
+
+export const GitProjectCreateBranchResult = Schema.Struct({
+  repos: Schema.Array(GitProjectCreateBranchRepoResult),
+});
+export type GitProjectCreateBranchResult = typeof GitProjectCreateBranchResult.Type;
+
+export const GitProjectCheckoutRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  status: Schema.Literals(["checked_out", "reused", "failed"]),
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectCheckoutRepoResult = typeof GitProjectCheckoutRepoResult.Type;
+
+export const GitProjectCheckoutResult = Schema.Struct({
+  repos: Schema.Array(GitProjectCheckoutRepoResult),
+});
+export type GitProjectCheckoutResult = typeof GitProjectCheckoutResult.Type;
+
+export const GitProjectCreateWorktreeRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  worktreePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  status: Schema.Literals(["created", "reused", "failed"]),
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectCreateWorktreeRepoResult = typeof GitProjectCreateWorktreeRepoResult.Type;
+
+export const GitProjectCreateWorktreeResult = Schema.Struct({
+  parentPath: TrimmedNonEmptyStringSchema,
+  repos: Schema.Array(GitProjectCreateWorktreeRepoResult),
+});
+export type GitProjectCreateWorktreeResult = typeof GitProjectCreateWorktreeResult.Type;
+
+export const GitProjectPullRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  status: Schema.Literals(["pulled", "skipped_up_to_date", "failed"]),
+  branch: Schema.optional(TrimmedNonEmptyStringSchema),
+  upstreamBranch: Schema.optional(TrimmedNonEmptyStringSchema),
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectPullRepoResult = typeof GitProjectPullRepoResult.Type;
+
+export const GitProjectPullResult = Schema.Struct({
+  repos: Schema.Array(GitProjectPullRepoResult),
+});
+export type GitProjectPullResult = typeof GitProjectPullResult.Type;
+
+export const GitProjectRunStackedActionRepoResult = Schema.Struct({
+  repoId: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  displayName: TrimmedNonEmptyStringSchema,
+  eligible: Schema.Boolean,
+  skippedReason: Schema.optional(
+    Schema.Literals(["clean", "no_ahead_commits", "blocked", "not_selected"]),
+  ),
+  result: Schema.optional(GitRunStackedActionResult),
+  error: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitProjectRunStackedActionRepoResult = typeof GitProjectRunStackedActionRepoResult.Type;
+
+export const GitProjectRunStackedActionResult = Schema.Struct({
+  action: GitStackedAction,
+  repos: Schema.Array(GitProjectRunStackedActionRepoResult),
+});
+export type GitProjectRunStackedActionResult = typeof GitProjectRunStackedActionResult.Type;
+
 export const GitPullResult = Schema.Struct({
   status: Schema.Literals(["pulled", "skipped_up_to_date"]),
   branch: TrimmedNonEmptyStringSchema,
@@ -250,6 +429,9 @@ const GitActionProgressBase = Schema.Struct({
   actionId: TrimmedNonEmptyStringSchema,
   cwd: TrimmedNonEmptyStringSchema,
   action: GitStackedAction,
+  repoId: Schema.optional(TrimmedNonEmptyStringSchema),
+  relativePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  displayName: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
 const GitActionStartedEvent = Schema.Struct({

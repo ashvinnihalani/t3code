@@ -365,6 +365,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             remote: event.payload.remote ?? null,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
+            gitRepos: event.payload.gitRepos ?? [],
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
@@ -389,6 +390,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            ...(event.payload.gitRepos !== undefined ? { gitRepos: event.payload.gitRepos } : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -427,6 +429,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            repoBranches: event.payload.repoBranches ?? [],
+            multiRepoWorktree: event.payload.multiRepoWorktree ?? null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -450,6 +454,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.repoBranches !== undefined
+              ? { repoBranches: event.payload.repoBranches }
+              : {}),
+            ...(event.payload.multiRepoWorktree !== undefined
+              ? { multiRepoWorktree: event.payload.multiRepoWorktree }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

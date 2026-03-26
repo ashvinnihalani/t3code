@@ -185,6 +185,7 @@ export function projectEvent(
             ...(payload.remote !== undefined ? { remote: payload.remote } : {}),
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            gitRepos: payload.gitRepos,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -218,6 +219,7 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.gitRepos !== undefined ? { gitRepos: payload.gitRepos } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
@@ -260,6 +262,8 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            repoBranches: payload.repoBranches,
+            multiRepoWorktree: payload.multiRepoWorktree,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -303,6 +307,10 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.repoBranches !== undefined ? { repoBranches: payload.repoBranches } : {}),
+            ...(payload.multiRepoWorktree !== undefined
+              ? { multiRepoWorktree: payload.multiRepoWorktree }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

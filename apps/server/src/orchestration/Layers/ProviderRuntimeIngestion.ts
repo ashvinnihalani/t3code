@@ -17,7 +17,6 @@ import { Cache, Cause, Duration, Effect, Layer, Option, Ref, Stream } from "effe
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -582,7 +581,8 @@ const make = Effect.gen(function* () {
     if (!project) {
       return false;
     }
-    const workspaceCwd = thread.worktreePath ?? project.workspaceRoot;
+    const workspaceCwd =
+      thread.worktreePath ?? thread.multiRepoWorktree?.parentPath ?? project.workspaceRoot;
     if (!workspaceCwd) {
       return false;
     }

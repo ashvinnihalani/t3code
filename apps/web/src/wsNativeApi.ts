@@ -160,6 +160,15 @@ export function createWsNativeApi(): NativeApi {
       resolvePullRequest: (input) => transport.request(WS_METHODS.gitResolvePullRequest, input),
       preparePullRequestThread: (input) =>
         transport.request(WS_METHODS.gitPreparePullRequestThread, input),
+      projectPull: (input) => transport.request(WS_METHODS.gitProjectPull, input),
+      projectStatus: (input) => transport.request(WS_METHODS.gitProjectStatus, input),
+      projectRunStackedAction: (input) =>
+        transport.request(WS_METHODS.gitProjectRunStackedAction, input, { timeoutMs: null }),
+      projectListBranches: (input) => transport.request(WS_METHODS.gitProjectListBranches, input),
+      projectCreateWorktree: (input) =>
+        transport.request(WS_METHODS.gitProjectCreateWorktree, input),
+      projectCreateBranch: (input) => transport.request(WS_METHODS.gitProjectCreateBranch, input),
+      projectCheckout: (input) => transport.request(WS_METHODS.gitProjectCheckout, input),
       onActionProgress: (callback) => {
         gitActionProgressListeners.add(callback);
         return () => {

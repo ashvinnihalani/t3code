@@ -2,6 +2,20 @@ import type {
   GitCheckoutInput,
   GitActionProgressEvent,
   GitCreateBranchInput,
+  GitProjectCheckoutInput,
+  GitProjectCheckoutResult,
+  GitProjectCreateBranchInput,
+  GitProjectCreateBranchResult,
+  GitProjectCreateWorktreeInput,
+  GitProjectCreateWorktreeResult,
+  GitProjectListBranchesInput,
+  GitProjectListBranchesResult,
+  GitProjectPullInput,
+  GitProjectPullResult,
+  GitProjectRunStackedActionInput,
+  GitProjectRunStackedActionResult,
+  GitProjectStatusInput,
+  GitProjectStatusResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -162,6 +176,21 @@ export interface NativeApi {
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
+    projectListBranches: (
+      input: GitProjectListBranchesInput,
+    ) => Promise<GitProjectListBranchesResult>;
+    projectCreateWorktree: (
+      input: GitProjectCreateWorktreeInput,
+    ) => Promise<GitProjectCreateWorktreeResult>;
+    projectCreateBranch: (
+      input: GitProjectCreateBranchInput,
+    ) => Promise<GitProjectCreateBranchResult>;
+    projectCheckout: (input: GitProjectCheckoutInput) => Promise<GitProjectCheckoutResult>;
+    projectPull: (input: GitProjectPullInput) => Promise<GitProjectPullResult>;
+    projectStatus: (input: GitProjectStatusInput) => Promise<GitProjectStatusResult>;
+    projectRunStackedAction: (
+      input: GitProjectRunStackedActionInput,
+    ) => Promise<GitProjectRunStackedActionResult>;
     // Stacked action API
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;

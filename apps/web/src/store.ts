@@ -167,7 +167,19 @@ function mapProjectsFromReadModel(
           : null),
       remote: project.remote ?? null,
       expanded: true,
-      scripts: project.scripts.map((script) => ({ ...script })),
+      scripts: project.scripts.map((script) => ({
+        id: script.id,
+        name: script.name,
+        command: script.command,
+        icon: script.icon,
+        runOnWorktreeCreate: script.runOnWorktreeCreate,
+      })),
+      gitRepos: (project.gitRepos ?? []).map((repo) => ({
+        id: repo.id,
+        rootPath: repo.rootPath,
+        relativePath: repo.relativePath,
+        displayName: repo.displayName,
+      })),
     } satisfies Project;
     const projectKey = projectPersistenceKey(nextProject);
     return {
@@ -356,6 +368,21 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        repoBranches: (thread.repoBranches ?? []).map((entry) => ({
+          repoId: entry.repoId,
+          branch: entry.branch,
+        })),
+        multiRepoWorktree: thread.multiRepoWorktree
+          ? {
+              parentPath: thread.multiRepoWorktree.parentPath,
+              repos: thread.multiRepoWorktree.repos.map((repo) => ({
+                repoId: repo.repoId,
+                repoRelativePath: repo.repoRelativePath,
+                sourceRootPath: repo.sourceRootPath,
+                worktreePath: repo.worktreePath,
+              })),
+            }
+          : null,
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
           turnId: checkpoint.turnId,
           completedAt: checkpoint.completedAt,
@@ -500,6 +527,46 @@ export function setThreadBranch(
   return threads === state.threads ? state : { ...state, threads };
 }
 
+export function setThreadRepoBranch(
+  state: AppState,
+  threadId: ThreadId,
+  repoId: string,
+  branch: string | null,
+  worktreePath: string | null,
+): AppState {
+  const threads = updateThread(state.threads, threadId, (thread) => {
+    const existingRepoBranches = thread.repoBranches ?? [];
+    const nextRepoBranches = existingRepoBranches.some((entry) => entry.repoId === repoId)
+      ? existingRepoBranches.map((entry) =>
+          entry.repoId === repoId ? { ...entry, branch } : entry,
+        )
+      : [...existingRepoBranches, { repoId, branch }];
+
+    const nextMultiRepoWorktree = thread.multiRepoWorktree
+      ? {
+          ...thread.multiRepoWorktree,
+          repos: thread.multiRepoWorktree.repos.map((repo) =>
+            repo.repoId === repoId && worktreePath ? { ...repo, worktreePath } : repo,
+          ),
+        }
+      : thread.multiRepoWorktree;
+
+    if (
+      JSON.stringify(nextRepoBranches) === JSON.stringify(thread.repoBranches) &&
+      nextMultiRepoWorktree === thread.multiRepoWorktree
+    ) {
+      return thread;
+    }
+
+    return {
+      ...thread,
+      repoBranches: nextRepoBranches,
+      multiRepoWorktree: nextMultiRepoWorktree,
+    };
+  });
+  return threads === state.threads ? state : { ...state, threads };
+}
+
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
@@ -512,6 +579,12 @@ interface AppStore extends AppState {
   setError: (threadId: ThreadId, error: string | null) => void;
   dismissLocalCodexErrors: (dismissedAt: string) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  setThreadRepoBranch: (
+    threadId: ThreadId,
+    repoId: string,
+    branch: string | null,
+    worktreePath: string | null,
+  ) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -530,6 +603,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => dismissLocalCodexErrors(state, dismissedAt)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  setThreadRepoBranch: (threadId, repoId, branch, worktreePath) =>
+    set((state) => setThreadRepoBranch(state, threadId, repoId, branch, worktreePath)),
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

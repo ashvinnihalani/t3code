@@ -42,6 +42,7 @@ export default function BranchToolbar({
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
+  const setThreadRepoBranchAction = useStore((store) => store.setThreadRepoBranch);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
@@ -59,6 +60,7 @@ export default function BranchToolbar({
     projectRemote,
   });
   const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
+  const isMultiRepoProject = ((activeProject?.gitRepos ?? []).length ?? 0) > 1;
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -112,10 +114,42 @@ export default function BranchToolbar({
     ],
   );
 
+  const setRepoThreadBranch = useCallback(
+    (repoId: string, branch: string | null, worktreePath: string | null) => {
+      if (!activeThreadId || !serverThread) return;
+      const existingRepoBranches = serverThread.repoBranches ?? [];
+      const nextRepoBranches = existingRepoBranches.some((entry) => entry.repoId === repoId)
+        ? existingRepoBranches.map((entry) =>
+            entry.repoId === repoId ? { ...entry, branch } : entry,
+          )
+        : [...existingRepoBranches, { repoId, branch }];
+      const nextMultiRepoWorktree = serverThread.multiRepoWorktree
+        ? {
+            ...serverThread.multiRepoWorktree,
+            repos: serverThread.multiRepoWorktree.repos.map((repo) =>
+              repo.repoId === repoId && worktreePath ? { ...repo, worktreePath } : repo,
+            ),
+          }
+        : serverThread.multiRepoWorktree;
+      const api = readNativeApi();
+      if (api) {
+        void api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          repoBranches: nextRepoBranches,
+          ...(nextMultiRepoWorktree ? { multiRepoWorktree: nextMultiRepoWorktree } : {}),
+        });
+      }
+      setThreadRepoBranchAction(activeThreadId, repoId, branch, worktreePath);
+    },
+    [activeThreadId, serverThread, setThreadRepoBranchAction],
+  );
+
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div className="mx-auto flex w-full max-w-3xl items-start justify-between px-5 pb-3 pt-1">
       <div className="flex min-w-0 items-center gap-2">
         {envLocked || activeWorktreePath || !supportsWorktreeEnv ? (
           <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
@@ -169,18 +203,51 @@ export default function BranchToolbar({
         ) : null}
       </div>
 
-      <BranchToolbarBranchSelector
-        activeProjectId={activeProject.id}
-        activeProjectCwd={activeProject.cwd}
-        activeThreadBranch={activeThreadBranch}
-        activeWorktreePath={activeWorktreePath}
-        branchCwd={branchCwd}
-        effectiveEnvMode={effectiveEnvMode}
-        envLocked={envLocked}
-        onSetThreadBranch={setThreadBranch}
-        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      {isMultiRepoProject ? (
+        <div className="flex min-w-0 flex-col gap-2">
+          {(activeProject.gitRepos ?? []).map((repo) => {
+            const repoBranch =
+              serverThread?.repoBranches?.find((entry) => entry.repoId === repo.id)?.branch ?? null;
+            const repoWorktreePath =
+              serverThread?.multiRepoWorktree?.repos.find((entry) => entry.repoId === repo.id)
+                ?.worktreePath ?? null;
+            return (
+              <div key={repo.id} className="flex items-center gap-2">
+                <span className="w-28 truncate text-xs text-muted-foreground">
+                  {repo.displayName}
+                </span>
+                <BranchToolbarBranchSelector
+                  activeProjectId={activeProject.id}
+                  activeProjectCwd={repo.rootPath}
+                  activeThreadBranch={repoBranch}
+                  activeWorktreePath={repoWorktreePath}
+                  branchCwd={repoWorktreePath ?? repo.rootPath}
+                  effectiveEnvMode={effectiveEnvMode}
+                  envLocked={envLocked}
+                  onSetThreadBranch={(branch, worktreePath) =>
+                    setRepoThreadBranch(repo.id, branch, worktreePath)
+                  }
+                  {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+                  {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <BranchToolbarBranchSelector
+          activeProjectId={activeProject.id}
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          onSetThreadBranch={setThreadBranch}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      )}
     </div>
   );
 }

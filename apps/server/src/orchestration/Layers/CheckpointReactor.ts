@@ -14,7 +14,8 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {
   checkpointRefForThreadTurn,
-  resolveThreadWorkspaceCwd,
+  prefixRepoRelativePath,
+  resolveThreadGitRepoTargets,
 } from "../../checkpointing/Utils.ts";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
@@ -24,7 +25,6 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import { OrchestrationDispatchError } from "../Errors.ts";
-import { isGitRepository } from "../../git/Utils.ts";
 
 type ReactorInput =
   | {
@@ -146,42 +146,66 @@ const make = Effect.gen(function* () {
     return Option.none();
   });
 
-  const isGitWorkspace = (cwd: string) => isGitRepository(cwd);
-
-  // Resolves the workspace CWD for checkpoint operations, preferring the
-  // active provider session CWD and falling back to the thread/project config.
-  // Returns undefined when no CWD can be determined or the workspace is not
-  // a git repository.
-  const resolveCheckpointCwd = Effect.fnUntraced(function* (input: {
+  const resolveCheckpointRepos = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
-    readonly thread: { readonly projectId: ProjectId; readonly worktreePath: string | null };
-    readonly projects: ReadonlyArray<{ readonly id: ProjectId; readonly workspaceRoot: string }>;
+    readonly thread: {
+      readonly projectId: ProjectId;
+      readonly worktreePath: string | null;
+      readonly multiRepoWorktree?:
+        | {
+            readonly parentPath: string;
+            readonly repos: ReadonlyArray<{
+              readonly repoId: string;
+              readonly worktreePath: string;
+            }>;
+          }
+        | null
+        | undefined;
+    };
+    readonly projects: ReadonlyArray<{
+      readonly id: ProjectId;
+      readonly workspaceRoot: string;
+      readonly gitRepos?:
+        | ReadonlyArray<{
+            readonly id: string;
+            readonly rootPath: string;
+            readonly relativePath: string;
+            readonly displayName: string;
+          }>
+        | undefined;
+    }>;
     readonly preferSessionRuntime: boolean;
-  }): Effect.fn.Return<string | undefined> {
+  }): Effect.fn.Return<
+    ReadonlyArray<{
+      readonly repoId: string;
+      readonly relativePath: string;
+      readonly displayName: string;
+      readonly cwd: string;
+    }>
+  > {
     const fromSession = yield* resolveSessionRuntimeForThread(input.threadId);
-    const fromThread = resolveThreadWorkspaceCwd({
+    const sessionCwd = Option.match(fromSession, {
+      onNone: () => undefined,
+      onSome: (runtime) => runtime.cwd,
+    });
+    const candidates = resolveThreadGitRepoTargets({
       thread: input.thread,
       projects: input.projects,
+      ...(input.preferSessionRuntime && sessionCwd !== undefined ? { sessionCwd } : {}),
     });
-
-    const cwd = input.preferSessionRuntime
-      ? (Option.match(fromSession, {
-          onNone: () => undefined,
-          onSome: (runtime) => runtime.cwd,
-        }) ?? fromThread)
-      : (fromThread ??
-        Option.match(fromSession, {
-          onNone: () => undefined,
-          onSome: (runtime) => runtime.cwd,
-        }));
-
-    if (!cwd) {
-      return undefined;
+    if (candidates.length === 0) {
+      return [];
     }
-    if (!isGitWorkspace(cwd)) {
-      return undefined;
-    }
-    return cwd;
+    const repoFlags = yield* Effect.forEach(
+      candidates,
+      (candidate) =>
+        checkpointStore.isGitRepository(candidate.cwd).pipe(
+          Effect.catch(() => Effect.succeed(false)),
+          Effect.map((isRepo) => ({ candidate, isRepo })),
+        ),
+      { concurrency: 1 },
+    );
+    return repoFlags.filter((entry) => entry.isRepo).map((entry) => entry.candidate);
   });
 
   // Shared tail for both capture paths: creates the git checkpoint ref, diffs
@@ -197,7 +221,12 @@ const make = Effect.gen(function* () {
         readonly turnId: TurnId | null;
       }>;
     };
-    readonly cwd: string;
+    readonly repos: ReadonlyArray<{
+      readonly repoId: string;
+      readonly relativePath: string;
+      readonly displayName: string;
+      readonly cwd: string;
+    }>;
     readonly turnCount: number;
     readonly status: "ready" | "missing" | "error";
     readonly assistantMessageId: MessageId | undefined;
@@ -207,11 +236,16 @@ const make = Effect.gen(function* () {
     const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
     const targetCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.turnCount);
 
-    const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: input.cwd,
-      checkpointRef: fromCheckpointRef,
-    });
-    if (!fromCheckpointExists) {
+    const fromCheckpointExists = yield* Effect.forEach(
+      input.repos,
+      (repo) =>
+        checkpointStore.hasCheckpointRef({
+          cwd: repo.cwd,
+          checkpointRef: fromCheckpointRef,
+        }),
+      { concurrency: 1 },
+    );
+    if (fromCheckpointExists.some((exists) => !exists)) {
       yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
         threadId: input.threadId,
         turnId: input.turnId,
@@ -219,48 +253,61 @@ const make = Effect.gen(function* () {
       });
     }
 
-    yield* checkpointStore.captureCheckpoint({
-      cwd: input.cwd,
-      checkpointRef: targetCheckpointRef,
-    });
+    yield* Effect.forEach(
+      input.repos,
+      (repo) =>
+        checkpointStore.captureCheckpoint({
+          cwd: repo.cwd,
+          checkpointRef: targetCheckpointRef,
+        }),
+      { concurrency: 1, discard: true },
+    );
 
     // Invalidate the workspace entry cache so the @-mention file picker
     // reflects files created or deleted during this turn.
-    clearWorkspaceIndexCache(input.cwd);
+    input.repos.forEach((repo) => {
+      clearWorkspaceIndexCache(repo.cwd);
+    });
 
-    const files = yield* checkpointStore
-      .diffCheckpoints({
-        cwd: input.cwd,
-        fromCheckpointRef,
-        toCheckpointRef: targetCheckpointRef,
-        fallbackFromToHead: false,
-      })
-      .pipe(
-        Effect.map((diff) =>
-          parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
-            path: file.path,
-            kind: "modified" as const,
-            additions: file.additions,
-            deletions: file.deletions,
-          })),
-        ),
-        Effect.tapError((error) =>
-          appendCaptureFailureActivity({
-            threadId: input.threadId,
-            turnId: input.turnId,
-            detail: `Checkpoint captured, but turn diff summary is unavailable: ${error.message}`,
-            createdAt: input.createdAt,
-          }),
-        ),
-        Effect.catch((error) =>
-          Effect.logWarning("failed to derive checkpoint file summary", {
-            threadId: input.threadId,
-            turnId: input.turnId,
-            turnCount: input.turnCount,
-            detail: error.message,
-          }).pipe(Effect.as([])),
-        ),
-      );
+    const files = yield* Effect.forEach(
+      input.repos,
+      (repo) =>
+        checkpointStore
+          .diffCheckpoints({
+            cwd: repo.cwd,
+            fromCheckpointRef,
+            toCheckpointRef: targetCheckpointRef,
+            fallbackFromToHead: false,
+          })
+          .pipe(
+            Effect.map((diff) =>
+              parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
+                path: prefixRepoRelativePath(repo.relativePath, file.path),
+                kind: "modified" as const,
+                additions: file.additions,
+                deletions: file.deletions,
+              })),
+            ),
+            Effect.tapError((error) =>
+              appendCaptureFailureActivity({
+                threadId: input.threadId,
+                turnId: input.turnId,
+                detail: `Checkpoint captured, but turn diff summary is unavailable for '${repo.displayName}': ${error.message}`,
+                createdAt: input.createdAt,
+              }),
+            ),
+            Effect.catch((error) =>
+              Effect.logWarning("failed to derive checkpoint file summary", {
+                threadId: input.threadId,
+                turnId: input.turnId,
+                turnCount: input.turnCount,
+                repoId: repo.repoId,
+                detail: error.message,
+              }).pipe(Effect.as([])),
+            ),
+          ),
+      { concurrency: 1 },
+    ).pipe(Effect.map((entries) => entries.flat()));
 
     const assistantMessageId =
       input.assistantMessageId ??
@@ -350,13 +397,13 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwd = yield* resolveCheckpointCwd({
+    const checkpointRepos = yield* resolveCheckpointRepos({
       threadId: thread.id,
       thread,
       projects: readModel.projects,
       preferSessionRuntime: true,
     });
-    if (!checkpointCwd) {
+    if (checkpointRepos.length === 0) {
       return;
     }
 
@@ -377,7 +424,7 @@ const make = Effect.gen(function* () {
       threadId: thread.id,
       turnId,
       thread,
-      cwd: checkpointCwd,
+      repos: checkpointRepos,
       turnCount: nextTurnCount,
       status: checkpointStatusFromRuntime(event.payload.state),
       assistantMessageId: undefined,
@@ -425,13 +472,13 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwd = yield* resolveCheckpointCwd({
+    const checkpointRepos = yield* resolveCheckpointRepos({
       threadId,
       thread,
       projects: readModel.projects,
       preferSessionRuntime: true,
     });
-    if (!checkpointCwd) {
+    if (checkpointRepos.length === 0) {
       return;
     }
 
@@ -439,7 +486,7 @@ const make = Effect.gen(function* () {
       threadId,
       turnId,
       thread,
-      cwd: checkpointCwd,
+      repos: checkpointRepos,
       turnCount: checkpointTurnCount,
       status: "ready",
       assistantMessageId: event.payload.assistantMessageId ?? undefined,
@@ -461,13 +508,13 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwd = yield* resolveCheckpointCwd({
+    const checkpointRepos = yield* resolveCheckpointRepos({
       threadId: thread.id,
       thread,
       projects: readModel.projects,
       preferSessionRuntime: false,
     });
-    if (!checkpointCwd) {
+    if (checkpointRepos.length === 0) {
       return;
     }
 
@@ -476,18 +523,28 @@ const make = Effect.gen(function* () {
       0,
     );
     const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
-    const baselineExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
-    if (baselineExists) {
+    const baselineExists = yield* Effect.forEach(
+      checkpointRepos,
+      (repo) =>
+        checkpointStore.hasCheckpointRef({
+          cwd: repo.cwd,
+          checkpointRef: baselineCheckpointRef,
+        }),
+      { concurrency: 1 },
+    );
+    if (baselineExists.every(Boolean)) {
       return;
     }
 
-    yield* checkpointStore.captureCheckpoint({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
+    yield* Effect.forEach(
+      checkpointRepos,
+      (repo) =>
+        checkpointStore.captureCheckpoint({
+          cwd: repo.cwd,
+          checkpointRef: baselineCheckpointRef,
+        }),
+      { concurrency: 1, discard: true },
+    );
     yield* receiptBus.publish({
       type: "checkpoint.baseline.captured",
       threadId: thread.id,
@@ -520,13 +577,13 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwd = yield* resolveCheckpointCwd({
+    const checkpointRepos = yield* resolveCheckpointRepos({
       threadId,
       thread,
       projects: readModel.projects,
       preferSessionRuntime: false,
     });
-    if (!checkpointCwd) {
+    if (checkpointRepos.length === 0) {
       return;
     }
 
@@ -535,18 +592,28 @@ const make = Effect.gen(function* () {
       0,
     );
     const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
-    const baselineExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
-    if (baselineExists) {
+    const baselineExists = yield* Effect.forEach(
+      checkpointRepos,
+      (repo) =>
+        checkpointStore.hasCheckpointRef({
+          cwd: repo.cwd,
+          checkpointRef: baselineCheckpointRef,
+        }),
+      { concurrency: 1 },
+    );
+    if (baselineExists.every(Boolean)) {
       return;
     }
 
-    yield* checkpointStore.captureCheckpoint({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
+    yield* Effect.forEach(
+      checkpointRepos,
+      (repo) =>
+        checkpointStore.captureCheckpoint({
+          cwd: repo.cwd,
+          checkpointRef: baselineCheckpointRef,
+        }),
+      { concurrency: 1, discard: true },
+    );
     yield* receiptBus.publish({
       type: "checkpoint.baseline.captured",
       threadId,
@@ -593,7 +660,10 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.catch(() => Effect.void));
       return;
     }
-    if (!isGitWorkspace(sessionRuntime.value.cwd)) {
+    const isGitWorkspace = yield* checkpointStore
+      .isGitRepository(sessionRuntime.value.cwd)
+      .pipe(Effect.catch(() => Effect.succeed(false)));
+    if (!isGitWorkspace) {
       yield* appendRevertFailureActivity({
         threadId: event.payload.threadId,
         turnCount: event.payload.turnCount,

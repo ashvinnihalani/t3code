@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect";
 import type {
   GitActionProgressEvent,
   GitActionProgressPhase,
+  GitProjectRunStackedActionResult,
   ModelSelection,
 } from "@t3tools/contracts";
 import {
@@ -23,6 +24,8 @@ import {
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
+import { toProjectRepoRuntimeTargets } from "../projectRepoFanout.ts";
+import { buildRepoWorktreeLayout, buildSyntheticWorktreeParent } from "../projectWorktreeLayout.ts";
 
 type GitRemoteTarget = Parameters<GitCoreShape["statusDetails"]>[1];
 type GitOperationSettings =
@@ -351,6 +354,13 @@ function canonicalizeExistingPath(value: string): string {
   }
 }
 
+function displayNameFromRelativePath(relativePath: string): string {
+  if (relativePath === ".") return ".";
+  const normalized = relativePath.replace(/\/+$/g, "");
+  const parts = normalized.split("/");
+  return parts.at(-1) ?? normalized;
+}
+
 function toResolvedPullRequest(pr: {
   number: number;
   title: string;
@@ -424,6 +434,80 @@ export const makeGitManager = Effect.gen(function* () {
       actionId,
       emit,
     };
+  };
+
+  const appendRelatedCommitsFooter = (input: {
+    cwd: string;
+    remote?: GitRemoteTarget;
+    related: ReadonlyArray<{ displayName: string; subject: string; commitSha: string }>;
+  }) => {
+    if (input.related.length === 0) {
+      return Effect.void;
+    }
+    const footer = [
+      "Related commits include:",
+      ...input.related.map(
+        (entry) => `- ${entry.displayName}: ${entry.subject} (${entry.commitSha.slice(0, 7)})`,
+      ),
+    ].join("\n");
+    return gitCore
+      .execute({
+        operation: "GitManager.readCommitMessage",
+        cwd: input.cwd,
+        args: ["show", "-s", "--format=%B", "HEAD"],
+      })
+      .pipe(
+        Effect.flatMap((result) => {
+          const existing = result.stdout.trim();
+          const message = existing.length > 0 ? `${existing}\n\n${footer}` : footer;
+          return gitCore.execute({
+            operation: "GitManager.appendRelatedCommitsFooter",
+            cwd: input.cwd,
+            args: ["commit", "--amend", "-m", message],
+          });
+        }),
+        Effect.asVoid,
+      );
+  };
+
+  const appendRelatedPullRequestsFooter = (input: {
+    cwd: string;
+    reference: string;
+    remote?: GitRemoteTarget;
+    related: ReadonlyArray<{
+      displayName: string;
+      url: string;
+      number: number;
+      commitSha?: string | undefined;
+    }>;
+  }) => {
+    if (input.related.length === 0) {
+      return Effect.void;
+    }
+    const footer = [
+      "Related work in this change set:",
+      ...input.related.map((entry) =>
+        entry.commitSha
+          ? `- ${entry.displayName}: PR ${entry.url} (commit ${entry.commitSha.slice(0, 7)})`
+          : `- ${entry.displayName}: PR ${entry.url}`,
+      ),
+    ].join("\n");
+    return gitHubCli
+      .getPullRequestBody({
+        cwd: input.cwd,
+        reference: input.reference,
+        ...(input.remote ? { remote: input.remote } : {}),
+      })
+      .pipe(
+        Effect.flatMap((existingBody) =>
+          gitHubCli.updatePullRequestBody({
+            cwd: input.cwd,
+            reference: input.reference,
+            body: existingBody.trim().length > 0 ? `${existingBody.trim()}\n\n${footer}` : footer,
+            ...(input.remote ? { remote: input.remote } : {}),
+          }),
+        ),
+      );
   };
 
   const configurePullRequestHeadUpstream = (input: {
@@ -1076,6 +1160,51 @@ export const makeGitManager = Effect.gen(function* () {
     };
   });
 
+  const projectStatus: GitManagerShape["projectStatus"] = Effect.fnUntraced(function* (input) {
+    const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+    const results = yield* Effect.forEach(
+      repos,
+      (repo) =>
+        status({
+          cwd: repo.cwd,
+          projectId: input.projectId,
+          ...(input.remote ? { remote: input.remote } : {}),
+          ...(input.settings ? { settings: input.settings } : {}),
+        }).pipe(
+          Effect.map((repoStatus) => ({
+            repoId: repo.id,
+            cwd: repo.cwd,
+            relativePath: repo.relativePath,
+            displayName: repo.displayName,
+            eligible: repoStatus.hasWorkingTreeChanges || repoStatus.aheadCount > 0,
+            status: repoStatus,
+          })),
+          Effect.catch((error) =>
+            Effect.succeed({
+              repoId: repo.id,
+              cwd: repo.cwd,
+              relativePath: repo.relativePath,
+              displayName: repo.displayName,
+              eligible: false,
+              skippedReason: "blocked" as const,
+              status: {
+                branch: null,
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+                hasUpstream: false,
+                aheadCount: 0,
+                behindCount: 0,
+                pr: null,
+              },
+              error: error.message,
+            }),
+          ),
+        ),
+      { concurrency: 1 },
+    );
+    return { repos: results };
+  });
+
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fnUntraced(
     function* (input) {
       const pullRequest = yield* gitHubCli
@@ -1241,6 +1370,206 @@ export const makeGitManager = Effect.gen(function* () {
       };
     },
   );
+
+  const projectListBranches: GitManagerShape["projectListBranches"] = Effect.fnUntraced(
+    function* (input) {
+      const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+      const results = yield* Effect.forEach(
+        repos,
+        (repo) =>
+          gitCore
+            .listBranches({
+              cwd: repo.cwd,
+              ...(input.remote ? { remote: input.remote } : {}),
+            })
+            .pipe(
+              Effect.map((result) => ({
+                repoId: repo.id,
+                cwd: repo.cwd,
+                relativePath: repo.relativePath,
+                displayName: repo.displayName,
+                branches: result.branches,
+                isRepo: result.isRepo,
+                hasOriginRemote: result.hasOriginRemote,
+              })),
+              Effect.catch((error) =>
+                Effect.succeed({
+                  repoId: repo.id,
+                  cwd: repo.cwd,
+                  relativePath: repo.relativePath,
+                  displayName: repo.displayName,
+                  branches: [],
+                  isRepo: false,
+                  hasOriginRemote: false,
+                  error: error.message,
+                }),
+              ),
+            ),
+        { concurrency: 1 },
+      );
+      return { repos: results };
+    },
+  );
+
+  const projectCreateBranch: GitManagerShape["projectCreateBranch"] = Effect.fnUntraced(
+    function* (input) {
+      const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+      const results = yield* Effect.forEach(
+        repos,
+        (repo) =>
+          gitCore
+            .createBranch({
+              cwd: repo.cwd,
+              branch: input.branch,
+              ...(input.remote ? { remote: input.remote } : {}),
+            })
+            .pipe(
+              Effect.map(() => ({
+                repoId: repo.id,
+                cwd: repo.cwd,
+                relativePath: repo.relativePath,
+                displayName: repo.displayName,
+                branch: input.branch,
+                status: "created" as const,
+              })),
+              Effect.catch((error) =>
+                Effect.succeed({
+                  repoId: repo.id,
+                  cwd: repo.cwd,
+                  relativePath: repo.relativePath,
+                  displayName: repo.displayName,
+                  branch: input.branch,
+                  status: error.message.toLowerCase().includes("already exists")
+                    ? ("exists" as const)
+                    : ("failed" as const),
+                  error: error.message,
+                }),
+              ),
+            ),
+        { concurrency: 1 },
+      );
+      return { repos: results };
+    },
+  );
+
+  const projectCheckout: GitManagerShape["projectCheckout"] = Effect.fnUntraced(function* (input) {
+    const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+    const results = yield* Effect.forEach(
+      repos,
+      (repo) =>
+        Effect.scoped(
+          gitCore.checkoutBranch({
+            cwd: repo.cwd,
+            branch: input.branch,
+            ...(input.remote ? { remote: input.remote } : {}),
+          }),
+        ).pipe(
+          Effect.map(() => ({
+            repoId: repo.id,
+            cwd: repo.cwd,
+            relativePath: repo.relativePath,
+            displayName: repo.displayName,
+            branch: input.branch,
+            status: "checked_out" as const,
+          })),
+          Effect.catch((error) =>
+            Effect.succeed({
+              repoId: repo.id,
+              cwd: repo.cwd,
+              relativePath: repo.relativePath,
+              displayName: repo.displayName,
+              branch: input.branch,
+              status: "failed" as const,
+              error: error.message,
+            }),
+          ),
+        ),
+      { concurrency: 1 },
+    );
+    return { repos: results };
+  });
+
+  const projectCreateWorktree: GitManagerShape["projectCreateWorktree"] = Effect.fnUntraced(
+    function* (input) {
+      const parentPath = buildSyntheticWorktreeParent({
+        workspaceRoot: input.workspaceRoot,
+        branch: input.newBranch ?? input.branch,
+        remote: input.remote ?? null,
+      });
+      const layout = buildRepoWorktreeLayout({
+        parentPath,
+        repos: input.gitRepos,
+        remote: input.remote ?? null,
+      });
+      const results = yield* Effect.forEach(
+        layout,
+        (repoWorktree) =>
+          gitCore
+            .createWorktree({
+              cwd: repoWorktree.sourceRootPath,
+              branch: input.branch,
+              ...(input.newBranch ? { newBranch: input.newBranch } : {}),
+              path: repoWorktree.worktreePath,
+              ...(input.remote ? { remote: input.remote } : {}),
+            })
+            .pipe(
+              Effect.map((result) => ({
+                repoId: repoWorktree.repoId,
+                cwd: repoWorktree.sourceRootPath,
+                relativePath: repoWorktree.repoRelativePath,
+                displayName: displayNameFromRelativePath(repoWorktree.repoRelativePath),
+                branch: result.worktree.branch,
+                worktreePath: result.worktree.path,
+                status: "created" as const,
+              })),
+              Effect.catch((error) =>
+                Effect.succeed({
+                  repoId: repoWorktree.repoId,
+                  cwd: repoWorktree.sourceRootPath,
+                  relativePath: repoWorktree.repoRelativePath,
+                  displayName: displayNameFromRelativePath(repoWorktree.repoRelativePath),
+                  branch: input.newBranch ?? input.branch,
+                  status: "failed" as const,
+                  error: error.message,
+                }),
+              ),
+            ),
+        { concurrency: 1 },
+      );
+      return { parentPath, repos: results };
+    },
+  );
+
+  const projectPull: GitManagerShape["projectPull"] = Effect.fnUntraced(function* (input) {
+    const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+    const results = yield* Effect.forEach(
+      repos,
+      (repo) =>
+        gitCore.pullCurrentBranch(repo.cwd, input.remote).pipe(
+          Effect.map((result) => ({
+            repoId: repo.id,
+            cwd: repo.cwd,
+            relativePath: repo.relativePath,
+            displayName: repo.displayName,
+            status: result.status,
+            branch: result.branch,
+            ...(result.upstreamBranch ? { upstreamBranch: result.upstreamBranch } : {}),
+          })),
+          Effect.catch((error) =>
+            Effect.succeed({
+              repoId: repo.id,
+              cwd: repo.cwd,
+              relativePath: repo.relativePath,
+              displayName: repo.displayName,
+              status: "failed" as const,
+              error: error.message,
+            }),
+          ),
+        ),
+      { concurrency: 1 },
+    );
+    return { repos: results };
+  });
 
   const runFeatureBranchStep = (
     modelSelection: ModelSelection,
@@ -1435,11 +1764,209 @@ export const makeGitManager = Effect.gen(function* () {
     },
   );
 
+  const projectRunStackedAction: GitManagerShape["projectRunStackedAction"] = Effect.fnUntraced(
+    function* (input, options) {
+      const repos = toProjectRepoRuntimeTargets({ repos: input.gitRepos });
+      const projectResults: GitProjectRunStackedActionResult["repos"] = yield* Effect.forEach(
+        repos,
+        (repo) =>
+          Effect.gen(function* () {
+            const repoStatus = yield* gitCore.statusDetails(repo.cwd, input.remote).pipe(
+              Effect.catch(() =>
+                Effect.succeed({
+                  branch: null,
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: false,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  upstreamRef: null,
+                }),
+              ),
+            );
+
+            const eligible =
+              repoStatus.hasWorkingTreeChanges ||
+              (input.action !== "commit" && repoStatus.aheadCount > 0);
+            if (!eligible) {
+              return {
+                repoId: repo.id,
+                cwd: repo.cwd,
+                relativePath: repo.relativePath,
+                displayName: repo.displayName,
+                eligible: false,
+                skippedReason: (repoStatus.hasWorkingTreeChanges ? "blocked" : "clean") as
+                  | "blocked"
+                  | "clean",
+              };
+            }
+
+            const repoOptions =
+              options?.progressReporter !== undefined && options.actionId !== undefined
+                ? {
+                    ...options,
+                    progressReporter: {
+                      publish: (event: GitActionProgressEvent) =>
+                        options.progressReporter!.publish({
+                          ...event,
+                          repoId: repo.id,
+                          relativePath: repo.relativePath,
+                          displayName: repo.displayName,
+                        }),
+                    },
+                  }
+                : options;
+
+            const result = yield* runStackedAction(
+              {
+                actionId: input.actionId,
+                cwd: repo.cwd,
+                projectId: input.projectId,
+                action: input.action,
+                ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
+                ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
+                ...(input.settings ? { settings: input.settings } : {}),
+                modelSelection: input.modelSelection,
+                ...(input.remote ? { remote: input.remote } : {}),
+              },
+              repoOptions,
+            ).pipe(Effect.mapError((error) => error));
+
+            return {
+              repoId: repo.id,
+              cwd: repo.cwd,
+              relativePath: repo.relativePath,
+              displayName: repo.displayName,
+              eligible: true,
+              result,
+            };
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                repoId: repo.id,
+                cwd: repo.cwd,
+                relativePath: repo.relativePath,
+                displayName: repo.displayName,
+                eligible: true,
+                error: error.message,
+              }),
+            ),
+          ),
+        { concurrency: 1 },
+      );
+
+      const successfulCommits = projectResults
+        .filter(
+          (
+            entry,
+          ): entry is (typeof projectResults)[number] & {
+            result: NonNullable<(typeof projectResults)[number]["result"]>;
+          } =>
+            entry.result?.commit.status === "created" &&
+            entry.result.commit.commitSha !== undefined &&
+            entry.result.commit.subject !== undefined,
+        )
+        .map((entry) => {
+          const commitSha = entry.result.commit.commitSha;
+          const subject = entry.result.commit.subject;
+          if (commitSha === undefined || subject === undefined) {
+            throw new Error("Expected successful commit metadata to include sha and subject.");
+          }
+          return {
+            repoId: entry.repoId,
+            cwd: entry.cwd,
+            displayName: entry.displayName,
+            subject,
+            commitSha,
+          };
+        });
+
+      yield* Effect.forEach(
+        successfulCommits,
+        (entry) => {
+          const related = successfulCommits.filter(
+            (candidate) => candidate.repoId !== entry.repoId,
+          );
+          const resultEntry = projectResults.find((candidate) => candidate.repoId === entry.repoId);
+          if (resultEntry?.result?.commit.subject === undefined || related.length === 0) {
+            return Effect.void;
+          }
+          return appendRelatedCommitsFooter({
+            cwd: entry.cwd,
+            related,
+            ...(input.remote ? { remote: input.remote } : {}),
+          }).pipe(Effect.catch(() => Effect.void));
+        },
+        { concurrency: 1 },
+      );
+
+      const successfulPullRequests = projectResults
+        .filter(
+          (
+            entry,
+          ): entry is (typeof projectResults)[number] & {
+            result: NonNullable<(typeof projectResults)[number]["result"]>;
+          } =>
+            (entry.result?.pr.status === "created" ||
+              entry.result?.pr.status === "opened_existing") &&
+            entry.result.pr.url !== undefined &&
+            entry.result.pr.number !== undefined,
+        )
+        .map((entry) => {
+          const url = entry.result.pr.url;
+          const number = entry.result.pr.number;
+          if (url === undefined || number === undefined) {
+            throw new Error("Expected successful PR metadata to include url and number.");
+          }
+          return {
+            repoId: entry.repoId,
+            cwd: entry.cwd,
+            displayName: entry.displayName,
+            url,
+            number,
+            commitSha: successfulCommits.find((candidate) => candidate.repoId === entry.repoId)
+              ?.commitSha,
+          };
+        });
+
+      yield* Effect.forEach(
+        successfulPullRequests,
+        (entry) => {
+          const related = successfulPullRequests.filter(
+            (candidate) => candidate.repoId !== entry.repoId,
+          );
+          if (related.length === 0) {
+            return Effect.void;
+          }
+          return appendRelatedPullRequestsFooter({
+            cwd: entry.cwd,
+            reference: String(entry.number),
+            related,
+            ...(input.remote ? { remote: input.remote } : {}),
+          }).pipe(Effect.catch(() => Effect.void));
+        },
+        { concurrency: 1 },
+      );
+
+      return {
+        action: input.action,
+        repos: projectResults,
+      };
+    },
+  );
+
   return {
     status,
+    projectStatus,
     resolvePullRequest,
     preparePullRequestThread,
+    projectListBranches,
+    projectCreateBranch,
+    projectCheckout,
+    projectCreateWorktree,
+    projectPull,
     runStackedAction,
+    projectRunStackedAction,
   } satisfies GitManagerShape;
 });
 

@@ -81,6 +81,23 @@ const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
 };
 
+function makeGitManagerMock(overrides: Partial<GitManagerShape> = {}): GitManagerShape {
+  return {
+    status: vi.fn(() => Effect.void as any),
+    projectStatus: vi.fn(() => Effect.void as any),
+    resolvePullRequest: vi.fn(() => Effect.void as any),
+    preparePullRequestThread: vi.fn(() => Effect.void as any),
+    projectListBranches: vi.fn(() => Effect.void as any),
+    projectCreateBranch: vi.fn(() => Effect.void as any),
+    projectCheckout: vi.fn(() => Effect.void as any),
+    projectCreateWorktree: vi.fn(() => Effect.void as any),
+    projectPull: vi.fn(() => Effect.void as any),
+    runStackedAction: vi.fn(() => Effect.void as any),
+    projectRunStackedAction: vi.fn(() => Effect.void as any),
+    ...overrides,
+  };
+}
+
 class MockTerminalManager implements TerminalManagerShape {
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
   private readonly listeners = new Set<(event: TerminalEvent) => void>();
@@ -2057,12 +2074,12 @@ describe("WebSocket Server", () => {
     const runStackedAction = vi.fn(() => Effect.void as any);
     const resolvePullRequest = vi.fn(() => Effect.void as any);
     const preparePullRequestThread = vi.fn(() => Effect.void as any);
-    const gitManager: GitManagerShape = {
+    const gitManager = makeGitManagerMock({
       status,
       resolvePullRequest,
       preparePullRequestThread,
       runStackedAction,
-    };
+    });
 
     server = await createTestServer({ cwd: "/test", gitManager });
     const addr = server.address();
@@ -2096,12 +2113,12 @@ describe("WebSocket Server", () => {
       worktreePath: "/tmp/pr-threads",
     };
 
-    const gitManager: GitManagerShape = {
+    const gitManager = makeGitManagerMock({
       status: vi.fn(() => Effect.void as any),
       resolvePullRequest: vi.fn(() => Effect.succeed(resolvePullRequestResult)),
       preparePullRequestThread: vi.fn(() => Effect.succeed(preparePullRequestThreadResult)),
       runStackedAction: vi.fn(() => Effect.void as any),
-    };
+    });
 
     server = await createTestServer({ cwd: "/test", gitManager });
     const addr = server.address();
@@ -2144,12 +2161,12 @@ describe("WebSocket Server", () => {
         }),
       ),
     );
-    const gitManager: GitManagerShape = {
+    const gitManager = makeGitManagerMock({
       status: vi.fn(() => Effect.void as any),
       resolvePullRequest: vi.fn(() => Effect.void as any),
       preparePullRequestThread: vi.fn(() => Effect.void as any),
       runStackedAction,
-    };
+    });
 
     server = await createTestServer({ cwd: "/test", gitManager });
     const addr = server.address();
@@ -2214,12 +2231,12 @@ describe("WebSocket Server", () => {
             ),
           ) ?? Effect.void,
     );
-    const gitManager: GitManagerShape = {
+    const gitManager = makeGitManagerMock({
       status: vi.fn(() => Effect.void as any),
       resolvePullRequest: vi.fn(() => Effect.void as any),
       preparePullRequestThread: vi.fn(() => Effect.void as any),
       runStackedAction,
-    };
+    });
 
     server = await createTestServer({ cwd: "/test", gitManager });
     const addr = server.address();

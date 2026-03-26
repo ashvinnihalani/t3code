@@ -2,7 +2,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Schema, Struct } from "effect";
 
-import { ModelSelection, ProjectRemoteTarget, ProjectScript } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  ProjectGitRepo,
+  ProjectRemoteTarget,
+  ProjectScript,
+} from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionProjectInput,
@@ -15,6 +20,7 @@ const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+    gitRepos: Schema.fromJsonString(Schema.Array(ProjectGitRepo)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
   }),
 );
@@ -34,6 +40,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json,
           default_model_selection_json,
           scripts_json,
+          git_repos_json,
           created_at,
           updated_at,
           deleted_at
@@ -45,6 +52,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.remote !== null ? JSON.stringify(row.remote) : null},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
+          ${JSON.stringify(row.gitRepos)},
           ${row.createdAt},
           ${row.updatedAt},
           ${row.deletedAt}
@@ -56,6 +64,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json = excluded.remote_json,
           default_model_selection_json = excluded.default_model_selection_json,
           scripts_json = excluded.scripts_json,
+          git_repos_json = excluded.git_repos_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           deleted_at = excluded.deleted_at
@@ -74,6 +83,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          git_repos_json AS "gitRepos",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -94,6 +104,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          git_repos_json AS "gitRepos",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"

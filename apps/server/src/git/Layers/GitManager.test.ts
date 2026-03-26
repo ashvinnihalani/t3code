@@ -35,6 +35,7 @@ interface FakeGhScenario {
   prListByHeadSelector?: Record<string, string>;
   createdPrUrl?: string;
   defaultBranch?: string;
+  pullRequestBody?: string;
   pullRequest?: {
     number: number;
     title: string;
@@ -273,6 +274,15 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     if (args[0] === "pr" && args[1] === "view") {
+      if (args.includes("--jq") && args.includes(".body")) {
+        return Effect.succeed({
+          stdout: `${scenario.pullRequestBody ?? ""}\n`,
+          stderr: "",
+          code: 0,
+          signal: null,
+          timedOut: false,
+        });
+      }
       const pullRequest: FakePullRequest = scenario.pullRequest ?? {
         number: 101,
         title: "Pull request",
@@ -300,6 +310,16 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
                 }
               : {}),
           }) + "\n",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+    }
+
+    if (args[0] === "pr" && args[1] === "edit") {
+      return Effect.succeed({
+        stdout: "",
         stderr: "",
         code: 0,
         signal: null,
@@ -449,11 +469,21 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
+      getPullRequestBody: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: ["pr", "view", input.reference, "--json", "body", "--jq", ".body"],
+        }).pipe(Effect.map((result) => result.stdout)),
       getRepositoryCloneUrls: (input) =>
         execute({
           cwd: input.cwd,
           args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
+      updatePullRequestBody: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: ["pr", "edit", input.reference, "--body", input.body],
+        }).pipe(Effect.asVoid),
       checkoutPullRequest: (input) =>
         execute({
           cwd: input.cwd,

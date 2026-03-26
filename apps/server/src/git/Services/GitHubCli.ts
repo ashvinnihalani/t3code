@@ -67,6 +67,16 @@ export interface GitHubCliShape {
   }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
 
   /**
+   * Read the current body for an existing pull request.
+   */
+  readonly getPullRequestBody: (input: {
+    readonly cwd: string;
+    readonly reference: string;
+    readonly executablePath?: string | null;
+    readonly remote?: ProjectRemoteTarget | null;
+  }) => Effect.Effect<string, GitHubCliError>;
+
+  /**
    * Resolve clone URLs for a GitHub repository.
    */
   readonly getRepositoryCloneUrls: (input: {
@@ -84,6 +94,17 @@ export interface GitHubCliShape {
     readonly baseBranch: string;
     readonly headSelector: string;
     readonly title: string;
+    readonly body: string;
+    readonly executablePath?: string | null;
+    readonly remote?: ProjectRemoteTarget | null;
+  }) => Effect.Effect<void, GitHubCliError>;
+
+  /**
+   * Replace the body for an existing pull request.
+   */
+  readonly updatePullRequestBody: (input: {
+    readonly cwd: string;
+    readonly reference: string;
     readonly body: string;
     readonly executablePath?: string | null;
     readonly remote?: ProjectRemoteTarget | null;

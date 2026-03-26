@@ -76,6 +76,7 @@ import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { listSshHosts } from "./sshHosts";
 import { validateRemoteProjectOverSsh } from "./remote/validateRemoteProject";
+import { discoverProjectGitRepos } from "./git/projectRepoDiscovery";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -454,22 +455,56 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     });
 
     if (input.command.type === "project.create") {
+      const command = input.command;
+      const workspaceRoot = yield* normalizeProjectWorkspaceRoot({
+        workspaceRoot: command.workspaceRoot,
+        remote: command.remote ?? null,
+      });
+      const gitRepos = yield* Effect.tryPromise({
+        try: () =>
+          discoverProjectGitRepos({
+            projectId: command.projectId,
+            workspaceRoot,
+            remote: command.remote ?? null,
+          }),
+        catch: (cause) =>
+          new RouteRequestError({
+            message: `Failed to discover git repositories: ${String(cause)}`,
+          }),
+      });
       return {
-        ...input.command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot({
-          workspaceRoot: input.command.workspaceRoot,
-          remote: input.command.remote ?? null,
-        }),
+        ...command,
+        workspaceRoot,
+        gitRepos,
       } satisfies OrchestrationCommand;
     }
 
     if (input.command.type === "project.meta.update" && input.command.workspaceRoot !== undefined) {
+      const command = input.command;
+      const workspaceRootInput = command.workspaceRoot;
+      if (workspaceRootInput === undefined) {
+        return command as OrchestrationCommand;
+      }
+      const workspaceRoot = yield* normalizeProjectWorkspaceRoot({
+        workspaceRoot: workspaceRootInput,
+        remote: command.remote ?? null,
+      });
+      const gitRepos = yield* Effect.tryPromise({
+        try: () =>
+          discoverProjectGitRepos({
+            projectId: command.projectId,
+            workspaceRoot,
+            remote: command.remote ?? null,
+          }),
+        catch: (cause) =>
+          new RouteRequestError({
+            message: `Failed to discover git repositories: ${String(cause)}`,
+          }),
+      });
       return {
-        ...input.command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot({
-          workspaceRoot: input.command.workspaceRoot,
-          remote: input.command.remote ?? null,
-        }),
+        ...command,
+        workspaceRoot,
+        gitRepos,
       } satisfies OrchestrationCommand;
     }
 
@@ -907,7 +942,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
     return {
       project,
-      baseRoot: thread.worktreePath ?? project.workspaceRoot,
+      baseRoot:
+        thread.worktreePath ?? thread.multiRepoWorktree?.parentPath ?? project.workspaceRoot,
     };
   });
 
@@ -961,6 +997,15 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     }
     const project = yield* resolveProject(projectId);
     return project.remote ?? null;
+  });
+
+  const resolveProjectGitMetadata = Effect.fnUntraced(function* (projectId: ProjectId) {
+    const project = yield* resolveProject(projectId);
+    return {
+      workspaceRoot: project.workspaceRoot,
+      gitRepos: project.gitRepos ?? [],
+      remote: project.remote ?? null,
+    };
   });
 
   const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
@@ -1248,6 +1293,92 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* gitManager.preparePullRequestThread({
           ...body,
           ...(remote ? { remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectStatus: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectStatus({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectPull: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectPull({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectRunStackedAction: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectRunStackedAction(
+          {
+            ...body,
+            workspaceRoot: project.workspaceRoot,
+            gitRepos: project.gitRepos,
+            ...(project.remote ? { remote: project.remote } : {}),
+          },
+          {
+            actionId: body.actionId,
+            progressReporter: {
+              publish: (event) =>
+                pushBus.publishClient(ws, WS_CHANNELS.gitActionProgress, event).pipe(Effect.asVoid),
+            },
+          },
+        );
+      }
+
+      case WS_METHODS.gitProjectListBranches: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectListBranches({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectCreateWorktree: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectCreateWorktree({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectCreateBranch: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectCreateBranch({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
+        });
+      }
+
+      case WS_METHODS.gitProjectCheckout: {
+        const body = stripRequestTag(request.body);
+        const project = yield* resolveProjectGitMetadata(body.projectId);
+        return yield* gitManager.projectCheckout({
+          ...body,
+          workspaceRoot: project.workspaceRoot,
+          gitRepos: project.gitRepos,
+          ...(project.remote ? { remote: project.remote } : {}),
         });
       }
 
