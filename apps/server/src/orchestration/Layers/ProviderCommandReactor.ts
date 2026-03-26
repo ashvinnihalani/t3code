@@ -451,6 +451,13 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    yield* Effect.logInfo("thread interaction mode on turn start", {
+      threadId: input.threadId,
+      interactionMode: thread.interactionMode,
+      requestedInteractionMode: input.interactionMode ?? null,
+      provider: thread.modelSelection.provider,
+      runtimeMode: thread.runtimeMode,
+    });
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),

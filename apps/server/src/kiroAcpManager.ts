@@ -616,6 +616,13 @@ export class KiroAcpManager extends EventEmitter {
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
     let threadOpenMethod: "session/new" | "session/load" = "session/new";
+    logger.info("kiro thread opening", {
+      threadId: input.threadId,
+      requestedRuntimeMode: input.runtimeMode,
+      requestedModel: input.model ?? null,
+      requestedCwd: input.cwd ?? null,
+      resumeThreadId: resumeSessionId ?? null,
+    });
     if (resumeSessionId) {
       threadOpenMethod = "session/load";
       session.sessionId = resumeSessionId;
@@ -661,9 +668,9 @@ export class KiroAcpManager extends EventEmitter {
     logger.info("kiro thread open resolved", {
       threadId: session.threadId,
       threadOpenMethod,
-      requestedResumeSessionId: resumeSessionId ?? null,
+      requestedResumeThreadId: resumeSessionId ?? null,
       resolvedThreadId: session.sessionId,
-      requestedCwd: input.cwd ?? null,
+      requestedRuntimeMode: input.runtimeMode,
     });
 
     this.sessions.set(session.threadId, session);
