@@ -813,7 +813,6 @@ export class KiroAcpManager extends EventEmitter {
     });
 
     this.sessions.set(session.threadId, session);
-    await this.applyRuntimeMode(session);
     if (input.model) {
       await this.setModel(session, input.model);
     }
@@ -1179,10 +1178,6 @@ export class KiroAcpManager extends EventEmitter {
     };
     session.updatedAt = nowIso();
     this.emitModeMetadata(session);
-  }
-
-  private async applyRuntimeMode(session: KiroSessionState): Promise<void> {
-    await this.setSessionMode(session, "default");
   }
 
   private async setSessionMode(
