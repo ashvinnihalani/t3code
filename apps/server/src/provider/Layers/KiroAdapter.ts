@@ -12,9 +12,11 @@ import { KiroAdapter, type KiroAdapterShape } from "../Services/KiroAdapter.ts";
 import { KiroAcpManager, type KiroAcpStartSessionInput } from "../../kiroAcpManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { createLogger } from "../../logger.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "kiro" as const;
+const logger = createLogger("kiro-adapter");
 
 export interface KiroAdapterLiveOptions {
   readonly manager?: KiroAcpManager;
@@ -107,6 +109,13 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
           ? { remote: input.providerOptions.kiro.remote }
           : {}),
       };
+      logger.info("kiro adapter startSession dispatching", {
+        threadId: input.threadId,
+        runtimeMode: input.runtimeMode,
+        model: input.modelSelection?.model ?? null,
+        cwd: input.cwd ?? null,
+        hasResumeCursor: input.resumeCursor !== undefined,
+      });
 
       return Effect.tryPromise({
         try: () => manager.startSession(managerInput),
@@ -156,6 +165,13 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
             }),
           { concurrency: 1 },
         );
+        logger.info("kiro adapter sendTurn dispatching", {
+          threadId: input.threadId,
+          model: input.modelSelection?.model ?? null,
+          interactionMode: input.interactionMode ?? null,
+          attachmentCount: attachments.length,
+          hasInput: input.input !== undefined && input.input.length > 0,
+        });
 
         return yield* Effect.tryPromise({
           try: () =>

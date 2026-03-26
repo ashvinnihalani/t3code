@@ -458,6 +458,14 @@ const make = Effect.gen(function* () {
       provider: thread.modelSelection.provider,
       runtimeMode: thread.runtimeMode,
     });
+    yield* Effect.logInfo("provider command reactor ensuring session for turn", {
+      threadId: input.threadId,
+      provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
+      model: input.modelSelection?.model ?? thread.modelSelection.model,
+      runtimeMode: thread.runtimeMode,
+      attachmentCount: input.attachments?.length ?? 0,
+      hasInput: input.messageText.length > 0,
+    });
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
@@ -488,6 +496,15 @@ const make = Effect.gen(function* () {
           : requestedModelSelection
         : input.modelSelection;
 
+    yield* Effect.logInfo("provider command reactor dispatching provider sendTurn", {
+      threadId: input.threadId,
+      provider: activeSession?.provider ?? thread.modelSelection.provider,
+      sessionRuntimeMode: activeSession?.runtimeMode ?? null,
+      model: modelForTurn?.model ?? activeSession?.model ?? null,
+      interactionMode: input.interactionMode ?? thread.interactionMode,
+      attachmentCount: normalizedAttachments.length,
+      hasInput: normalizedInput !== undefined,
+    });
     yield* providerService.sendTurn({
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
