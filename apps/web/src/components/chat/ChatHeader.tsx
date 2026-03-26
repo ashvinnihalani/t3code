@@ -27,6 +27,7 @@ interface ChatHeaderProps {
   activeProjectRemote: ProjectRemoteTarget | null;
   isRemoteProject: boolean;
   isGitRepo: boolean;
+  gitRepoCount?: number | undefined;
   openInCwd: string | null;
   openInProjectRoot: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -57,6 +58,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectRemote,
   isRemoteProject,
   isGitRepo,
+  gitRepoCount = 0,
   openInCwd,
   openInProjectRoot,
   activeProjectScripts,
@@ -81,6 +83,7 @@ export const ChatHeader = memo(function ChatHeader({
   const draftThreadTitleInputRef = useRef<HTMLInputElement | null>(null);
   const isDraftThreadTitleEditable = onDraftThreadTitleOverrideChange !== null;
   const visibleDraftThreadTitle = draftThreadTitleOverride?.trim() || activeThreadTitle;
+  const hasMultiRepoGit = gitRepoCount > 1;
 
   useEffect(() => {
     setIsEditingDraftThreadTitle(false);
@@ -146,11 +149,21 @@ export const ChatHeader = memo(function ChatHeader({
             {activeProjectName}
           </Badge>
         )}
-        {activeProjectName && !isGitRepo && !isRemoteProject && (
-          <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-            No Git
-          </Badge>
-        )}
+        {activeProjectName &&
+          !isRemoteProject &&
+          (hasMultiRepoGit ? (
+            <Badge variant="outline" className="shrink-0 text-[10px] text-emerald-700">
+              Multiple Git Repos
+            </Badge>
+          ) : isGitRepo ? (
+            <Badge variant="outline" className="shrink-0 text-[10px] text-emerald-700">
+              Git Repo
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
+              No Git
+            </Badge>
+          ))}
       </div>
       <div className="@container/header-actions flex min-w-0 flex-1 items-center justify-end gap-2 @sm/header-actions:gap-3">
         {activeProjectScripts && (
@@ -216,14 +229,14 @@ export const ChatHeader = memo(function ChatHeader({
                 aria-label="Toggle diff panel"
                 variant="outline"
                 size="xs"
-                disabled={!isGitRepo}
+                disabled={!isGitRepo && !hasMultiRepoGit}
               >
                 <DiffIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {!isGitRepo
+            {!isGitRepo && !hasMultiRepoGit
               ? "Diff panel is unavailable because this project is not a git repository."
               : diffToggleShortcutLabel
                 ? `Toggle diff panel (${diffToggleShortcutLabel})`

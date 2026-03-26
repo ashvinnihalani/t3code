@@ -1201,6 +1201,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     settings.threadIdDisplayMode === "message" ? visibleProviderThreadId : null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
+  const gitRepoCount = activeProject?.gitRepos?.length ?? 0;
   const threadTerminalRuntimeEnv = useMemo(() => {
     if (!activeProjectCwd) return {};
     return projectScriptRuntimeEnv({
@@ -1211,7 +1212,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
   // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = branchesQuery.data?.isRepo ?? true;
+  const isGitRepo = gitRepoCount > 1 ? true : (branchesQuery.data?.isRepo ?? true);
   const fallbackComposerThreadId =
     showComposerThreadId && !isGitRepo ? visibleProviderThreadId : null;
   const terminalToggleShortcutLabel = useMemo(
@@ -3608,6 +3609,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectRemote={activeProject?.remote ?? null}
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
+          gitRepoCount={gitRepoCount}
           openInCwd={gitCwd}
           openInProjectRoot={activeThread.worktreePath === null}
           activeProjectScripts={activeProject?.scripts}
