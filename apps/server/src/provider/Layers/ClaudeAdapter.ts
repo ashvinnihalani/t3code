@@ -219,6 +219,20 @@ function getEffectiveClaudeCodeEffort(
   return effort === "ultrathink" ? null : effort;
 }
 
+function claudeSessionStartedMessage(resumeState: ClaudeResumeState | undefined): string {
+  if (resumeState?.threadId) {
+    return `Attempting to resume thread ${resumeState.threadId}.`;
+  }
+  if (resumeState?.resume) {
+    return "Attempting to resume a Claude Code thread.";
+  }
+  return "Starting a new Claude Code thread.";
+}
+
+function claudeThreadConnectedMessage(providerThreadId: string): string {
+  return `Connected to thread ${providerThreadId}`;
+}
+
 function isClaudeInterruptedMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -1256,6 +1270,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             threadId: context.session.threadId,
             payload: {
               providerThreadId: nextThreadId,
+              message: claudeThreadConnectedMessage(nextThreadId),
             },
             providerRefs: {},
             raw: {
@@ -2834,7 +2849,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           provider: PROVIDER,
           createdAt: sessionStartedStamp.createdAt,
           threadId,
-          payload: input.resumeCursor !== undefined ? { resume: input.resumeCursor } : {},
+          payload: {
+            message: claudeSessionStartedMessage(resumeState),
+            ...(input.resumeCursor !== undefined ? { resume: input.resumeCursor } : {}),
+          },
           providerRefs: {},
         });
 

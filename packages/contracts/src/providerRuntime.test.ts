@@ -164,4 +164,25 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
+
+  it("decodes thread.started messages alongside provider thread ids", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "thread.started",
+      eventId: "event-thread-started-1",
+      provider: "kiro",
+      createdAt: "2026-02-28T00:00:05.000Z",
+      threadId: "thread-1",
+      payload: {
+        providerThreadId: "provider-thread-1",
+        message: "Reconnected to thread provider-thread-1",
+      },
+    });
+
+    expect(parsed.type).toBe("thread.started");
+    if (parsed.type !== "thread.started") {
+      throw new Error("expected thread.started");
+    }
+    expect(parsed.payload.providerThreadId).toBe("provider-thread-1");
+    expect(parsed.payload.message).toBe("Reconnected to thread provider-thread-1");
+  });
 });
