@@ -285,6 +285,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
 function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     claudeBinaryPath: "",
+    claudeRemoteOverrides: {},
     codexBinaryPath: "",
     codexHomePath: "",
     codexRemoteOverrides: {},

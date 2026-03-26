@@ -189,6 +189,7 @@ describe("getProviderStartOptions", () => {
     expect(
       getProviderStartOptions({
         claudeBinaryPath: "/usr/local/bin/claude",
+        claudeRemoteOverrides: {},
         codexBinaryPath: "",
         codexHomePath: "/Users/you/.codex",
         codexRemoteOverrides: {},
@@ -210,6 +211,11 @@ describe("getProviderStartOptions", () => {
       getProviderStartOptions(
         {
           claudeBinaryPath: "/usr/local/bin/claude",
+          claudeRemoteOverrides: {
+            "prod-box": {
+              binaryPath: "/opt/claude/bin/claude",
+            },
+          },
           codexBinaryPath: "/usr/local/bin/codex",
           codexHomePath: "/Users/you/.codex",
           codexRemoteOverrides: {
@@ -229,7 +235,7 @@ describe("getProviderStartOptions", () => {
       ),
     ).toEqual({
       claudeAgent: {
-        binaryPath: "/usr/local/bin/claude",
+        binaryPath: "/opt/claude/bin/claude",
       },
       codex: {
         binaryPath: "/opt/codex/bin/codex",
@@ -245,6 +251,7 @@ describe("getProviderStartOptions", () => {
     expect(
       getProviderStartOptions({
         claudeBinaryPath: "",
+        claudeRemoteOverrides: {},
         codexBinaryPath: "",
         codexHomePath: "",
         codexRemoteOverrides: {},
@@ -367,6 +374,7 @@ describe("AppSettingsSchema", () => {
       ),
     ).toMatchObject({
       claudeBinaryPath: "",
+      claudeRemoteOverrides: {},
       codexBinaryPath: "/usr/local/bin/codex",
       codexHomePath: "",
       defaultThreadEnvMode: "local",

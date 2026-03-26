@@ -71,8 +71,18 @@ const KiroHostOverrideSchema = Schema.Struct({
 export type KiroHostOverride = typeof KiroHostOverrideSchema.Type;
 const DEFAULT_KIRO_HOST_OVERRIDE = KiroHostOverrideSchema.makeUnsafe({});
 
+const ClaudeHostOverrideSchema = Schema.Struct({
+  binaryPath: SettingsPathSchema,
+});
+export type ClaudeHostOverride = typeof ClaudeHostOverrideSchema.Type;
+const DEFAULT_CLAUDE_HOST_OVERRIDE = ClaudeHostOverrideSchema.makeUnsafe({});
+
 export const AppSettingsSchema = Schema.Struct({
   claudeBinaryPath: SettingsPathSchema,
+  claudeRemoteOverrides: Schema.Record(Schema.String, ClaudeHostOverrideSchema).pipe(
+    Schema.withConstructorDefault(() => Option.some({})),
+    Schema.withDecodingDefault(() => ({})),
+  ),
   codexBinaryPath: SettingsPathSchema,
   codexHomePath: SettingsPathSchema,
   codexRemoteOverrides: Schema.Record(Schema.String, CodexHostOverrideSchema).pipe(
@@ -206,6 +216,52 @@ export function buildCodexHostOverridePatch(
   return { codexRemoteOverrides };
 }
 
+export function getClaudeHostOverride(
+  settings: Pick<AppSettings, "claudeBinaryPath" | "claudeRemoteOverrides">,
+  hostAlias?: string | null,
+): ClaudeHostOverride {
+  if (!hostAlias) {
+    return {
+      binaryPath: settings.claudeBinaryPath,
+    };
+  }
+
+  const override = settings.claudeRemoteOverrides[hostAlias];
+  if (!override) {
+    return { ...DEFAULT_CLAUDE_HOST_OVERRIDE };
+  }
+
+  return {
+    binaryPath: override.binaryPath,
+  };
+}
+
+export function buildClaudeHostOverridePatch(
+  settings: Pick<AppSettings, "claudeBinaryPath" | "claudeRemoteOverrides">,
+  patch: Partial<ClaudeHostOverride>,
+  hostAlias?: string | null,
+): Partial<AppSettings> {
+  const nextOverride = {
+    ...getClaudeHostOverride(settings, hostAlias),
+    ...patch,
+  };
+
+  if (!hostAlias) {
+    return {
+      claudeBinaryPath: nextOverride.binaryPath,
+    };
+  }
+
+  const claudeRemoteOverrides = { ...settings.claudeRemoteOverrides };
+  if (!nextOverride.binaryPath) {
+    delete claudeRemoteOverrides[hostAlias];
+  } else {
+    claudeRemoteOverrides[hostAlias] = nextOverride;
+  }
+
+  return { claudeRemoteOverrides };
+}
+
 export function getKiroHostOverride(
   settings: Pick<AppSettings, "kiroBinaryPath" | "kiroRemoteOverrides">,
   hostAlias?: string | null,
@@ -278,6 +334,7 @@ export function getProviderStartOptions(
   settings: Pick<
     AppSettings,
     | "claudeBinaryPath"
+    | "claudeRemoteOverrides"
     | "codexBinaryPath"
     | "codexHomePath"
     | "codexRemoteOverrides"
@@ -286,14 +343,15 @@ export function getProviderStartOptions(
   >,
   hostAlias?: string | null,
 ): ProviderStartOptions | undefined {
+  const claude = getClaudeHostOverride(settings, hostAlias);
   const codex = getCodexHostOverride(settings, hostAlias);
   const kiro = getKiroHostOverride(settings, hostAlias);
 
   const providerOptions: ProviderStartOptions = {
-    ...(settings.claudeBinaryPath
+    ...(claude.binaryPath
       ? {
           claudeAgent: {
-            binaryPath: settings.claudeBinaryPath,
+            binaryPath: claude.binaryPath,
           },
         }
       : {}),

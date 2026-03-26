@@ -28,55 +28,6 @@ The implementation in this fork currently targets Codex-first remote workflows:
 
 This is still early-stage software. Expect rough edges and incomplete provider coverage.
 
-## Provider Implementation Comparison
-
-T3 Code uses a shared provider abstraction, but each provider runtime is implemented differently underneath it.
-
-### Shared Architecture
-
-All three providers plug into the same server-side provider stack:
-
-- provider adapter contract in `apps/server/src/provider/Services/ProviderAdapter.ts`
-- cross-provider routing and recovery in `apps/server/src/provider/Layers/ProviderService.ts`
-- persisted thread-to-provider bindings in `apps/server/src/provider/Layers/ProviderSessionDirectory.ts`
-- shared orchestration integration in `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
-- shared runtime event ingestion in `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
-
-That means the providers are not completely separate. Their runtime/protocol layers are provider-specific, but orchestration, persistence, settings, and UI model-selection flows are shared.
-
-### Matrix
-
-| Provider    | Control structure                                                                                       | Session / resume                                                                                          | Approvals | Structured user input | Rollback / checkpoint revert                                          | Remote support                                                        | Complexity | Main strengths                                                                                | Main weaknesses                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------- | --------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Codex       | `codex app-server` over JSON-RPC on stdio, wrapped by `codexAppServerManager.ts` plus `CodexAdapter.ts` | Strongest native thread model. Uses `thread/start`, `thread/resume`, and persists `resumeCursor.threadId` | Yes       | Yes                   | Yes, via `thread/rollback`                                            | Yes, including SSH plus host-scoped binary and `CODEX_HOME` overrides | Highest    | Richest protocol, best feature coverage, strongest recovery model                             | Most protocol glue, version/env handling, resume fallback cases, and child-conversation filtering |
-| Claude Code | Direct `@anthropic-ai/claude-agent-sdk` query session inside `ClaudeAdapter.ts`                         | Good, but adapter-managed rather than external thread RPC. Uses SDK resume/session ids in `resumeCursor`  | Yes       | Yes                   | Yes, by trimming local adapter turn history and updating resume state | No dedicated remote transport layer in this repo                      | Medium     | Cleanest implementation, fewer moving parts, direct in-session model and permission switching | Recovery behavior depends more on adapter-owned state and SDK semantics                           |
-| Kiro        | ACP over JSON-RPC on stdio, wrapped by `kiroAcpManager.ts` plus `KiroAdapter.ts`                        | Weaker than Codex. Uses `session/new` and `session/load` with `resumeCursor.sessionId`                    | Yes       | No                    | No. Checkpoint revert is explicitly unsupported for Kiro threads      | Yes, via provider options passed into the ACP manager                 | Lowest     | Smallest implementation, simplest ACP mapping, clean mode switching                           | Least feature-complete, weaker recovery, no structured user input, no rollback                    |
-
-### Provider-Specific Files
-
-- Codex: `apps/server/src/codexAppServerManager.ts`, `apps/server/src/provider/Layers/CodexAdapter.ts`, `apps/server/src/provider/codexCliVersion.ts`
-- Claude Code: `apps/server/src/provider/Layers/ClaudeAdapter.ts`
-- Kiro: `apps/server/src/kiroAcpManager.ts`, `apps/server/src/provider/Layers/KiroAdapter.ts`
-
-### Shared Files Touched By All Providers
-
-- Contracts: `packages/contracts/src/provider.ts`, `packages/contracts/src/providerRuntime.ts`, `packages/contracts/src/orchestration.ts`, `packages/contracts/src/model.ts`
-- Server orchestration: `apps/server/src/provider/Layers/ProviderService.ts`, `apps/server/src/provider/Layers/ProviderSessionDirectory.ts`, `apps/server/src/provider/Layers/ProviderAdapterRegistry.ts`
-- Orchestration runtime flow: `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`, `apps/server/src/orchestration/Layers/StartupThreadReconciler.ts`, `apps/server/src/orchestration/Layers/CheckpointReactor.ts`
-- Web settings and provider selection: `apps/web/src/appSettings.ts`, `apps/web/src/routes/_chat.settings.tsx`, `apps/web/src/components/chat/composerProviderRegistry.tsx`
-
-### Kiro Alignment Summary
-
-Kiro aligns with the same adapter-based architecture as Codex and Claude Code. It satisfies the same high-level provider contract and participates in the same orchestration and persistence layers.
-
-Its gap is capability, not architecture. Compared with Codex and Claude Code, Kiro is currently weaker in three important ways:
-
-- no structured user-input response support
-- no conversation rollback support
-- weaker recovery semantics, with more fallback-to-fresh-session behavior when persisted resume state is unavailable
-
-The upside is that Kiro is also the simplest provider implementation in the repo. Its ACP integration is smaller, easier to reason about, and cleaner than the Codex app-server integration.
-
 ## Getting Started
 
 > [!WARNING]
