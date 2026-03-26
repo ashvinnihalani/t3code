@@ -51,3 +51,14 @@ Docs:
 - Codex-Monitor (Tauri, feature-complete, strong reference implementation): https://github.com/Dimillian/CodexMonitor
 
 Use these as implementation references when designing protocol handling, UX flows, and operational safeguards.
+
+## Kiro ACP Notes
+
+- `session/prompt` must send a `prompt` field, not `content`. Treat the installed Kiro CLI protocol as authoritative for this repo unless a verified local ACP repro shows otherwise.
+- Do not add background ACP slash-command probes such as `_kiro.dev/commands/execute` with `"/context show"` inside normal session startup or turn completion paths. Capability checks must stay out of the steady-state request flow unless they are already proven safe on the installed CLI.
+- Preferred methodology for checking whether Kiro ACP supports a specific command or context-related feature:
+  1. Reproduce against `KiroAcpManager` or a minimal direct ACP client outside the UI so orchestration and frontend noise are removed.
+  2. Send the exact candidate RPC once, in isolation, after session startup. Do not wire it into automatic startup, completion, or replay paths first.
+  3. Inspect Kiro's local log at `$TMPDIR/kiro-log/kiro-chat.log` immediately after the probe. Treat schema errors, enum decoding failures, or agent-channel closure as lack of support.
+  4. If the command succeeds, verify the returned payload shape against the installed CLI before relying on any field names in production code.
+  5. Only after that isolated repro is stable should the feature be considered for guarded product integration, and the integration must fail open if the provider rejects it.
