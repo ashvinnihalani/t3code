@@ -389,6 +389,18 @@ function withProjectScripts(
   };
 }
 
+function withProjectGitRepos(
+  snapshot: OrchestrationReadModel,
+  gitRepos: NonNullable<OrchestrationReadModel["projects"][number]["gitRepos"]>,
+): OrchestrationReadModel {
+  return {
+    ...snapshot,
+    projects: snapshot.projects.map((project) =>
+      project.id === PROJECT_ID ? { ...project, gitRepos: Array.from(gitRepos) } : project,
+    ),
+  };
+}
+
 function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
   const snapshot = createSnapshotForTargetUser({
     targetMessageId: "msg-user-plan-target" as MessageId,
@@ -498,6 +510,32 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       },
     };
   }
+  if (tag === WS_METHODS.gitProjectCreateWorktree) {
+    const branch = typeof body.newBranch === "string" ? body.newBranch : "t3code/browser-worktree";
+    return {
+      parentPath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
+      repos: [
+        {
+          repoId: "project-1:repo-a",
+          cwd: "/repo/project/repo-a",
+          relativePath: "repo-a",
+          displayName: "repo-a",
+          branch,
+          worktreePath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}/repo-a`,
+          status: "created",
+        },
+        {
+          repoId: "project-1:repo-b",
+          cwd: "/repo/project/repo-b",
+          relativePath: "repo-b",
+          displayName: "repo-b",
+          branch,
+          worktreePath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}/repo-b`,
+          status: "created",
+        },
+      ],
+    };
+  }
   if (tag === WS_METHODS.gitListBranches) {
     return {
       isRepo: true,
@@ -525,6 +563,92 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       aheadCount: 0,
       behindCount: 0,
       pr: null,
+    };
+  }
+  if (tag === WS_METHODS.gitProjectListBranches) {
+    return {
+      repos: [
+        {
+          repoId: "project-1:repo-a",
+          cwd: "/repo/project/repo-a",
+          relativePath: "repo-a",
+          displayName: "repo-a",
+          branches: [
+            {
+              name: "main",
+              current: true,
+              isDefault: true,
+              worktreePath: null,
+            },
+          ],
+          isRepo: true,
+          hasOriginRemote: true,
+        },
+        {
+          repoId: "project-1:repo-b",
+          cwd: "/repo/project/repo-b",
+          relativePath: "repo-b",
+          displayName: "repo-b",
+          branches: [
+            {
+              name: "main",
+              current: true,
+              isDefault: true,
+              worktreePath: null,
+            },
+          ],
+          isRepo: true,
+          hasOriginRemote: true,
+        },
+      ],
+    };
+  }
+  if (tag === WS_METHODS.gitProjectStatus) {
+    return {
+      repos: [
+        {
+          repoId: "project-1:repo-a",
+          cwd: "/repo/project/repo-a",
+          relativePath: "repo-a",
+          displayName: "repo-a",
+          eligible: false,
+          skippedReason: "clean",
+          status: {
+            branch: "main",
+            hasWorkingTreeChanges: false,
+            workingTree: {
+              files: [],
+              insertions: 0,
+              deletions: 0,
+            },
+            hasUpstream: true,
+            aheadCount: 0,
+            behindCount: 0,
+            pr: null,
+          },
+        },
+        {
+          repoId: "project-1:repo-b",
+          cwd: "/repo/project/repo-b",
+          relativePath: "repo-b",
+          displayName: "repo-b",
+          eligible: false,
+          skippedReason: "clean",
+          status: {
+            branch: "main",
+            hasWorkingTreeChanges: false,
+            workingTree: {
+              files: [],
+              insertions: 0,
+              deletions: 0,
+            },
+            hasUpstream: true,
+            aheadCount: 0,
+            behindCount: 0,
+            pr: null,
+          },
+        },
+      ],
     };
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
@@ -1363,6 +1487,143 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("prepares project worktrees when a multi-repo draft is in worktree mode", async () => {
+    const snapshot = withProjectGitRepos(createDraftOnlySnapshot(), [
+      {
+        id: "project-1:repo-a",
+        rootPath: "/repo/project/repo-a",
+        relativePath: "repo-a",
+        displayName: "repo-a",
+      },
+      {
+        id: "project-1:repo-b",
+        rootPath: "/repo/project/repo-b",
+        relativePath: "repo-b",
+        displayName: "repo-b",
+      },
+    ]);
+
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          selectedRepoId: "project-1:repo-a",
+          branch: "main",
+          worktreePath: null,
+          envMode: "worktree",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "multi repo draft send");
+      await vi.waitFor(
+        () => {
+          const sendButton = document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          );
+          expect(sendButton?.disabled).toBe(false);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const requestCountBeforeSend = wsRequests.length;
+      const sendButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find Send message button.",
+      );
+      sendButton.click();
+
+      let requestsAfterSend: WsRequestEnvelope["body"][] = [];
+      await vi.waitFor(
+        () => {
+          requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
+          expect(
+            requestsAfterSend.some((request) => {
+              if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+                return false;
+              }
+              const command = request.command;
+              return (
+                typeof command === "object" &&
+                command !== null &&
+                "type" in command &&
+                command.type === "thread.create"
+              );
+            }),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(
+        requestsAfterSend.some((request) => request._tag === WS_METHODS.gitProjectCreateWorktree),
+      ).toBe(true);
+      const createProjectWorktreeRequest = requestsAfterSend.find(
+        (request) => request._tag === WS_METHODS.gitProjectCreateWorktree,
+      );
+      expect(createProjectWorktreeRequest).toMatchObject({
+        _tag: WS_METHODS.gitProjectCreateWorktree,
+        branch: "main",
+        newBranch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
+      });
+      const createdThreadRequest = requestsAfterSend.find((request) => {
+        if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return false;
+        }
+        const command = request.command;
+        return (
+          typeof command === "object" &&
+          command !== null &&
+          "type" in command &&
+          command.type === "thread.create"
+        );
+      });
+      expect(createdThreadRequest).toMatchObject({
+        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+        command: {
+          type: "thread.create",
+          branch: null,
+          worktreePath: null,
+          repoBranches: [
+            { repoId: "project-1:repo-a", branch: expect.any(String) },
+            { repoId: "project-1:repo-b", branch: expect.any(String) },
+          ],
+          multiRepoWorktree: {
+            parentPath: expect.stringContaining("/repo/.t3/worktrees/"),
+            repos: [
+              {
+                repoId: "project-1:repo-a",
+                repoRelativePath: "repo-a",
+                sourceRootPath: "/repo/project/repo-a",
+                worktreePath: expect.stringContaining("/repo/.t3/worktrees/"),
+              },
+              {
+                repoId: "project-1:repo-b",
+                repoRelativePath: "repo-b",
+                sourceRootPath: "/repo/project/repo-b",
+                worktreePath: expect.stringContaining("/repo/.t3/worktrees/"),
+              },
+            ],
+          },
+        },
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("runs project scripts from local draft threads at the project cwd", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -1513,7 +1774,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const initialModeButton = await waitForInteractionModeButton("Chat");
-      expect(initialModeButton.title).toContain("enter plan mode");
+      expect(initialModeButton.title.toLowerCase()).toContain("enter plan mode");
 
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -1525,7 +1786,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await waitForLayout();
 
-      expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+      expect((await waitForInteractionModeButton("Chat")).title.toLowerCase()).toContain(
+        "enter plan mode",
+      );
 
       const composerEditor = await waitForComposerEditor();
       composerEditor.focus();
@@ -1558,7 +1821,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         async () => {
-          expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+          expect((await waitForInteractionModeButton("Chat")).title.toLowerCase()).toContain(
+            "enter plan mode",
+          );
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -1821,9 +2086,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadId = newThreadPath.slice(1) as ThreadId;
       const titleTrigger = await waitForDraftThreadTitleTrigger();
       titleTrigger.click();
-      const titleInput = await waitForDraftThreadTitleInput();
-      titleInput.value = "Release planning";
-      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+      const titleInput = page.getByTestId("draft-thread-title-input");
+      await expect.element(titleInput).toBeInTheDocument();
+      await titleInput.fill("Release planning");
 
       useComposerDraftStore
         .getState()

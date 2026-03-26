@@ -525,11 +525,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProject && activeThread?.selectedRepoId
       ? (activeProject.gitRepos?.find((repo) => repo.id === activeThread.selectedRepoId) ?? null)
       : (activeProject?.gitRepos?.[0] ?? null);
-  const selectedRepoBranch =
-    selectedRepo && activeThread?.repoBranches
-      ? (activeThread.repoBranches.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
-        null)
-      : null;
+  const selectedRepoBranch = selectedRepo
+    ? (activeThread?.repoBranches?.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
+      activeThread?.branch ??
+      null)
+    : null;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
