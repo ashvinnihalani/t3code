@@ -147,6 +147,7 @@ interface ClaudeSessionContext {
   readonly startedAt: string;
   readonly basePermissionMode: PermissionMode | undefined;
   readonly threadOpenMethod: "start" | "resume";
+  readonly requestedResumeThreadId: string | undefined;
   resumeSessionId: string | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -1266,8 +1267,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           context.lastThreadStartedId = nextThreadId;
           yield* Effect.logInfo("claude thread open resolved", {
             threadId: context.session.threadId,
-            threadOpenMethod: context.threadOpenMethod,
+            threadOpenMethod:
+              context.threadOpenMethod === "resume" ? "thread/resume" : "thread/start",
+            requestedResumeThreadId: context.requestedResumeThreadId ?? null,
             resolvedThreadId: nextThreadId,
+            requestedRuntimeMode: context.session.runtimeMode,
           });
           const stamp = yield* makeEventStamp();
           yield* offerRuntimeEvent({
@@ -2774,6 +2778,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(fastMode ? { fastMode: true } : {}),
         };
 
+        yield* Effect.logInfo("claude thread opening", {
+          threadId,
+          requestedRuntimeMode: input.runtimeMode,
+          requestedModel: modelSelection?.model ?? null,
+          requestedCwd: input.cwd ?? null,
+          resumeThreadId: existingResumeSessionId ?? null,
+        });
+
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           ...(modelSelection?.model ? { model: modelSelection.model } : {}),
@@ -2839,6 +2851,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           startedAt,
           basePermissionMode: permissionMode,
           threadOpenMethod: existingResumeSessionId ? "resume" : "start",
+          requestedResumeThreadId: existingResumeSessionId,
           resumeSessionId: sessionId,
           pendingApprovals,
           pendingUserInputs,

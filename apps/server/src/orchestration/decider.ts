@@ -245,12 +245,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.interaction-mode.set": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = nowIso();
+      if (thread.interactionMode !== command.interactionMode) {
+        yield* Effect.logInfo("thread interaction mode changed", {
+          threadId: command.threadId,
+          previousInteractionMode: thread.interactionMode,
+          nextInteractionMode: command.interactionMode,
+          commandId: command.commandId,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
