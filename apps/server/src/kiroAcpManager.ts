@@ -1006,57 +1006,57 @@ export class KiroAcpManager extends EventEmitter {
           `Kiro session/prompt timed out after ${KIRO_PROMPT_TIMEOUT_MS}ms for session ${session.sessionId}.`,
         ),
     ).then(
-        (result) => {
-          const payload = asRecord(result);
-          const stopReason = normalizeNonEmpty(asString(payload?.stopReason));
-          logger.info("kiro prompt resolved", {
+      (result) => {
+        const payload = asRecord(result);
+        const stopReason = normalizeNonEmpty(asString(payload?.stopReason));
+        logger.info("kiro prompt resolved", {
+          threadId: session.threadId,
+          sessionId: session.sessionId,
+          turnId,
+          stopReason: stopReason ?? null,
+        });
+        this.completeTurn(session, turnId, {
+          state: "completed",
+          ...(stopReason ? { stopReason } : {}),
+        });
+      },
+      async (error) => {
+        if (error instanceof KiroPromptTimeoutError) {
+          logger.error("kiro prompt timed out; attempting cancel", {
             threadId: session.threadId,
             sessionId: session.sessionId,
             turnId,
-            stopReason: stopReason ?? null,
+            timeoutMs: KIRO_PROMPT_TIMEOUT_MS,
           });
-          this.completeTurn(session, turnId, {
-            state: "completed",
-            ...(stopReason ? { stopReason } : {}),
-          });
-        },
-        async (error) => {
-          if (error instanceof KiroPromptTimeoutError) {
-            logger.error("kiro prompt timed out; attempting cancel", {
+          try {
+            await session.rpc.request("session/cancel", {
+              sessionId: session.sessionId,
+            });
+          } catch (cancelError) {
+            logger.error("kiro prompt cancel after timeout failed", {
               threadId: session.threadId,
               sessionId: session.sessionId,
               turnId,
-              timeoutMs: KIRO_PROMPT_TIMEOUT_MS,
+              error: toErrorMessage(cancelError),
             });
-            try {
-              await session.rpc.request("session/cancel", {
-                sessionId: session.sessionId,
-              });
-            } catch (cancelError) {
-              logger.error("kiro prompt cancel after timeout failed", {
-                threadId: session.threadId,
-                sessionId: session.sessionId,
-                turnId,
-                error: toErrorMessage(cancelError),
-              });
-            }
           }
-          logger.error("kiro prompt failed", {
-            threadId: session.threadId,
-            sessionId: session.sessionId,
-            turnId,
-            error: toErrorMessage(error),
-          });
-          if (session.activeTurnId !== turnId) {
-            return;
-          }
-          this.completeTurn(session, turnId, {
-            state: "failed",
-            errorMessage: error instanceof Error ? error.message : String(error),
-          });
-          throw error;
-        },
-      );
+        }
+        logger.error("kiro prompt failed", {
+          threadId: session.threadId,
+          sessionId: session.sessionId,
+          turnId,
+          error: toErrorMessage(error),
+        });
+        if (session.activeTurnId !== turnId) {
+          return;
+        }
+        this.completeTurn(session, turnId, {
+          state: "failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      },
+    );
 
     return {
       threadId: input.threadId,
