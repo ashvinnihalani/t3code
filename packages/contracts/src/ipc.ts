@@ -1,37 +1,25 @@
 import type {
   GitCheckoutInput,
   GitActionProgressEvent,
+  GitCheckoutResponse,
   GitCreateBranchInput,
-  GitProjectCheckoutInput,
-  GitProjectCheckoutResult,
-  GitProjectCreateBranchInput,
-  GitProjectCreateBranchResult,
-  GitProjectCreateWorktreeInput,
-  GitProjectCreateWorktreeResult,
-  GitProjectListBranchesInput,
-  GitProjectListBranchesResult,
-  GitProjectPullInput,
-  GitProjectPullResult,
-  GitProjectRunStackedActionInput,
-  GitProjectRunStackedActionResult,
-  GitProjectStatusInput,
-  GitProjectStatusResult,
+  GitCreateBranchResponse,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
   GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
+  GitCreateWorktreeResponse,
   GitInitInput,
   GitListBranchesInput,
-  GitListBranchesResult,
+  GitListBranchesResponse,
   GitPullInput,
-  GitPullResult,
+  GitPullResponse,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
-  GitRunStackedActionResult,
+  GitRunStackedActionResponse,
   GitStatusInput,
-  GitStatusResult,
+  GitStatusResponse,
 } from "./git";
 import type {
   ProjectOpenInEditorInput,
@@ -166,35 +154,20 @@ export interface NativeApi {
   };
   git: {
     // Existing branch/worktree API
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
+    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResponse>;
+    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResponse>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    createBranch: (input: GitCreateBranchInput) => Promise<void>;
-    checkout: (input: GitCheckoutInput) => Promise<void>;
+    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResponse>;
+    checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResponse>;
     init: (input: GitInitInput) => Promise<void>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
-    projectListBranches: (
-      input: GitProjectListBranchesInput,
-    ) => Promise<GitProjectListBranchesResult>;
-    projectCreateWorktree: (
-      input: GitProjectCreateWorktreeInput,
-    ) => Promise<GitProjectCreateWorktreeResult>;
-    projectCreateBranch: (
-      input: GitProjectCreateBranchInput,
-    ) => Promise<GitProjectCreateBranchResult>;
-    projectCheckout: (input: GitProjectCheckoutInput) => Promise<GitProjectCheckoutResult>;
-    projectPull: (input: GitProjectPullInput) => Promise<GitProjectPullResult>;
-    projectStatus: (input: GitProjectStatusInput) => Promise<GitProjectStatusResult>;
-    projectRunStackedAction: (
-      input: GitProjectRunStackedActionInput,
-    ) => Promise<GitProjectRunStackedActionResult>;
     // Stacked action API
-    pull: (input: GitPullInput) => Promise<GitPullResult>;
-    status: (input: GitStatusInput) => Promise<GitStatusResult>;
-    runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
+    pull: (input: GitPullInput) => Promise<GitPullResponse>;
+    status: (input: GitStatusInput) => Promise<GitStatusResponse>;
+    runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResponse>;
     onActionProgress: (callback: (event: GitActionProgressEvent) => void) => () => void;
   };
   contextMenu: {

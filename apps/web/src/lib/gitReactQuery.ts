@@ -15,49 +15,57 @@ const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 export interface GitQueryTarget {
   cwd: string | null;
   projectId: ProjectId | null;
+  repos?: ReadonlyArray<{ repoId: string; branch?: string | null }> | undefined;
 }
 
-function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: ProjectId } {
+function toGitApiTarget(target: GitQueryTarget): {
+  cwd: string;
+  projectId?: ProjectId;
+  repos?: Array<{ repoId: string; branch?: string | null }>;
+} {
   if (!target.cwd) {
     throw new Error("Git is unavailable.");
   }
   return {
     cwd: target.cwd,
     ...(target.projectId ? { projectId: target.projectId } : {}),
+    ...(target.repos ? { repos: [...target.repos] } : {}),
   };
 }
 
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (target: GitQueryTarget, settings?: GitRequestSettings) =>
-    ["git", "status", target.projectId, target.cwd, settings?.githubBinaryPath ?? null] as const,
-  branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
-  projectStatus: (projectId: ProjectId | null, settings?: GitRequestSettings) =>
-    ["git", "project-status", projectId, settings?.githubBinaryPath ?? null] as const,
-  projectBranches: (projectId: ProjectId | null) => ["git", "project-branches", projectId] as const,
+    [
+      "git",
+      "status",
+      target.projectId,
+      target.cwd,
+      target.repos ?? null,
+      settings?.githubBinaryPath ?? null,
+    ] as const,
+  branches: (target: GitQueryTarget) =>
+    ["git", "branches", target.projectId, target.cwd, target.repos ?? null] as const,
 };
 
 export const gitMutationKeys = {
   init: (target: GitQueryTarget) =>
-    ["git", "mutation", "init", target.projectId, target.cwd] as const,
+    ["git", "mutation", "init", target.projectId, target.cwd, target.repos ?? null] as const,
   checkout: (target: GitQueryTarget) =>
-    ["git", "mutation", "checkout", target.projectId, target.cwd] as const,
+    ["git", "mutation", "checkout", target.projectId, target.cwd, target.repos ?? null] as const,
   runStackedAction: (target: GitQueryTarget) =>
-    ["git", "mutation", "run-stacked-action", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "run-stacked-action",
+      target.projectId,
+      target.cwd,
+      target.repos ?? null,
+    ] as const,
   pull: (target: GitQueryTarget) =>
-    ["git", "mutation", "pull", target.projectId, target.cwd] as const,
+    ["git", "mutation", "pull", target.projectId, target.cwd, target.repos ?? null] as const,
   preparePullRequestThread: (target: GitQueryTarget) =>
     ["git", "mutation", "prepare-pull-request-thread", target.projectId, target.cwd] as const,
-  projectCreateBranch: (projectId: ProjectId | null) =>
-    ["git", "mutation", "project-create-branch", projectId] as const,
-  projectCheckout: (projectId: ProjectId | null) =>
-    ["git", "mutation", "project-checkout", projectId] as const,
-  projectCreateWorktree: (projectId: ProjectId | null) =>
-    ["git", "mutation", "project-create-worktree", projectId] as const,
-  projectPull: (projectId: ProjectId | null) =>
-    ["git", "mutation", "project-pull", projectId] as const,
-  projectRunStackedAction: (projectId: ProjectId | null) =>
-    ["git", "mutation", "project-run-stacked-action", projectId] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
@@ -90,48 +98,6 @@ export function gitBranchesQueryOptions(target: GitQueryTarget) {
       return api.git.listBranches(toGitApiTarget(target));
     },
     enabled: target.cwd !== null,
-    staleTime: GIT_BRANCHES_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
-  });
-}
-
-export function gitProjectStatusQueryOptions(input: {
-  projectId: ProjectId | null;
-  settings?: GitRequestSettings;
-}) {
-  return queryOptions({
-    queryKey: gitQueryKeys.projectStatus(input.projectId, input.settings),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectStatus({
-        projectId: input.projectId,
-        ...(input.settings ? { settings: input.settings } : {}),
-      });
-    },
-    enabled: input.projectId !== null,
-    staleTime: GIT_STATUS_STALE_TIME_MS,
-    refetchOnWindowFocus: "always",
-    refetchOnReconnect: "always",
-    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
-  });
-}
-
-export function gitProjectBranchesQueryOptions(projectId: ProjectId | null) {
-  return queryOptions({
-    queryKey: gitQueryKeys.projectBranches(projectId),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      if (!projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectListBranches({ projectId });
-    },
-    enabled: projectId !== null,
     staleTime: GIT_BRANCHES_STALE_TIME_MS,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -234,7 +200,6 @@ export function gitRunStackedActionMutationOptions(input: {
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
         ...(input.settings ? { settings: input.settings } : {}),
-        ...(input.settings ? { settings: input.settings } : {}),
       });
     },
     onSettled: async () => {
@@ -264,12 +229,14 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
     mutationFn: async ({
       cwd,
       projectId,
+      repos,
       branch,
       newBranch,
       path,
     }: {
       cwd: string;
       projectId?: ProjectId | null;
+      repos?: ReadonlyArray<{ repoId: string; branch?: string | null }> | undefined;
       branch: string;
       newBranch: string;
       path?: string | null;
@@ -278,6 +245,7 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
       return api.git.createWorktree({
         cwd,
         ...(projectId ? { projectId } : {}),
+        ...(repos ? { repos: [...repos] } : {}),
         branch,
         newBranch,
         path: path ?? null,
@@ -334,134 +302,6 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
       });
     },
     mutationKey: gitMutationKeys.preparePullRequestThread(input.target),
-    onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
-    },
-  });
-}
-
-export function gitProjectCreateBranchMutationOptions(input: {
-  projectId: ProjectId | null;
-  queryClient: QueryClient;
-}) {
-  return mutationOptions({
-    mutationKey: gitMutationKeys.projectCreateBranch(input.projectId),
-    mutationFn: async (branch: string) => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectCreateBranch({ projectId: input.projectId, branch });
-    },
-    onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
-    },
-  });
-}
-
-export function gitProjectCheckoutMutationOptions(input: {
-  projectId: ProjectId | null;
-  queryClient: QueryClient;
-}) {
-  return mutationOptions({
-    mutationKey: gitMutationKeys.projectCheckout(input.projectId),
-    mutationFn: async (branch: string) => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectCheckout({ projectId: input.projectId, branch });
-    },
-    onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
-    },
-  });
-}
-
-export function gitProjectCreateWorktreeMutationOptions(input: {
-  projectId: ProjectId | null;
-  queryClient: QueryClient;
-}) {
-  return mutationOptions({
-    mutationKey: gitMutationKeys.projectCreateWorktree(input.projectId),
-    mutationFn: async ({
-      branch,
-      newBranch,
-      path,
-    }: {
-      branch: string;
-      newBranch?: string;
-      path?: string | null;
-    }) => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectCreateWorktree({
-        projectId: input.projectId,
-        branch,
-        ...(newBranch ? { newBranch } : {}),
-        path: path ?? null,
-      });
-    },
-    onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
-    },
-  });
-}
-
-export function gitProjectPullMutationOptions(input: {
-  projectId: ProjectId | null;
-  queryClient: QueryClient;
-}) {
-  return mutationOptions({
-    mutationKey: gitMutationKeys.projectPull(input.projectId),
-    mutationFn: async () => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectPull({ projectId: input.projectId });
-    },
-    onSettled: async () => {
-      await invalidateGitQueries(input.queryClient);
-    },
-  });
-}
-
-export function gitProjectRunStackedActionMutationOptions(input: {
-  projectId: ProjectId | null;
-  queryClient: QueryClient;
-  settings?: GitRequestSettings;
-  modelSelection: ModelSelection;
-}) {
-  return mutationOptions({
-    mutationKey: gitMutationKeys.projectRunStackedAction(input.projectId),
-    mutationFn: async ({
-      actionId,
-      action,
-      commitMessage,
-      featureBranch,
-    }: {
-      actionId: string;
-      action: GitStackedAction;
-      commitMessage?: string;
-      featureBranch?: boolean;
-    }) => {
-      const api = ensureNativeApi();
-      if (!input.projectId) {
-        throw new Error("Git is unavailable.");
-      }
-      return api.git.projectRunStackedAction({
-        projectId: input.projectId,
-        actionId,
-        modelSelection: input.modelSelection,
-        action,
-        ...(commitMessage ? { commitMessage } : {}),
-        ...(featureBranch ? { featureBranch } : {}),
-        ...(input.settings ? { settings: input.settings } : {}),
-      });
-    },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
     },

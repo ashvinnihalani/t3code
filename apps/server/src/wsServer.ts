@@ -1008,6 +1008,53 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     };
   });
 
+  const resolveUnifiedGitProjectExecution = Effect.fnUntraced(function* (input: {
+    projectId?: ProjectId | undefined;
+    repos?:
+      | ReadonlyArray<{
+          repoId: string;
+          branch?: string | null | undefined;
+        }>
+      | undefined;
+  }) {
+    if (!input.projectId) {
+      return null;
+    }
+    const project = yield* resolveProjectGitMetadata(input.projectId);
+    const requestedRepoIds = new Set((input.repos ?? []).map((repo) => repo.repoId));
+    const gitRepos =
+      requestedRepoIds.size === 0
+        ? project.gitRepos
+        : project.gitRepos.filter((repo) => requestedRepoIds.has(repo.id));
+    return {
+      ...project,
+      gitRepos,
+    };
+  });
+
+  const requireUnifiedGitProjectExecution = Effect.fnUntraced(function* (input: {
+    projectId?: ProjectId | undefined;
+    repos?:
+      | ReadonlyArray<{
+          repoId: string;
+          branch?: string | null | undefined;
+        }>
+      | undefined;
+  }) {
+    const execution = yield* resolveUnifiedGitProjectExecution(input);
+    if (!execution || !input.projectId) {
+      return yield* new RouteRequestError({
+        message: "Project Git execution requires a valid projectId.",
+      });
+    }
+    return {
+      projectId: input.projectId,
+      workspaceRoot: execution.workspaceRoot,
+      gitRepos: execution.gitRepos,
+      ...(execution.remote ? { remote: execution.remote } : {}),
+    };
+  });
+
   const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
     readonly projectId: ProjectId;
     readonly operation: string;
@@ -1247,23 +1294,88 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitStatus: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectStatus({
+            ...projectInput,
+            ...(body.repos ? { repos: body.repos } : {}),
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* gitManager.status({
+        const result = yield* gitManager.status({
           ...body,
           ...(remote ? { remote } : {}),
         });
+        return {
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              eligible: result.hasWorkingTreeChanges || result.aheadCount > 0,
+              ...(result.hasWorkingTreeChanges ? {} : { skippedReason: "clean" as const }),
+              status: result,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitPull: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectPull({
+            ...projectInput,
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* git.pullCurrentBranch(body.cwd, remote);
+        const result = yield* git.pullCurrentBranch(body.cwd, remote);
+        return {
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              status: result.status,
+              ...(result.branch ? { branch: result.branch } : {}),
+              ...(result.upstreamBranch ? { upstreamBranch: result.upstreamBranch } : {}),
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectRunStackedAction(
+            {
+              ...projectInput,
+              action: body.action,
+              ...(body.commitMessage ? { commitMessage: body.commitMessage } : {}),
+              ...(body.featureBranch !== undefined ? { featureBranch: body.featureBranch } : {}),
+              actionId: body.actionId,
+              settings: body.settings,
+              modelSelection: body.modelSelection,
+            },
+            {
+              actionId: body.actionId,
+              progressReporter: {
+                publish: (event) =>
+                  pushBus
+                    .publishClient(ws, WS_CHANNELS.gitActionProgress, event)
+                    .pipe(Effect.asVoid),
+              },
+            },
+          );
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* gitManager.runStackedAction(
+        const result = yield* gitManager.runStackedAction(
           {
             ...body,
             ...(remote ? { remote } : {}),
@@ -1276,6 +1388,19 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             },
           },
         );
+        return {
+          action: result.action,
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              eligible: true,
+              result,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitResolvePullRequest: {
@@ -1296,108 +1421,66 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         });
       }
 
-      case WS_METHODS.gitProjectStatus: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectStatus({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
-      case WS_METHODS.gitProjectPull: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectPull({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
-      case WS_METHODS.gitProjectRunStackedAction: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectRunStackedAction(
-          {
-            ...body,
-            workspaceRoot: project.workspaceRoot,
-            gitRepos: project.gitRepos,
-            ...(project.remote ? { remote: project.remote } : {}),
-          },
-          {
-            actionId: body.actionId,
-            progressReporter: {
-              publish: (event) =>
-                pushBus.publishClient(ws, WS_CHANNELS.gitActionProgress, event).pipe(Effect.asVoid),
-            },
-          },
-        );
-      }
-
-      case WS_METHODS.gitProjectListBranches: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectListBranches({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
-      case WS_METHODS.gitProjectCreateWorktree: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectCreateWorktree({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
-      case WS_METHODS.gitProjectCreateBranch: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectCreateBranch({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
-      case WS_METHODS.gitProjectCheckout: {
-        const body = stripRequestTag(request.body);
-        const project = yield* resolveProjectGitMetadata(body.projectId);
-        return yield* gitManager.projectCheckout({
-          ...body,
-          workspaceRoot: project.workspaceRoot,
-          gitRepos: project.gitRepos,
-          ...(project.remote ? { remote: project.remote } : {}),
-        });
-      }
-
       case WS_METHODS.gitListBranches: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectListBranches({
+            ...projectInput,
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* git.listBranches({
+        const result = yield* git.listBranches({
           ...body,
           ...(remote ? { remote } : {}),
         });
+        return {
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              branches: result.branches,
+              isRepo: result.isRepo,
+              hasOriginRemote: result.hasOriginRemote,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitCreateWorktree: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectCreateWorktree({
+            ...projectInput,
+            branch: body.branch,
+            ...(body.newBranch ? { newBranch: body.newBranch } : {}),
+            path: body.path,
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* git.createWorktree({
+        const result = yield* git.createWorktree({
           ...body,
           ...(remote ? { remote } : {}),
         });
+        return {
+          parentPath: result.worktree.path,
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              branch: result.worktree.branch,
+              worktreePath: result.worktree.path,
+              status: "created" as const,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitRemoveWorktree: {
@@ -1411,22 +1494,62 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitCreateBranch: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectCreateBranch({
+            ...projectInput,
+            branch: body.branch,
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* git.createBranch({
+        yield* git.createBranch({
           ...body,
           ...(remote ? { remote } : {}),
         });
+        return {
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              branch: body.branch,
+              status: "created" as const,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitCheckout: {
         const body = stripRequestTag(request.body);
+        const projectExecution = yield* resolveUnifiedGitProjectExecution(body);
+        if (projectExecution && projectExecution.gitRepos.length > 0) {
+          const projectInput = yield* requireUnifiedGitProjectExecution(body);
+          return yield* gitManager.projectCheckout({
+            ...projectInput,
+            branch: body.branch,
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
-        return yield* Effect.scoped(
+        yield* Effect.scoped(
           git.checkoutBranch({
             ...body,
             ...(remote ? { remote } : {}),
           }),
         );
+        return {
+          repos: [
+            {
+              repoId: body.cwd,
+              cwd: body.cwd,
+              relativePath: ".",
+              displayName: nodePath.basename(body.cwd),
+              branch: body.branch,
+              status: "checked_out" as const,
+            },
+          ],
+        };
       }
 
       case WS_METHODS.gitInit: {

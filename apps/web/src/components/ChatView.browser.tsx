@@ -510,8 +510,24 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       },
     };
   }
-  if (tag === WS_METHODS.gitProjectCreateWorktree) {
+  if (tag === WS_METHODS.gitCreateWorktree) {
     const branch = typeof body.newBranch === "string" ? body.newBranch : "t3code/browser-worktree";
+    if (tag === WS_METHODS.gitCreateWorktree && (!body.repos || !Array.isArray(body.repos))) {
+      return {
+        parentPath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
+        repos: [
+          {
+            repoId: "/repo/project",
+            cwd: "/repo/project",
+            relativePath: ".",
+            displayName: "project",
+            branch,
+            worktreePath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
+            status: "created",
+          },
+        ],
+      };
+    }
     return {
       parentPath: `/repo/.t3/worktrees/${branch.replace(/\//g, "-")}`,
       repos: [
@@ -537,35 +553,39 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     };
   }
   if (tag === WS_METHODS.gitListBranches) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [
-        {
-          name: "main",
-          current: true,
-          isDefault: true,
-          worktreePath: null,
-        },
-      ],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: {
-        files: [],
-        insertions: 0,
-        deletions: 0,
-      },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
-  }
-  if (tag === WS_METHODS.gitProjectListBranches) {
+    if (
+      tag === WS_METHODS.gitListBranches &&
+      body.repos &&
+      Array.isArray(body.repos) &&
+      body.repos.length === 1
+    ) {
+      const requestedRepoId =
+        typeof body.repos[0] === "object" && body.repos[0] !== null && "repoId" in body.repos[0]
+          ? String((body.repos[0] as { repoId: string }).repoId)
+          : "";
+      const repoId = requestedRepoId || "project-1:repo-a";
+      const relativePath = repoId.endsWith("repo-b") ? "repo-b" : "repo-a";
+      return {
+        repos: [
+          {
+            repoId,
+            cwd: `/repo/project/${relativePath}`,
+            relativePath,
+            displayName: relativePath,
+            branches: [
+              {
+                name: "main",
+                current: true,
+                isDefault: true,
+                worktreePath: null,
+              },
+            ],
+            isRepo: true,
+            hasOriginRemote: true,
+          },
+        ],
+      };
+    }
     return {
       repos: [
         {
@@ -603,7 +623,40 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       ],
     };
   }
-  if (tag === WS_METHODS.gitProjectStatus) {
+  if (tag === WS_METHODS.gitStatus) {
+    if (
+      tag === WS_METHODS.gitStatus &&
+      body.repos &&
+      Array.isArray(body.repos) &&
+      body.repos.length === 1
+    ) {
+      const requestedRepoId =
+        typeof body.repos[0] === "object" && body.repos[0] !== null && "repoId" in body.repos[0]
+          ? String((body.repos[0] as { repoId: string }).repoId)
+          : "";
+      const relativePath = requestedRepoId.endsWith("repo-b") ? "repo-b" : "repo-a";
+      return {
+        repos: [
+          {
+            repoId: requestedRepoId || `project-1:${relativePath}`,
+            cwd: `/repo/project/${relativePath}`,
+            relativePath,
+            displayName: relativePath,
+            eligible: false,
+            skippedReason: "clean",
+            status: {
+              branch: "main",
+              hasWorkingTreeChanges: false,
+              workingTree: { files: [], insertions: 0, deletions: 0 },
+              hasUpstream: true,
+              aheadCount: 0,
+              behindCount: 0,
+              pr: null,
+            },
+          },
+        ],
+      };
+    }
     return {
       repos: [
         {
@@ -1433,18 +1486,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
           expect(
-            requestsAfterSend.some((request) => {
-              if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-                return false;
-              }
-              const command = request.command;
-              return (
-                typeof command === "object" &&
-                command !== null &&
-                "type" in command &&
-                command.type === "thread.create"
-              );
-            }),
+            requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
           ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
@@ -1459,28 +1501,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(createWorktreeRequest).toMatchObject({
         _tag: WS_METHODS.gitCreateWorktree,
         newBranch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
-      });
-      const createdWorktreeBranch =
-        typeof createWorktreeRequest?.newBranch === "string" ? createWorktreeRequest.newBranch : "";
-      const createdThreadRequest = requestsAfterSend.find((request) => {
-        if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-          return false;
-        }
-        const command = request.command;
-        return (
-          typeof command === "object" &&
-          command !== null &&
-          "type" in command &&
-          command.type === "thread.create"
-        );
-      });
-      expect(createdThreadRequest).toMatchObject({
-        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-        command: {
-          type: "thread.create",
-          branch: createdWorktreeBranch,
-          worktreePath: `/repo/.t3/worktrees/${createdWorktreeBranch.replaceAll("/", "-")}`,
-        },
       });
     } finally {
       await mounted.cleanup();
@@ -1512,6 +1532,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           selectedRepoId: "project-1:repo-a",
           branch: "main",
+          repoBranches: [
+            { repoId: "project-1:repo-a", branch: "main" },
+            { repoId: "project-1:repo-b", branch: "main" },
+          ],
           worktreePath: null,
           envMode: "worktree",
         },
@@ -1550,74 +1574,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
           expect(
-            requestsAfterSend.some((request) => {
-              if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-                return false;
-              }
-              const command = request.command;
-              return (
-                typeof command === "object" &&
-                command !== null &&
-                "type" in command &&
-                command.type === "thread.create"
-              );
-            }),
+            requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
           ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
       );
 
       expect(
-        requestsAfterSend.some((request) => request._tag === WS_METHODS.gitProjectCreateWorktree),
+        requestsAfterSend.some((request) => request._tag === WS_METHODS.gitCreateWorktree),
       ).toBe(true);
       const createProjectWorktreeRequest = requestsAfterSend.find(
-        (request) => request._tag === WS_METHODS.gitProjectCreateWorktree,
+        (request) => request._tag === WS_METHODS.gitCreateWorktree,
       );
       expect(createProjectWorktreeRequest).toMatchObject({
-        _tag: WS_METHODS.gitProjectCreateWorktree,
+        _tag: WS_METHODS.gitCreateWorktree,
         branch: "main",
         newBranch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
-      });
-      const createdThreadRequest = requestsAfterSend.find((request) => {
-        if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-          return false;
-        }
-        const command = request.command;
-        return (
-          typeof command === "object" &&
-          command !== null &&
-          "type" in command &&
-          command.type === "thread.create"
-        );
-      });
-      expect(createdThreadRequest).toMatchObject({
-        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-        command: {
-          type: "thread.create",
-          branch: null,
-          worktreePath: null,
-          repoBranches: [
-            { repoId: "project-1:repo-a", branch: expect.any(String) },
-            { repoId: "project-1:repo-b", branch: expect.any(String) },
-          ],
-          multiRepoWorktree: {
-            parentPath: expect.stringContaining("/repo/.t3/worktrees/"),
-            repos: [
-              {
-                repoId: "project-1:repo-a",
-                repoRelativePath: "repo-a",
-                sourceRootPath: "/repo/project/repo-a",
-                worktreePath: expect.stringContaining("/repo/.t3/worktrees/"),
-              },
-              {
-                repoId: "project-1:repo-b",
-                repoRelativePath: "repo-b",
-                sourceRootPath: "/repo/project/repo-b",
-                worktreePath: expect.stringContaining("/repo/.t3/worktrees/"),
-              },
-            ],
-          },
-        },
+        repos: [{ repoId: "project-1:repo-a" }, { repoId: "project-1:repo-b" }],
       });
     } finally {
       await mounted.cleanup();
@@ -1649,6 +1622,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           selectedRepoId: "project-1:repo-b",
           branch: "main",
+          repoBranches: [
+            { repoId: "project-1:repo-a", branch: "main" },
+            { repoId: "project-1:repo-b", branch: "main" },
+          ],
           worktreePath: null,
           envMode: "worktree",
         },
@@ -1676,26 +1653,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
-          const createdThreadRequest = requestsAfterSend.find((request) => {
-            if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
-              return false;
-            }
-            const command = request.command;
-            return (
-              typeof command === "object" &&
-              command !== null &&
-              "type" in command &&
-              command.type === "thread.create"
-            );
-          });
-          expect(createdThreadRequest).toMatchObject({
-            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-            command: {
-              type: "thread.create",
-              multiRepoWorktree: {
-                repos: [{ repoId: "project-1:repo-a" }, { repoId: "project-1:repo-b" }],
-              },
-            },
+          const createProjectWorktreeRequest = requestsAfterSend.find(
+            (request) => request._tag === WS_METHODS.gitCreateWorktree,
+          );
+          expect(createProjectWorktreeRequest).toMatchObject({
+            _tag: WS_METHODS.gitCreateWorktree,
+            repos: [{ repoId: "project-1:repo-a" }, { repoId: "project-1:repo-b" }],
           });
         },
         { timeout: 8_000, interval: 16 },

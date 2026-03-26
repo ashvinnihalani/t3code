@@ -207,7 +207,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     [activeCwd, activeProject?.id],
   );
   const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
-  const isGitRepo = isMultiRepoProject ? true : (gitBranchesQuery.data?.isRepo ?? true);
+  const isGitRepo = isMultiRepoProject ? true : (gitBranchesQuery.data?.repos[0]?.isRepo ?? true);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(

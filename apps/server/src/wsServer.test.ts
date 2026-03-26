@@ -57,6 +57,20 @@ import { GitCommandError, GitManagerError } from "./git/Errors.ts";
 import { MigrationError } from "@effect/sql-sqlite-bun/SqliteMigrator";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 
+const { runProcessMock } = vi.hoisted(() => ({
+  runProcessMock: vi.fn(async () => ({
+    stdout: "",
+    stderr: "",
+    code: 0,
+    signal: null,
+    timedOut: false,
+  })),
+}));
+
+vi.mock("./processRunner", () => ({
+  runProcess: runProcessMock,
+}));
+
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asProviderItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
@@ -720,6 +734,14 @@ describe("WebSocket Server", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     vi.restoreAllMocks();
+    runProcessMock.mockReset();
+    runProcessMock.mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      code: 0,
+      signal: null,
+      timedOut: false,
+    });
   });
 
   it("sends welcome message on connect", async () => {
@@ -2042,7 +2064,19 @@ describe("WebSocket Server", () => {
 
     const listResponse = await sendRequest(ws, WS_METHODS.gitListBranches, { cwd: "/repo/path" });
     expect(listResponse.error).toBeUndefined();
-    expect(listResponse.result).toEqual({ branches: [], isRepo: false, hasOriginRemote: false });
+    expect(listResponse.result).toEqual({
+      repos: [
+        {
+          repoId: "/repo/path",
+          cwd: "/repo/path",
+          relativePath: ".",
+          displayName: "path",
+          branches: [],
+          isRepo: false,
+          hasOriginRemote: false,
+        },
+      ],
+    });
     expect(listBranches).toHaveBeenCalledWith({ cwd: "/repo/path" });
 
     const initResponse = await sendRequest(ws, WS_METHODS.gitInit, { cwd: "/repo/path" });
@@ -2092,7 +2126,18 @@ describe("WebSocket Server", () => {
       cwd: "/test",
     });
     expect(response.error).toBeUndefined();
-    expect(response.result).toEqual(statusResult);
+    expect(response.result).toEqual({
+      repos: [
+        {
+          repoId: "/test",
+          cwd: "/test",
+          relativePath: ".",
+          displayName: "test",
+          eligible: true,
+          status: statusResult,
+        },
+      ],
+    });
     expect(status).toHaveBeenCalledWith({ cwd: "/test" });
   });
 

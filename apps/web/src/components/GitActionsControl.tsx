@@ -1,7 +1,7 @@
 import type {
   GitActionProgressEvent,
-  GitProjectPullResult,
-  GitProjectRunStackedActionResult,
+  GitPullResponse,
+  GitRunStackedActionResponse,
   GitStackedAction,
   GitStatusResult,
   ProjectRemoteTarget,
@@ -48,10 +48,6 @@ import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,
   gitMutationKeys,
-  gitProjectBranchesQueryOptions,
-  gitProjectPullMutationOptions,
-  gitProjectRunStackedActionMutationOptions,
-  gitProjectStatusQueryOptions,
   gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
   gitStatusQueryOptions,
@@ -261,30 +257,26 @@ export default function GitActionsControl({
     });
   }, [threadToastData]);
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(
-    gitStatusQueryOptions(gitTarget, gitRequestSettings),
-  );
-  const { data: projectGitStatus = null } = useQuery(
-    gitProjectStatusQueryOptions({
-      projectId: isMultiRepoProject ? gitTarget.projectId : null,
-      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+  const unifiedTarget = useMemo(
+    () => ({
+      ...gitTarget,
+      ...(isMultiRepoProject ? { repos: undefined } : {}),
     }),
+    [gitTarget, isMultiRepoProject],
   );
-
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitTarget));
-  const { data: projectBranchList = null } = useQuery(
-    gitProjectBranchesQueryOptions(isMultiRepoProject ? gitTarget.projectId : null),
+  const { data: gitStatusResponse = null, error: gitStatusError } = useQuery(
+    gitStatusQueryOptions(unifiedTarget, gitRequestSettings),
   );
+  const { data: branchListResponse = null } = useQuery(gitBranchesQueryOptions(unifiedTarget));
   // Default to true while loading so we don't flash init controls.
-  const isRepo = isMultiRepoProject
-    ? (projectBranchList?.repos.some((repo) => repo.isRepo) ?? true)
-    : (branchList?.isRepo ?? true);
-  const hasOriginRemote = isMultiRepoProject
-    ? (projectBranchList?.repos.some((repo) => repo.hasOriginRemote) ?? false)
-    : (branchList?.hasOriginRemote ?? false);
-  const currentBranch = branchList?.branches.find((branch) => branch.current)?.name ?? null;
+  const isRepo = branchListResponse?.repos.some((repo) => repo.isRepo) ?? true;
+  const hasOriginRemote = branchListResponse?.repos.some((repo) => repo.hasOriginRemote) ?? false;
+  const singleRepoBranchState = branchListResponse?.repos[0] ?? null;
+  const currentBranch =
+    singleRepoBranchState?.branches.find((branch) => branch.current)?.name ?? null;
+  const singleRepoStatus = gitStatusResponse?.repos[0]?.status ?? null;
   const isGitStatusOutOfSync =
-    !!gitStatus?.branch && !!currentBranch && gitStatus.branch !== currentBranch;
+    !!singleRepoStatus?.branch && !!currentBranch && singleRepoStatus.branch !== currentBranch;
 
   useEffect(() => {
     if (!isGitStatusOutOfSync) return;
@@ -293,12 +285,12 @@ export default function GitActionsControl({
 
   const gitStatusForActions = useMemo(() => {
     if (!isMultiRepoProject) {
-      return isGitStatusOutOfSync ? null : gitStatus;
+      return isGitStatusOutOfSync ? null : singleRepoStatus;
     }
-    if (!projectGitStatus) {
+    if (!gitStatusResponse) {
       return null;
     }
-    const repos = projectGitStatus.repos;
+    const repos = gitStatusResponse.repos;
     const hasWorkingTreeChanges = repos.some((repo) => repo.status.hasWorkingTreeChanges);
     const aheadCount = repos.reduce((sum, repo) => sum + repo.status.aheadCount, 0);
     const behindCount = repos.some((repo) => repo.status.behindCount > 0) ? 1 : 0;
@@ -324,7 +316,7 @@ export default function GitActionsControl({
       behindCount,
       pr: null,
     };
-  }, [gitStatus, isGitStatusOutOfSync, isMultiRepoProject, projectGitStatus]);
+  }, [singleRepoStatus, isGitStatusOutOfSync, isMultiRepoProject, gitStatusResponse]);
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
@@ -334,45 +326,32 @@ export default function GitActionsControl({
   const initMutation = useMutation(gitInitMutationOptions({ target: gitTarget, queryClient }));
 
   const runImmediateGitActionMutation = useMutation<any, Error, any>(
-    (isMultiRepoProject
-      ? gitProjectRunStackedActionMutationOptions({
-          projectId: gitTarget.projectId,
-          queryClient,
-          ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
-          modelSelection: gitActionModelSelection,
-        })
-      : gitRunStackedActionMutationOptions({
-          target: gitTarget,
-          queryClient,
-          ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
-          modelSelection: gitActionModelSelection,
-        })) as any,
+    gitRunStackedActionMutationOptions({
+      target: unifiedTarget,
+      queryClient,
+      ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+      modelSelection: gitActionModelSelection,
+    }) as any,
   );
   const pullMutation = useMutation<any, Error, void>(
-    (isMultiRepoProject
-      ? gitProjectPullMutationOptions({ projectId: gitTarget.projectId, queryClient })
-      : gitPullMutationOptions({ target: gitTarget, queryClient })) as any,
+    gitPullMutationOptions({ target: unifiedTarget, queryClient }) as any,
   );
 
   const isRunStackedActionRunning =
     useIsMutating({
-      mutationKey: isMultiRepoProject
-        ? gitMutationKeys.projectRunStackedAction(gitTarget.projectId)
-        : gitMutationKeys.runStackedAction(gitTarget),
+      mutationKey: gitMutationKeys.runStackedAction(unifiedTarget),
     }) > 0;
   const isPullRunning =
     useIsMutating({
-      mutationKey: isMultiRepoProject
-        ? gitMutationKeys.projectPull(gitTarget.projectId)
-        : gitMutationKeys.pull(gitTarget),
+      mutationKey: gitMutationKeys.pull(unifiedTarget),
     }) > 0;
   const isGitActionRunning = isRunStackedActionRunning || isPullRunning;
   const isDefaultBranch = useMemo(() => {
     const branchName = gitStatusForActions?.branch;
     if (!branchName) return false;
-    const current = branchList?.branches.find((branch) => branch.name === branchName);
+    const current = singleRepoBranchState?.branches.find((branch) => branch.name === branchName);
     return current?.isDefault ?? (branchName === "main" || branchName === "master");
-  }, [branchList?.branches, gitStatusForActions?.branch]);
+  }, [singleRepoBranchState?.branches, gitStatusForActions?.branch]);
 
   const gitActionMenuItems = useMemo(
     () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote),
@@ -607,7 +586,7 @@ export default function GitActionsControl({
         const result = (await promise) as any;
         activeGitActionProgressRef.current = null;
         if ("repos" in result) {
-          const projectResult = result as GitProjectRunStackedActionResult;
+          const projectResult = result as GitRunStackedActionResponse;
           const successfulRepos = projectResult.repos.filter((repo) => !repo.error && repo.result);
           const failedRepos = projectResult.repos.filter((repo) => !!repo.error);
           const skippedRepos = projectResult.repos.filter((repo) => !repo.error && !repo.result);
@@ -775,7 +754,7 @@ export default function GitActionsControl({
         loading: { title: "Pulling...", data: threadToastData },
         success: (result) => {
           if (isMultiRepoProject) {
-            const projectResult = result as GitProjectPullResult;
+            const projectResult = result as GitPullResponse;
             return {
               title: `Pulled ${projectResult.repos.filter((repo) => repo.status === "pulled").length} repos`,
               description: `${projectResult.repos.filter((repo) => repo.status === "skipped_up_to_date").length} repos were already synchronized.`,

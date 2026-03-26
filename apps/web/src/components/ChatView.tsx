@@ -33,11 +33,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import {
-  gitBranchesQueryOptions,
-  gitCreateWorktreeMutationOptions,
-  gitProjectCreateWorktreeMutationOptions,
-} from "~/lib/gitReactQuery";
+import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 import { isElectron } from "../env";
@@ -515,12 +511,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = projects.find((p) => p.id === activeThread?.projectId);
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
-  const createProjectWorktreeMutation = useMutation(
-    gitProjectCreateWorktreeMutationOptions({
-      projectId: activeProject?.id ?? null,
-      queryClient,
-    }),
-  );
   const selectedRepo =
     activeProject && activeThread?.selectedRepoId
       ? (activeProject.gitRepos?.find((repo) => repo.id === activeThread.selectedRepoId) ?? null)
@@ -1233,7 +1223,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
   // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = gitRepoCount > 1 ? true : (branchesQuery.data?.isRepo ?? true);
+  const isGitRepo = gitRepoCount > 1 ? true : (branchesQuery.data?.repos[0]?.isRepo ?? true);
   const fallbackComposerThreadId =
     showComposerThreadId && !isGitRepo ? visibleProviderThreadId : null;
   const terminalToggleShortcutLabel = useMemo(
@@ -2649,7 +2639,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         beginSendPhase("preparing-worktree");
         const newBranch = buildTemporaryWorktreeBranchName();
         if (isMultiRepoProject) {
-          const result = await createProjectWorktreeMutation.mutateAsync({
+          const result = await createWorktreeMutation.mutateAsync({
+            cwd: activeProject.cwd,
+            projectId: activeProject.id,
+            repos: (activeProject.gitRepos ?? []).map((repo) => ({ repoId: repo.id })),
             branch: baseBranchForWorktree,
             newBranch,
           });
@@ -2703,19 +2696,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
             branch: baseBranchForWorktree,
             newBranch,
           });
-          nextThreadBranch = result.worktree.branch;
-          nextThreadWorktreePath = result.worktree.path;
+          const createdRepo = result.repos[0];
+          if (!createdRepo || createdRepo.status !== "created" || !createdRepo.worktreePath) {
+            throw new Error("Failed to create worktree.");
+          }
+          nextThreadBranch = createdRepo.branch;
+          nextThreadWorktreePath = createdRepo.worktreePath;
           if (isServerThread) {
             await api.orchestration.dispatchCommand({
               type: "thread.meta.update",
               commandId: newCommandId(),
               threadId: threadIdForSend,
-              branch: result.worktree.branch,
-              worktreePath: result.worktree.path,
+              branch: createdRepo.branch,
+              worktreePath: createdRepo.worktreePath,
             });
             // Keep local thread state in sync immediately so terminal drawer opens
             // with the worktree cwd/env instead of briefly using the project root.
-            setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
+            setStoreThreadBranch(threadIdForSend, createdRepo.branch, createdRepo.worktreePath);
           }
         }
       }

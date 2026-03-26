@@ -96,12 +96,14 @@ export function BranchToolbarBranchSelector({
 
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
   const branchStatusQuery = useQuery(gitStatusQueryOptions(gitTarget));
+  const branchListState = branchesQuery.data?.repos[0] ?? null;
+  const branchStatusState = branchStatusQuery.data?.repos[0]?.status ?? null;
   const branches = useMemo(
-    () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
-    [branchesQuery.data?.branches],
+    () => dedupeRemoteBranchesWithLocalMatches(branchListState?.branches ?? []),
+    [branchListState?.branches],
   );
   const currentGitBranch =
-    branchStatusQuery.data?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
+    branchStatusState?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
   const canonicalActiveBranch = resolveBranchToolbarValue({
     envMode: effectiveEnvMode,
     activeWorktreePath,
@@ -216,8 +218,8 @@ export function BranchToolbarBranchSelector({
         const status = await api.git
           .status({ cwd: branchCwd, projectId: activeProjectId })
           .catch(() => null);
-        if (status?.branch) {
-          nextBranchName = status.branch;
+        if (status?.repos[0]?.status.branch) {
+          nextBranchName = status.repos[0].status.branch;
         }
       }
 

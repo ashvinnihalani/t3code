@@ -36,6 +36,7 @@ import {
   type RemoteProjectValidationResult,
   type SshHostSummary,
   ThreadId,
+  type GitStatusResponse,
   type GitStatusResult,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
@@ -554,7 +555,7 @@ export default function Sidebar() {
     })),
   });
   const prByThreadId = useMemo(() => {
-    const statusByTarget = new Map<string, GitStatusResult>();
+    const statusByTarget = new Map<string, GitStatusResponse>();
     for (let index = 0; index < threadGitStatusTargets.length; index += 1) {
       const target = threadGitStatusTargets[index];
       const status = threadGitStatusQueries[index]?.data;
@@ -574,9 +575,12 @@ export default function Sidebar() {
               }),
             )
           : undefined;
+      const singleRepoStatus = status?.repos[0]?.status ?? null;
       const branchMatches =
-        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
-      map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
+        target.branch !== null &&
+        singleRepoStatus?.branch !== null &&
+        singleRepoStatus?.branch === target.branch;
+      map.set(target.threadId, branchMatches ? (singleRepoStatus?.pr ?? null) : null);
     }
     return map;
   }, [gitTargetKey, threadGitStatusQueries, threadGitStatusTargets, threadGitTargets]);
