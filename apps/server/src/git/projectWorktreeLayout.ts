@@ -15,29 +15,25 @@ function repoChildName(relativePath: string): string {
 }
 
 export function buildSyntheticWorktreeParent(input: {
-  workspaceRoot: string;
+  worktreesDir: string;
   threadId?: string;
   branch: string;
   remote?: ProjectRemoteTarget | null;
+  remoteHomeDir?: string | null;
 }): string {
   const branchSegment = sanitizeSegment(input.branch);
   const threadSegment = sanitizeSegment(input.threadId ?? crypto.randomUUID().slice(0, 8));
   if (input.remote?.kind === "ssh") {
     return path.posix.join(
-      input.workspaceRoot,
+      input.remoteHomeDir ?? "/tmp",
       ".t3",
-      "multi-repo-worktrees",
+      "worktrees",
+      "multi-repo",
       threadSegment,
       branchSegment,
     );
   }
-  return path.join(
-    input.workspaceRoot,
-    ".t3",
-    "multi-repo-worktrees",
-    threadSegment,
-    branchSegment,
-  );
+  return path.join(input.worktreesDir, "multi-repo", threadSegment, branchSegment);
 }
 
 export function buildRepoWorktreeLayout(input: {

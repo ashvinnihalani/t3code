@@ -135,6 +135,14 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   selectedRepoId: Schema.optional(Schema.NullOr(Schema.String)),
+  repoBranches: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        repoId: Schema.String,
+        branch: Schema.NullOr(Schema.String),
+      }),
+    ),
+  ),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
@@ -175,6 +183,12 @@ export interface DraftThreadState {
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   selectedRepoId?: string | null | undefined;
+  repoBranches?:
+    | ReadonlyArray<{
+        repoId: string;
+        branch: string | null;
+      }>
+    | undefined;
   branch: string | null;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
@@ -197,6 +211,12 @@ interface ComposerDraftStoreState {
     threadId: ThreadId,
     options?: {
       selectedRepoId?: string | null;
+      repoBranches?:
+        | ReadonlyArray<{
+            repoId: string;
+            branch: string | null;
+          }>
+        | undefined;
       branch?: string | null;
       worktreePath?: string | null;
       createdAt?: string;
@@ -209,6 +229,12 @@ interface ComposerDraftStoreState {
     threadId: ThreadId,
     options: {
       selectedRepoId?: string | null;
+      repoBranches?:
+        | ReadonlyArray<{
+            repoId: string;
+            branch: string | null;
+          }>
+        | undefined;
       branch?: string | null;
       worktreePath?: string | null;
       projectId?: ProjectId;
@@ -762,6 +788,39 @@ function normalizeDraftThreadEnvMode(
   return fallbackWorktreePath ? "worktree" : "local";
 }
 
+function areDraftRepoBranchesEqual(
+  left:
+    | ReadonlyArray<{
+        repoId: string;
+        branch: string | null;
+      }>
+    | undefined,
+  right:
+    | ReadonlyArray<{
+        repoId: string;
+        branch: string | null;
+      }>
+    | undefined,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftEntry = left[index];
+    const rightEntry = right[index];
+    if (!leftEntry || !rightEntry) {
+      return false;
+    }
+    if (leftEntry.repoId !== rightEntry.repoId || leftEntry.branch !== rightEntry.branch) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function normalizePersistedDraftThreads(
   rawDraftThreadsByThreadId: unknown,
   rawProjectDraftThreadIdByProjectId: unknown,
@@ -784,6 +843,22 @@ function normalizePersistedDraftThreads(
       const projectId = candidateDraftThread.projectId;
       const createdAt = candidateDraftThread.createdAt;
       const selectedRepoId = candidateDraftThread.selectedRepoId;
+      const rawRepoBranches = Array.isArray(candidateDraftThread.repoBranches)
+        ? candidateDraftThread.repoBranches
+        : [];
+      const normalizedRepoBranches = rawRepoBranches.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return [];
+        }
+        const candidateEntry = entry as Record<string, unknown>;
+        const repoId = candidateEntry.repoId;
+        if (typeof repoId !== "string" || repoId.length === 0) {
+          return [];
+        }
+        const branch =
+          typeof candidateEntry.branch === "string" ? candidateEntry.branch : candidateEntry.branch;
+        return [{ repoId, branch: typeof branch === "string" ? branch : null }];
+      });
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
@@ -808,6 +883,7 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
         ...(typeof selectedRepoId === "string" ? { selectedRepoId } : {}),
+        ...(normalizedRepoBranches.length > 0 ? { repoBranches: normalizedRepoBranches } : {}),
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
@@ -837,6 +913,7 @@ function normalizePersistedDraftThreads(
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,
             selectedRepoId: null,
+            repoBranches: [],
             branch: null,
             worktreePath: null,
             envMode: "local",
@@ -1316,6 +1393,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         set((state) => {
           const existingThread = state.draftThreadsByThreadId[threadId];
           const previousThreadIdForProject = state.projectDraftThreadIdByProjectId[projectId];
+          const nextRepoBranches =
+            options?.repoBranches === undefined
+              ? (existingThread?.repoBranches ?? [])
+              : options.repoBranches;
           const nextWorktreePath =
             options?.worktreePath === undefined
               ? (existingThread?.worktreePath ?? null)
@@ -1333,6 +1414,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options?.selectedRepoId === undefined
                 ? (existingThread?.selectedRepoId ?? null)
                 : (options.selectedRepoId ?? null),
+            ...(nextRepoBranches ? { repoBranches: nextRepoBranches } : {}),
             branch:
               options?.branch === undefined
                 ? (existingThread?.branch ?? null)
@@ -1350,6 +1432,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             existingThread.runtimeMode === nextDraftThread.runtimeMode &&
             existingThread.interactionMode === nextDraftThread.interactionMode &&
             existingThread.selectedRepoId === nextDraftThread.selectedRepoId &&
+            areDraftRepoBranchesEqual(existingThread.repoBranches, nextDraftThread.repoBranches) &&
             existingThread.branch === nextDraftThread.branch &&
             existingThread.worktreePath === nextDraftThread.worktreePath &&
             existingThread.envMode === nextDraftThread.envMode;
@@ -1400,6 +1483,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             options.worktreePath === undefined
               ? existing.worktreePath
               : (options.worktreePath ?? null);
+          const nextRepoBranches =
+            options.repoBranches === undefined
+              ? (existing.repoBranches ?? [])
+              : options.repoBranches;
           const nextDraftThread: DraftThreadState = {
             projectId: nextProjectId,
             createdAt:
@@ -1412,6 +1499,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options.selectedRepoId === undefined
                 ? (existing.selectedRepoId ?? null)
                 : (options.selectedRepoId ?? null),
+            ...(nextRepoBranches ? { repoBranches: nextRepoBranches } : {}),
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
             envMode:
@@ -1423,6 +1511,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftThread.runtimeMode === existing.runtimeMode &&
             nextDraftThread.interactionMode === existing.interactionMode &&
             nextDraftThread.selectedRepoId === existing.selectedRepoId &&
+            areDraftRepoBranchesEqual(nextDraftThread.repoBranches, existing.repoBranches) &&
             nextDraftThread.branch === existing.branch &&
             nextDraftThread.worktreePath === existing.worktreePath &&
             nextDraftThread.envMode === existing.envMode;

@@ -13,6 +13,8 @@ import {
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
+import { readRemoteHomeDir } from "../../sshCommand";
+import { ServerConfig } from "../../config.ts";
 
 import { GitManagerError } from "../Errors.ts";
 import {
@@ -412,6 +414,7 @@ export const makeGitManager = Effect.gen(function* () {
   const gitCore = yield* GitCore;
   const gitHubCli = yield* GitHubCli;
   const textGeneration = yield* TextGeneration;
+  const serverConfig = yield* ServerConfig;
 
   const createProgressEmitter = (
     input: { cwd: string; action: "commit" | "commit_push" | "commit_push_pr" },
@@ -1491,10 +1494,18 @@ export const makeGitManager = Effect.gen(function* () {
 
   const projectCreateWorktree: GitManagerShape["projectCreateWorktree"] = Effect.fnUntraced(
     function* (input) {
+      const remoteHomeDir =
+        input.remote?.kind === "ssh"
+          ? (readRemoteHomeDir({
+              hostAlias: input.remote.hostAlias,
+              localCwd: process.cwd(),
+            }) ?? "/tmp")
+          : null;
       const parentPath = buildSyntheticWorktreeParent({
-        workspaceRoot: input.workspaceRoot,
+        worktreesDir: serverConfig.worktreesDir,
         branch: input.newBranch ?? input.branch,
         remote: input.remote ?? null,
+        remoteHomeDir,
       });
       const layout = buildRepoWorktreeLayout({
         parentPath,

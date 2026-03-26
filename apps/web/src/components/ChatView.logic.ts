@@ -43,6 +43,7 @@ export function buildLocalDraftThread(
     selectedRepoId: draftThread.selectedRepoId ?? null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
+    repoBranches: draftThread.repoBranches ? [...draftThread.repoBranches] : undefined,
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],

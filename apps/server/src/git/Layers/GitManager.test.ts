@@ -9,6 +9,8 @@ import { expect, vi } from "vitest";
 import type {
   GitActionProgressEvent,
   ModelSelection,
+  ProjectGitRepo,
+  ProjectId,
   ProjectRemoteTarget,
 } from "@t3tools/contracts";
 
@@ -551,6 +553,7 @@ function makeManager(input?: {
     Layer.succeed(GitHubCli, gitHubCli),
     Layer.succeed(TextGeneration, textGeneration),
     gitCoreLayer,
+    ServerConfigLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 
   return makeGitManager.pipe(
@@ -565,6 +568,74 @@ const GitManagerTestLayer = GitCoreLive.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
+  it.effect("creates a worktree for each repo in a multi-repo project", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* makeTempDir("t3code-multi-repo-worktrees-");
+      const repoARoot = path.join(workspaceRoot, "repo-a");
+      const repoBRoot = path.join(workspaceRoot, "repo-b");
+      fs.mkdirSync(repoARoot, { recursive: true });
+      fs.mkdirSync(repoBRoot, { recursive: true });
+      yield* initRepo(repoARoot);
+      yield* initRepo(repoBRoot);
+
+      const gitRepos = [
+        {
+          id: "project-1:repo-a",
+          rootPath: repoARoot,
+          relativePath: "repo-a",
+          displayName: "repo-a",
+        },
+        {
+          id: "project-1:repo-b",
+          rootPath: repoBRoot,
+          relativePath: "repo-b",
+          displayName: "repo-b",
+        },
+      ] satisfies ReadonlyArray<ProjectGitRepo>;
+
+      const { manager } = yield* makeManager();
+      const result = yield* manager.projectCreateWorktree({
+        projectId: "project-1" as ProjectId,
+        workspaceRoot,
+        gitRepos,
+        branch: "main",
+        newBranch: "t3code/test-multi-repo-worktree",
+        path: null,
+      });
+
+      expect(result.parentPath).toContain(path.join("worktrees", "multi-repo"));
+      expect(result.repos).toHaveLength(2);
+      expect(result.repos.map((repo) => repo.repoId)).toEqual([
+        "project-1:repo-a",
+        "project-1:repo-b",
+      ]);
+      expect(result.repos.every((repo) => repo.status === "created")).toBe(true);
+
+      for (const repo of result.repos) {
+        if (repo.status !== "created") {
+          throw new Error(`Expected created repo worktree result for ${repo.repoId}`);
+        }
+        const worktreePath = repo.worktreePath;
+        expect(worktreePath).toBeDefined();
+        if (!worktreePath) {
+          throw new Error(`Expected worktree path for ${repo.repoId}`);
+        }
+        expect(fs.existsSync(worktreePath)).toBe(true);
+        const branch = yield* runGit(worktreePath, ["branch", "--show-current"]);
+        expect(branch.stdout.trim()).toBe("t3code/test-multi-repo-worktree");
+      }
+
+      const repoAWorktrees = yield* runGit(repoARoot, ["worktree", "list", "--porcelain"]);
+      expect(repoAWorktrees.stdout).toContain(
+        path.join(result.parentPath, "repo-a").replaceAll(path.sep, "/"),
+      );
+      const repoBWorktrees = yield* runGit(repoBRoot, ["worktree", "list", "--porcelain"]);
+      expect(repoBWorktrees.stdout).toContain(
+        path.join(result.parentPath, "repo-b").replaceAll(path.sep, "/"),
+      );
+    }),
+  );
+
   it.effect("status includes PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1778,6 +1849,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             Layer.succeed(GitCore, fakeGitCore),
             Layer.succeed(GitHubCli, gitHubCli),
             Layer.succeed(TextGeneration, textGeneration),
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" }),
           ),
         ),
       );

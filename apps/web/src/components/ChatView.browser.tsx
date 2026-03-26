@@ -1624,6 +1624,87 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("prepares project worktrees for every repo even when a different repo is selected", async () => {
+    const snapshot = withProjectGitRepos(createDraftOnlySnapshot(), [
+      {
+        id: "project-1:repo-a",
+        rootPath: "/repo/project/repo-a",
+        relativePath: "repo-a",
+        displayName: "repo-a",
+      },
+      {
+        id: "project-1:repo-b",
+        rootPath: "/repo/project/repo-b",
+        relativePath: "repo-b",
+        displayName: "repo-b",
+      },
+    ]);
+
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          selectedRepoId: "project-1:repo-b",
+          branch: "main",
+          worktreePath: null,
+          envMode: "worktree",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "selected repo b draft send");
+      const requestCountBeforeSend = wsRequests.length;
+      const sendButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find Send message button.",
+      );
+      sendButton.click();
+
+      let requestsAfterSend: WsRequestEnvelope["body"][] = [];
+      await vi.waitFor(
+        () => {
+          requestsAfterSend = wsRequests.slice(requestCountBeforeSend);
+          const createdThreadRequest = requestsAfterSend.find((request) => {
+            if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+              return false;
+            }
+            const command = request.command;
+            return (
+              typeof command === "object" &&
+              command !== null &&
+              "type" in command &&
+              command.type === "thread.create"
+            );
+          });
+          expect(createdThreadRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            command: {
+              type: "thread.create",
+              multiRepoWorktree: {
+                repos: [{ repoId: "project-1:repo-a" }, { repoId: "project-1:repo-b" }],
+              },
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("runs project scripts from local draft threads at the project cwd", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {

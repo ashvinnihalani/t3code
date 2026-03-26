@@ -129,8 +129,15 @@ export default function BranchToolbar({
     (repoId: string, branch: string | null, worktreePath: string | null) => {
       if (!activeThreadId) return;
       if (!serverThread) {
+        const existingRepoBranches = draftThread?.repoBranches ?? [];
+        const nextRepoBranches = existingRepoBranches.some((entry) => entry.repoId === repoId)
+          ? existingRepoBranches.map((entry) =>
+              entry.repoId === repoId ? { ...entry, branch } : entry,
+            )
+          : [...existingRepoBranches, { repoId, branch }];
         setDraftThreadContext(threadId, {
           selectedRepoId: repoId,
+          repoBranches: nextRepoBranches,
           branch,
           worktreePath,
           envMode: resolveDraftEnvModeAfterBranchChange({
@@ -170,6 +177,7 @@ export default function BranchToolbar({
     [
       activeThreadId,
       activeWorktreePath,
+      draftThread?.repoBranches,
       effectiveEnvMode,
       serverThread,
       setDraftThreadContext,
@@ -206,16 +214,16 @@ export default function BranchToolbar({
   const selectedRepo =
     (selectedRepoId ? gitRepos?.find((repo) => repo.id === selectedRepoId) : undefined) ??
     gitRepos?.[0];
-  const selectedRepoBranch =
-    selectedRepo && serverThread
-      ? (serverThread.repoBranches?.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
-        null)
-      : null;
-  const selectedRepoWorktreePath =
-    selectedRepo && serverThread
-      ? (serverThread.multiRepoWorktree?.repos.find((entry) => entry.repoId === selectedRepo.id)
-          ?.worktreePath ?? null)
-      : null;
+  const selectedRepoBranch = selectedRepo
+    ? (serverThread?.repoBranches?.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
+      draftThread?.repoBranches?.find((entry) => entry.repoId === selectedRepo.id)?.branch ??
+      (draftThread?.selectedRepoId === selectedRepo.id ? (draftThread.branch ?? null) : null))
+    : null;
+  const selectedRepoWorktreePath = selectedRepo
+    ? (serverThread?.multiRepoWorktree?.repos.find((entry) => entry.repoId === selectedRepo.id)
+        ?.worktreePath ??
+      (draftThread?.selectedRepoId === selectedRepo.id ? (draftThread.worktreePath ?? null) : null))
+    : null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-start justify-between px-5 pb-3 pt-1">
