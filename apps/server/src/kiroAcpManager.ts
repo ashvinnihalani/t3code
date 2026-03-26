@@ -5,6 +5,7 @@ import {
   type ProviderInteractionMode,
   type ProviderRuntimeEvent,
   ProviderItemId,
+  type ThreadTokenUsageSnapshot,
   RuntimeItemId,
   RuntimeRequestId,
   ThreadId,
@@ -19,6 +20,7 @@ import { createLogger } from "./logger.ts";
 const PROVIDER = "kiro" as const;
 const DEFAULT_BINARY_PATH = "kiro-cli";
 const logger = createLogger("kiro-acp");
+const KIRO_CONTEXT_SHOW_COMMAND = "/context show";
 
 interface KiroModeDescriptor {
   readonly id: string;
@@ -121,6 +123,88 @@ export function readKiroTextChunk(value: unknown): string | undefined {
     return undefined;
   }
   return value.trim().length > 0 ? value : undefined;
+}
+
+function collectTextFragments(value: unknown, acc: string[]): void {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      acc.push(trimmed);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectTextFragments(entry, acc);
+    }
+    return;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+  for (const entry of Object.values(record)) {
+    collectTextFragments(entry, acc);
+  }
+}
+
+export function extractKiroCommandResultText(value: unknown): string | undefined {
+  const fragments: string[] = [];
+  collectTextFragments(value, fragments);
+  if (fragments.length === 0) {
+    return undefined;
+  }
+  const contextWindowFragment = fragments.find((fragment) =>
+    fragment.toLowerCase().includes("current context window"),
+  );
+  if (contextWindowFragment) {
+    return fragments.join("\n");
+  }
+  return fragments.join("\n");
+}
+
+export function parseKiroContextWindowSnapshot(
+  value: unknown,
+): ThreadTokenUsageSnapshot | undefined {
+  const text = extractKiroCommandResultText(value);
+  if (!text) {
+    return undefined;
+  }
+
+  const percentMatch = text.match(/current context window\s*\((\d+(?:\.\d+)?)%\s+used\)/i);
+  const usedPercentage = percentMatch?.[1] ? Number.parseFloat(percentMatch[1]) : Number.NaN;
+  if (!Number.isFinite(usedPercentage) || usedPercentage <= 0) {
+    return undefined;
+  }
+
+  const normalizedPercentage = Math.max(0, Math.min(100, usedPercentage));
+  const basisPoints = Math.max(1, Math.round(normalizedPercentage * 100));
+  const toolPercentageMatch = text.match(/^\s*[^\n]*tools\s+(\d+(?:\.\d+)?)%\s*$/im);
+  const promptPercentageMatch = text.match(
+    /^\s*[^\n]*(?:your prompts|prompts)\s+(\d+(?:\.\d+)?)%\s*$/im,
+  );
+  const responsePercentageMatch = text.match(
+    /^\s*[^\n]*(?:kiro responses|responses)\s+(\d+(?:\.\d+)?)%\s*$/im,
+  );
+
+  const toolUses = toolPercentageMatch?.[1]
+    ? Math.round(Number.parseFloat(toolPercentageMatch[1]))
+    : undefined;
+  const inputTokens = promptPercentageMatch?.[1]
+    ? Math.round(Number.parseFloat(promptPercentageMatch[1]) * 100)
+    : undefined;
+  const outputTokens = responsePercentageMatch?.[1]
+    ? Math.round(Number.parseFloat(responsePercentageMatch[1]) * 100)
+    : undefined;
+
+  return {
+    usedTokens: basisPoints,
+    usedPercentage: normalizedPercentage,
+    compactsAutomatically: true,
+    ...(toolUses !== undefined ? { toolUses } : {}),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+  };
 }
 
 function truncateProcessDetail(detail: string, maxLength = 1_024): string {
@@ -699,6 +783,7 @@ export class KiroAcpManager extends EventEmitter {
       }),
     );
     this.emitModeMetadata(session);
+    await this.refreshContextWindow(session);
 
     return {
       provider: PROVIDER,
@@ -910,7 +995,36 @@ export class KiroAcpManager extends EventEmitter {
         },
       }),
     );
+    void this.refreshContextWindow(session);
     return true;
+  }
+
+  private async refreshContextWindow(session: KiroSessionState): Promise<void> {
+    if (!session.sessionId) {
+      return;
+    }
+    try {
+      const result = await session.rpc.request("_kiro.dev/commands/execute", {
+        sessionId: session.sessionId,
+        command: KIRO_CONTEXT_SHOW_COMMAND,
+      });
+      const usage = parseKiroContextWindowSnapshot(result);
+      if (!usage) {
+        return;
+      }
+      session.updatedAt = nowIso();
+      this.emit(
+        "event",
+        this.runtimeEvent(session, {
+          type: "thread.token-usage.updated",
+          payload: {
+            usage,
+          },
+        }),
+      );
+    } catch {
+      // Best-effort provider telemetry only. Missing slash-command support should not fail turns.
+    }
   }
 
   private turnCompletionFromUpdate(update: Record<string, unknown>): {
@@ -1051,6 +1165,36 @@ export class KiroAcpManager extends EventEmitter {
     method: string,
     params: unknown,
   ): Promise<void> {
+    if (method === "_kiro.dev/compaction/status") {
+      const payload = asRecord(params);
+      const status = normalizeNonEmpty(asString(payload?.status))?.toLowerCase();
+      if (status === "completed" || status === "done" || status === "finished") {
+        this.emit(
+          "event",
+          this.runtimeEvent(session, {
+            type: "thread.state.changed",
+            payload: {
+              state: "compacted",
+              detail: params,
+            },
+          }),
+        );
+        void this.refreshContextWindow(session);
+      } else {
+        this.emit(
+          "event",
+          this.runtimeEvent(session, {
+            type: "session.state.changed",
+            payload: {
+              state: "waiting",
+              reason: "compacting",
+              detail: params,
+            },
+          }),
+        );
+      }
+      return;
+    }
     if (method !== "session/update") {
       return;
     }

@@ -90,6 +90,12 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
               <span>/</span>
               <span>{formatContextWindowTokens(usage.maxTokens ?? null)} context used</span>
             </div>
+          ) : usedPercentage ? (
+            <div className="whitespace-nowrap text-xs font-medium text-foreground">
+              <span>{usedPercentage}</span>
+              <span className="mx-1">⋅</span>
+              <span>context used</span>
+            </div>
           ) : (
             <div className="text-sm text-foreground">
               {formatContextWindowTokens(usage.usedTokens)} tokens used so far

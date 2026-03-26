@@ -150,6 +150,7 @@ describe("ProviderRuntimeEvent", () => {
       payload: {
         usage: {
           usedTokens: 31251,
+          usedPercentage: 15.6,
           maxTokens: 200000,
           toolUses: 25,
           durationMs: 43567,
@@ -162,6 +163,7 @@ describe("ProviderRuntimeEvent", () => {
       throw new Error("expected thread.token-usage.updated");
     }
     expect(parsed.payload.usage.maxTokens).toBe(200000);
+    expect(parsed.payload.usage.usedPercentage).toBe(15.6);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
 
