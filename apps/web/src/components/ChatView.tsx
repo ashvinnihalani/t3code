@@ -4021,7 +4021,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 {/* Textarea area */}
                 <div
                   className={cn(
-                    "relative rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45",
+                    "relative rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
                     isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
