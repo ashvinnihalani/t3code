@@ -147,9 +147,7 @@ export type AppSettings = typeof AppSettingsSchema.Type;
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
 
-function normalizeAppSettings(
-  settings: AppSettings & CustomModelSettings,
-): AppSettings {
+function normalizeAppSettings(settings: AppSettings & CustomModelSettings): AppSettings {
   return {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),

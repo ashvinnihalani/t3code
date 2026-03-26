@@ -11,10 +11,7 @@
  */
 import { Effect, Layer, ServiceMap } from "effect";
 
-import {
-  TextGeneration,
-  type TextGenerationShape,
-} from "../Services/TextGeneration.ts";
+import { TextGeneration, type TextGenerationShape } from "../Services/TextGeneration.ts";
 import { CodexTextGenerationLive } from "./CodexTextGeneration.ts";
 import { ClaudeTextGenerationLive } from "./ClaudeTextGeneration.ts";
 

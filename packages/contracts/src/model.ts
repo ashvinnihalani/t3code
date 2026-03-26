@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { TrimmedNonEmptyString } from "./baseSchemas";
 import type { ProviderInteractionMode, ProviderKind } from "./orchestration";
 
 export const CODEX_REASONING_EFFORT_OPTIONS = ["xhigh", "high", "medium", "low"] as const;
@@ -22,6 +23,34 @@ export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 
 export const KiroModelOptions = Schema.Struct({});
 export type KiroModelOptions = typeof KiroModelOptions.Type;
+
+export const CodexModelSelection = Schema.Struct({
+  provider: Schema.Literal("codex"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optional(CodexModelOptions),
+});
+export type CodexModelSelection = typeof CodexModelSelection.Type;
+
+export const ClaudeModelSelection = Schema.Struct({
+  provider: Schema.Literal("claudeAgent"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optional(ClaudeModelOptions),
+});
+export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
+
+export const KiroModelSelection = Schema.Struct({
+  provider: Schema.Literal("kiro"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optional(KiroModelOptions),
+});
+export type KiroModelSelection = typeof KiroModelSelection.Type;
+
+export const ModelSelection = Schema.Union([
+  CodexModelSelection,
+  ClaudeModelSelection,
+  KiroModelSelection,
+]);
+export type ModelSelection = typeof ModelSelection.Type;
 
 export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),

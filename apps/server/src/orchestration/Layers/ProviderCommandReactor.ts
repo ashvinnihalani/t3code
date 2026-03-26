@@ -121,9 +121,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
 }
 
-function resolveGitTextGenerationModelSelection(
-  gitSettings?: GitRequestSettings,
-): ModelSelection {
+function resolveGitTextGenerationModelSelection(gitSettings?: GitRequestSettings): ModelSelection {
   const selection = gitSettings?.textGenerationModelSelection;
   if (selection?.provider === "codex" || selection?.provider === "claudeAgent") {
     return selection;

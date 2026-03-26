@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import { Effect, Layer } from "effect";
-import type { GitActionProgressEvent, GitActionProgressPhase, ModelSelection } from "@t3tools/contracts";
+import type {
+  GitActionProgressEvent,
+  GitActionProgressPhase,
+  ModelSelection,
+} from "@t3tools/contracts";
 import {
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
