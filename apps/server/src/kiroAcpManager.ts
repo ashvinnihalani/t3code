@@ -1008,8 +1008,28 @@ export class KiroAcpManager extends EventEmitter {
         sessionId: session.sessionId,
         command: KIRO_CONTEXT_SHOW_COMMAND,
       });
+      this.emit(
+        "event",
+        this.runtimeEvent(session, {
+          type: "runtime.warning",
+          payload: {
+            message: "Kiro /context show result",
+            detail: result,
+          },
+        }),
+      );
       const usage = parseKiroContextWindowSnapshot(result);
       if (!usage) {
+        this.emit(
+          "event",
+          this.runtimeEvent(session, {
+            type: "runtime.warning",
+            payload: {
+              message: "Failed to parse Kiro /context show result.",
+              detail: result,
+            },
+          }),
+        );
         return;
       }
       session.updatedAt = nowIso();
