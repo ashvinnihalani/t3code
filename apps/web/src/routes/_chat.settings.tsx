@@ -1,10 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  Undo2Icon,
+  XIcon,
+} from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { type DesktopAppCloseBehavior, type ProviderKind } from "@t3tools/contracts";
+import {
+  type DesktopAppCloseBehavior,
+  type EnvironmentDefinition,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import {
+  DEFAULT_ENVIRONMENT_FILE_LOCATION,
+  ENVIRONMENT_FILE_LOCATION_OPTIONS,
   buildClaudeHostOverridePatch,
   GIT_DEFAULT_ACTION_OPTIONS,
   THREAD_ID_DISPLAY_MODE_OPTIONS,
@@ -17,6 +30,7 @@ import {
   getKiroHostOverride,
   useAppSettings,
 } from "../appSettings";
+import { projectEnvironmentConfigQueryOptions, projectQueryKeys } from "../lib/projectReactQuery";
 import {
   getCustomModelOptionsByProvider,
   getCustomModelsForProvider,
@@ -34,8 +48,11 @@ import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import {
   Select,
+  SelectGroup,
+  SelectGroupLabel,
   SelectItem,
   SelectPopup,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
@@ -50,6 +67,7 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { cn } from "../lib/utils";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
+import type { EnvironmentId, ProjectEnvironmentConfig, ProjectId } from "@t3tools/contracts";
 
 const THEME_OPTIONS = [
   {
@@ -267,6 +285,7 @@ type OverrideMode = "local" | "ssh";
 function SettingsRouteView() {
   const { theme, setTheme } = useTheme();
   const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
+  const queryClient = useQueryClient();
   const projects = useStore((store) => store.projects);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
@@ -316,6 +335,24 @@ function SettingsRouteView() {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [showAllCustomModels, setShowAllCustomModels] = useState(false);
+  const localProjects = useMemo(() => projects.filter((project) => !project.remote), [projects]);
+  const [selectedEnvironmentProjectId, setSelectedEnvironmentProjectId] =
+    useState<ProjectId | null>(null);
+  const [selectedEnvironmentEditorId, setSelectedEnvironmentEditorId] =
+    useState<EnvironmentId | null>(null);
+
+  useEffect(() => {
+    if (localProjects.length === 0) {
+      setSelectedEnvironmentProjectId(null);
+      return;
+    }
+    if (
+      !selectedEnvironmentProjectId ||
+      !localProjects.some((project) => project.id === selectedEnvironmentProjectId)
+    ) {
+      setSelectedEnvironmentProjectId(localProjects[0]?.id ?? null);
+    }
+  }, [localProjects, selectedEnvironmentProjectId]);
 
   const sshProjectHostAliases = useMemo(
     () =>
@@ -397,6 +434,65 @@ function SettingsRouteView() {
   )!;
   const selectedCustomModelInput = customModelInputByProvider[selectedCustomModelProvider];
   const selectedCustomModelError = customModelErrorByProvider[selectedCustomModelProvider] ?? null;
+  const selectedEnvironmentProject =
+    localProjects.find((project) => project.id === selectedEnvironmentProjectId) ?? null;
+  const environmentConfigQuery = useQuery(
+    projectEnvironmentConfigQueryOptions({
+      projectId: selectedEnvironmentProject?.id ?? null,
+      fileLocation: settings.environmentFileLocation,
+      enabled: selectedEnvironmentProject !== null,
+    }),
+  );
+  const environmentConfig = environmentConfigQuery.data;
+  const selectedEnvironmentDefinition =
+    environmentConfig?.environments.find(
+      (environment) => environment.id === selectedEnvironmentEditorId,
+    ) ??
+    environmentConfig?.environments[0] ??
+    null;
+
+  useEffect(() => {
+    if (!environmentConfig) {
+      setSelectedEnvironmentEditorId(null);
+      return;
+    }
+    if (
+      !selectedEnvironmentEditorId ||
+      !environmentConfig.environments.some(
+        (environment) => environment.id === selectedEnvironmentEditorId,
+      )
+    ) {
+      setSelectedEnvironmentEditorId(
+        environmentConfig.defaults.selectedEnvironmentId ??
+          environmentConfig.environments[0]?.id ??
+          null,
+      );
+    }
+  }, [environmentConfig, selectedEnvironmentEditorId]);
+
+  const writeEnvironmentConfig = useCallback(
+    async (
+      projectId: ProjectId,
+      updater: (current: ProjectEnvironmentConfig) => ProjectEnvironmentConfig,
+    ) => {
+      const api = ensureNativeApi();
+      const current =
+        (queryClient.getQueryData(
+          projectQueryKeys.environmentConfig(projectId, settings.environmentFileLocation),
+        ) as ProjectEnvironmentConfig | undefined) ?? environmentConfigQuery.data;
+      if (!current) return;
+      const nextConfig = updater(current);
+      await api.projects.writeEnvironmentConfig({
+        projectId,
+        fileLocation: settings.environmentFileLocation,
+        config: nextConfig,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.environmentConfig(projectId, settings.environmentFileLocation),
+      });
+    },
+    [environmentConfigQuery.data, queryClient, settings.environmentFileLocation],
+  );
 
   const savedCustomModelRows = MODEL_PROVIDER_SETTINGS.flatMap((providerSettings) =>
     getCustomModelsForProvider(settings, providerSettings.provider).map((slug) => ({
@@ -923,6 +1019,434 @@ function SettingsRouteView() {
                   }
                 />
               ) : null}
+            </SettingsSection>
+
+            <SettingsSection title="Environment">
+              <SettingsRow
+                title="File Location"
+                description="Store environment.toml in the project root or in T3 Code's managed base directory."
+                resetAction={
+                  settings.environmentFileLocation !== DEFAULT_ENVIRONMENT_FILE_LOCATION ? (
+                    <SettingResetButton
+                      label="environment file location"
+                      onClick={() =>
+                        updateSettings({
+                          environmentFileLocation: DEFAULT_ENVIRONMENT_FILE_LOCATION,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={settings.environmentFileLocation}
+                    onValueChange={(value) => {
+                      if (value !== "project" && value !== "t3code") {
+                        return;
+                      }
+                      const nextLocation = value;
+                      const previousLocation = settings.environmentFileLocation;
+                      void (async () => {
+                        const api = ensureNativeApi();
+                        if (previousLocation !== nextLocation) {
+                          await Promise.all(
+                            localProjects.map((project) =>
+                              api.projects.migrateEnvironmentConfig({
+                                projectId: project.id,
+                                from: previousLocation,
+                                to: nextLocation,
+                              }),
+                            ),
+                          );
+                        }
+                        updateSettings({
+                          environmentFileLocation: nextLocation,
+                        });
+                        await queryClient.invalidateQueries({
+                          queryKey: projectQueryKeys.all,
+                        });
+                      })().catch(() => undefined);
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full sm:w-40"
+                      aria-label="Environment file location"
+                    >
+                      <SelectValue>
+                        {settings.environmentFileLocation === "project" ? "Project" : "T3 Code"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {ENVIRONMENT_FILE_LOCATION_OPTIONS.map((option) => (
+                        <SelectItem hideIndicator key={option} value={option}>
+                          {option === "project" ? "Project" : "T3 Code"}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                }
+              >
+                <div className="mt-4 space-y-4 border-t border-border pt-4">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <Select
+                      value={selectedEnvironmentProject?.id ?? ""}
+                      onValueChange={(value) =>
+                        setSelectedEnvironmentProjectId((value || null) as ProjectId | null)
+                      }
+                    >
+                      <SelectTrigger aria-label="Environment project">
+                        <SelectValue>
+                          {selectedEnvironmentProject?.name ?? "Select a project"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        {localProjects.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (!selectedEnvironmentProject) return;
+                        const createdAt = new Date().toISOString();
+                        const nextEnvironment: EnvironmentDefinition = {
+                          id: `env-${Date.now()}`,
+                          name: "New Environment",
+                          category: "local",
+                          mode: "managed-worktree",
+                          startupActionIds: [],
+                          runtimeMode: "full-access",
+                          createdAt,
+                          updatedAt: createdAt,
+                        };
+                        void writeEnvironmentConfig(selectedEnvironmentProject.id, (current) => ({
+                          ...current,
+                          defaults: {
+                            selectedEnvironmentId:
+                              current.defaults.selectedEnvironmentId ?? nextEnvironment.id,
+                          },
+                          environments: [...current.environments, nextEnvironment],
+                        })).then(() => {
+                          setSelectedEnvironmentEditorId(nextEnvironment.id);
+                        });
+                      }}
+                      disabled={!selectedEnvironmentProject}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      New
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (!selectedEnvironmentProject || !selectedEnvironmentDefinition) return;
+                        void writeEnvironmentConfig(selectedEnvironmentProject.id, (current) => {
+                          const environments = current.environments.filter(
+                            (environment) => environment.id !== selectedEnvironmentDefinition.id,
+                          );
+                          return {
+                            ...current,
+                            defaults: {
+                              selectedEnvironmentId:
+                                current.defaults.selectedEnvironmentId ===
+                                selectedEnvironmentDefinition.id
+                                  ? (environments[0]?.id ?? null)
+                                  : current.defaults.selectedEnvironmentId,
+                            },
+                            environments,
+                          };
+                        }).then(() => {
+                          setSelectedEnvironmentEditorId(null);
+                        });
+                      }}
+                      disabled={!selectedEnvironmentProject || !selectedEnvironmentDefinition}
+                    >
+                      <XIcon className="size-3.5" />
+                      Delete
+                    </Button>
+                  </div>
+
+                  {selectedEnvironmentProject && environmentConfig ? (
+                    selectedEnvironmentDefinition ? (
+                      <div className="space-y-4 rounded-xl border border-border p-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Environment
+                          </label>
+                          <Select
+                            value={selectedEnvironmentDefinition.id}
+                            onValueChange={(value) =>
+                              setSelectedEnvironmentEditorId(value as EnvironmentId)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue>{selectedEnvironmentDefinition.name}</SelectValue>
+                            </SelectTrigger>
+                            <SelectPopup>
+                              <SelectGroup>
+                                <SelectGroupLabel>Local</SelectGroupLabel>
+                                {environmentConfig.environments.map((environment) => (
+                                  <SelectItem key={environment.id} value={environment.id}>
+                                    {environment.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                              <SelectSeparator />
+                              <SelectGroup>
+                                <SelectGroupLabel>Remote</SelectGroupLabel>
+                                <SelectItem disabled value="remote-disabled">
+                                  Remote environments are not supported yet
+                                </SelectItem>
+                              </SelectGroup>
+                            </SelectPopup>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">Name</label>
+                          <Input
+                            value={selectedEnvironmentDefinition.name}
+                            onChange={(event) => {
+                              const nextName = event.target.value;
+                              void writeEnvironmentConfig(
+                                selectedEnvironmentProject.id,
+                                (current) => ({
+                                  ...current,
+                                  environments: current.environments.map((environment) =>
+                                    environment.id === selectedEnvironmentDefinition.id
+                                      ? {
+                                          ...environment,
+                                          name: nextName || "Environment",
+                                          updatedAt: new Date().toISOString(),
+                                        }
+                                      : environment,
+                                  ),
+                                }),
+                              );
+                            }}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Runtime mode
+                          </label>
+                          <Select
+                            value={selectedEnvironmentDefinition.runtimeMode}
+                            onValueChange={(value) => {
+                              if (value !== "full-access" && value !== "approval-required") return;
+                              void writeEnvironmentConfig(
+                                selectedEnvironmentProject.id,
+                                (current) => ({
+                                  ...current,
+                                  environments: current.environments.map((environment) =>
+                                    environment.id === selectedEnvironmentDefinition.id
+                                      ? {
+                                          ...environment,
+                                          runtimeMode: value,
+                                          updatedAt: new Date().toISOString(),
+                                        }
+                                      : environment,
+                                  ),
+                                }),
+                              );
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue>{selectedEnvironmentDefinition.runtimeMode}</SelectValue>
+                            </SelectTrigger>
+                            <SelectPopup>
+                              <SelectItem value="full-access">full-access</SelectItem>
+                              <SelectItem value="approval-required">approval-required</SelectItem>
+                            </SelectPopup>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Startup actions
+                            </label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                void writeEnvironmentConfig(
+                                  selectedEnvironmentProject.id,
+                                  (current) => ({
+                                    ...current,
+                                    defaults: {
+                                      selectedEnvironmentId: selectedEnvironmentDefinition.id,
+                                    },
+                                  }),
+                                );
+                              }}
+                            >
+                              Make default
+                            </Button>
+                          </div>
+                          <div className="space-y-2">
+                            {selectedEnvironmentProject.scripts.map((script) => {
+                              const enabled =
+                                selectedEnvironmentDefinition.startupActionIds.includes(script.id);
+                              const actionIndex =
+                                selectedEnvironmentDefinition.startupActionIds.indexOf(script.id);
+                              return (
+                                <div
+                                  key={script.id}
+                                  className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
+                                >
+                                  <Switch
+                                    checked={enabled}
+                                    onCheckedChange={(checked) => {
+                                      void writeEnvironmentConfig(
+                                        selectedEnvironmentProject.id,
+                                        (current) => ({
+                                          ...current,
+                                          environments: current.environments.map((environment) => {
+                                            if (
+                                              environment.id !== selectedEnvironmentDefinition.id
+                                            ) {
+                                              return environment;
+                                            }
+                                            const startupActionIds = checked
+                                              ? [...environment.startupActionIds, script.id]
+                                              : environment.startupActionIds.filter(
+                                                  (actionId) => actionId !== script.id,
+                                                );
+                                            return {
+                                              ...environment,
+                                              startupActionIds,
+                                              updatedAt: new Date().toISOString(),
+                                            };
+                                          }),
+                                        }),
+                                      );
+                                    }}
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-medium">{script.name}</div>
+                                    <div className="truncate text-xs text-muted-foreground">
+                                      {script.command}
+                                    </div>
+                                  </div>
+                                  {enabled ? (
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        disabled={actionIndex <= 0}
+                                        onClick={() => {
+                                          void writeEnvironmentConfig(
+                                            selectedEnvironmentProject.id,
+                                            (current) => ({
+                                              ...current,
+                                              environments: current.environments.map(
+                                                (environment) => {
+                                                  if (
+                                                    environment.id !==
+                                                    selectedEnvironmentDefinition.id
+                                                  ) {
+                                                    return environment;
+                                                  }
+                                                  const startupActionIds = [
+                                                    ...environment.startupActionIds,
+                                                  ];
+                                                  const index = startupActionIds.indexOf(script.id);
+                                                  if (index <= 0) {
+                                                    return environment;
+                                                  }
+                                                  const previous = startupActionIds[index - 1];
+                                                  startupActionIds[index - 1] = script.id;
+                                                  startupActionIds[index] = previous!;
+                                                  return {
+                                                    ...environment,
+                                                    startupActionIds,
+                                                    updatedAt: new Date().toISOString(),
+                                                  };
+                                                },
+                                              ),
+                                            }),
+                                          );
+                                        }}
+                                      >
+                                        <ChevronUpIcon className="size-3.5" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        disabled={
+                                          actionIndex < 0 ||
+                                          actionIndex >=
+                                            selectedEnvironmentDefinition.startupActionIds.length -
+                                              1
+                                        }
+                                        onClick={() => {
+                                          void writeEnvironmentConfig(
+                                            selectedEnvironmentProject.id,
+                                            (current) => ({
+                                              ...current,
+                                              environments: current.environments.map(
+                                                (environment) => {
+                                                  if (
+                                                    environment.id !==
+                                                    selectedEnvironmentDefinition.id
+                                                  ) {
+                                                    return environment;
+                                                  }
+                                                  const startupActionIds = [
+                                                    ...environment.startupActionIds,
+                                                  ];
+                                                  const index = startupActionIds.indexOf(script.id);
+                                                  if (
+                                                    index < 0 ||
+                                                    index >= startupActionIds.length - 1
+                                                  ) {
+                                                    return environment;
+                                                  }
+                                                  const next = startupActionIds[index + 1];
+                                                  startupActionIds[index + 1] = script.id;
+                                                  startupActionIds[index] = next!;
+                                                  return {
+                                                    ...environment,
+                                                    startupActionIds,
+                                                    updatedAt: new Date().toISOString(),
+                                                  };
+                                                },
+                                              ),
+                                            }),
+                                          );
+                                        }}
+                                      >
+                                        <ChevronDownIcon className="size-3.5" />
+                                      </Button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No environments defined for this project yet.
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Select a local project to manage its environments.
+                    </p>
+                  )}
+                </div>
+              </SettingsRow>
             </SettingsSection>
 
             <SettingsSection title="Git">

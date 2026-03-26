@@ -365,6 +365,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             remote: event.payload.remote ?? null,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
+            environmentFileLocation: event.payload.environmentFileLocation ?? "project",
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
@@ -389,6 +390,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            ...(event.payload.environmentFileLocation !== undefined
+              ? { environmentFileLocation: event.payload.environmentFileLocation }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -427,6 +431,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            environmentId: event.payload.environment?.environmentId ?? null,
+            environmentCategory: event.payload.environment?.category ?? null,
+            environmentMode: event.payload.environment?.mode ?? null,
+            environmentStartupState: event.payload.environment?.startupState ?? null,
+            environmentStartupLastRunAt: event.payload.environment?.startupLastRunAt ?? null,
+            environmentStartupLastActionId: event.payload.environment?.startupLastActionId ?? null,
+            environmentStartupLastExitCode: event.payload.environment?.startupLastExitCode ?? null,
+            environmentStartupLastError: event.payload.environment?.startupLastError ?? null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -450,6 +462,20 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.environment !== undefined
+              ? {
+                  environmentId: event.payload.environment?.environmentId ?? null,
+                  environmentCategory: event.payload.environment?.category ?? null,
+                  environmentMode: event.payload.environment?.mode ?? null,
+                  environmentStartupState: event.payload.environment?.startupState ?? null,
+                  environmentStartupLastRunAt: event.payload.environment?.startupLastRunAt ?? null,
+                  environmentStartupLastActionId:
+                    event.payload.environment?.startupLastActionId ?? null,
+                  environmentStartupLastExitCode:
+                    event.payload.environment?.startupLastExitCode ?? null,
+                  environmentStartupLastError: event.payload.environment?.startupLastError ?? null,
+                }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

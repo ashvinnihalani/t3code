@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import { EditorId } from "./editor";
+import { EnvironmentDefinition, EnvironmentFileLocation, EnvironmentId } from "./orchestration";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
@@ -62,3 +63,53 @@ export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+export const ProjectEnvironmentConfigDefaults = Schema.Struct({
+  selectedEnvironmentId: Schema.NullOr(EnvironmentId),
+});
+export type ProjectEnvironmentConfigDefaults = typeof ProjectEnvironmentConfigDefaults.Type;
+
+export const ProjectEnvironmentConfig = Schema.Struct({
+  version: Schema.Literal(1),
+  defaults: ProjectEnvironmentConfigDefaults,
+  environments: Schema.Array(EnvironmentDefinition),
+});
+export type ProjectEnvironmentConfig = typeof ProjectEnvironmentConfig.Type;
+
+export const ProjectReadEnvironmentConfigInput = Schema.Struct({
+  ...ProjectRouteInput.fields,
+  fileLocation: EnvironmentFileLocation,
+});
+export type ProjectReadEnvironmentConfigInput = typeof ProjectReadEnvironmentConfigInput.Type;
+
+export const ProjectReadEnvironmentConfigResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  config: Schema.NullOr(ProjectEnvironmentConfig),
+});
+export type ProjectReadEnvironmentConfigResult = typeof ProjectReadEnvironmentConfigResult.Type;
+
+export const ProjectWriteEnvironmentConfigInput = Schema.Struct({
+  ...ProjectRouteInput.fields,
+  fileLocation: EnvironmentFileLocation,
+  config: ProjectEnvironmentConfig,
+});
+export type ProjectWriteEnvironmentConfigInput = typeof ProjectWriteEnvironmentConfigInput.Type;
+
+export const ProjectWriteEnvironmentConfigResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+});
+export type ProjectWriteEnvironmentConfigResult = typeof ProjectWriteEnvironmentConfigResult.Type;
+
+export const ProjectMigrateEnvironmentConfigInput = Schema.Struct({
+  ...ProjectRouteInput.fields,
+  from: EnvironmentFileLocation,
+  to: EnvironmentFileLocation,
+});
+export type ProjectMigrateEnvironmentConfigInput = typeof ProjectMigrateEnvironmentConfigInput.Type;
+
+export const ProjectMigrateEnvironmentConfigResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  migrated: Schema.Boolean,
+});
+export type ProjectMigrateEnvironmentConfigResult =
+  typeof ProjectMigrateEnvironmentConfigResult.Type;

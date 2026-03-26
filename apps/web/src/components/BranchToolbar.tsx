@@ -1,4 +1,4 @@
-import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentDefinition, ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback } from "react";
 
@@ -13,7 +13,16 @@ import {
   resolveEffectiveEnvMode,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 const envModeItems = [
   { value: "local", label: "Local" },
@@ -23,8 +32,11 @@ const envModeItems = [
 interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
+  onSelectedEnvironmentChange?: (environmentId: string | null) => void;
   envLocked: boolean;
+  environments?: ReadonlyArray<EnvironmentDefinition>;
   projectRemote: ProjectRemoteTarget | null;
+  selectedEnvironmentId?: string | null;
   providerThreadId?: string | null;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -33,8 +45,11 @@ interface BranchToolbarProps {
 export default function BranchToolbar({
   threadId,
   onEnvModeChange,
+  onSelectedEnvironmentChange,
   envLocked,
+  environments = [],
   projectRemote,
+  selectedEnvironmentId = null,
   providerThreadId,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -59,6 +74,8 @@ export default function BranchToolbar({
     projectRemote,
   });
   const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
+  const selectedEnvironment =
+    environments.find((environment) => environment.id === selectedEnvironmentId) ?? null;
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -119,7 +136,12 @@ export default function BranchToolbar({
       <div className="flex min-w-0 items-center gap-2">
         {envLocked || activeWorktreePath || !supportsWorktreeEnv ? (
           <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
-            {activeWorktreePath ? (
+            {selectedEnvironment ? (
+              <>
+                <GitForkIcon className="size-3" />
+                {selectedEnvironment.name}
+              </>
+            ) : activeWorktreePath ? (
               <>
                 <GitForkIcon className="size-3" />
                 Worktree
@@ -131,6 +153,46 @@ export default function BranchToolbar({
               </>
             )}
           </span>
+        ) : environments.length > 0 && onSelectedEnvironmentChange ? (
+          <Select
+            value={selectedEnvironmentId ?? "__none__"}
+            onValueChange={(value) =>
+              onSelectedEnvironmentChange(value === "__none__" ? null : value)
+            }
+          >
+            <SelectTrigger variant="ghost" size="xs" className="font-medium">
+              <GitForkIcon className="size-3" />
+              <SelectValue>
+                {selectedEnvironment ? selectedEnvironment.name : "Environment"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectGroup>
+                <SelectGroupLabel>Local</SelectGroupLabel>
+                <SelectItem value="__none__">
+                  <span className="inline-flex items-center gap-1.5">
+                    <FolderIcon className="size-3" />
+                    None
+                  </span>
+                </SelectItem>
+                {environments.map((environment) => (
+                  <SelectItem key={environment.id} value={environment.id}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <GitForkIcon className="size-3" />
+                      {environment.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectGroupLabel>Remote</SelectGroupLabel>
+                <SelectItem value="__remote__" disabled>
+                  Remote environments are not supported yet
+                </SelectItem>
+              </SelectGroup>
+            </SelectPopup>
+          </Select>
         ) : (
           <Select
             value={effectiveEnvMode}

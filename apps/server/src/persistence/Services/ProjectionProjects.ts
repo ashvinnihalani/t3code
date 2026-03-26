@@ -7,6 +7,7 @@
  * @module ProjectionProjectRepository
  */
 import {
+  EnvironmentFileLocation,
   IsoDateTime,
   ModelSelection,
   ProjectId,
@@ -25,6 +26,7 @@ export const ProjectionProject = Schema.Struct({
   remote: Schema.NullOr(ProjectRemoteTarget),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  environmentFileLocation: Schema.optionalKey(EnvironmentFileLocation),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),

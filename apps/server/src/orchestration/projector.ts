@@ -185,6 +185,7 @@ export function projectEvent(
             ...(payload.remote !== undefined ? { remote: payload.remote } : {}),
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            environmentFileLocation: payload.environmentFileLocation ?? "project",
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -218,6 +219,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.environmentFileLocation !== undefined
+                    ? { environmentFileLocation: payload.environmentFileLocation }
+                    : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
@@ -260,6 +264,7 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            ...(payload.environment !== undefined ? { environment: payload.environment } : {}),
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -303,6 +308,7 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.environment !== undefined ? { environment: payload.environment } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

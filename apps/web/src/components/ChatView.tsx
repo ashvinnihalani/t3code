@@ -2,6 +2,7 @@ import {
   type ApprovalRequestId,
   type ClaudeCodeEffort,
   DEFAULT_MODEL_BY_PROVIDER,
+  type EnvironmentDefinition,
   ROLLBACK_SUPPORTED_BY_PROVIDER,
   SUPPORTED_INTERACTION_MODES_BY_PROVIDER,
   type EditorId,
@@ -34,7 +35,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
-import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import {
+  projectEnvironmentConfigQueryOptions,
+  projectSearchEntriesQueryOptions,
+} from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
@@ -115,7 +119,6 @@ import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
   projectScriptIdFromCommand,
-  setupProjectScript,
 } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
@@ -509,6 +512,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = projects.find((p) => p.id === activeThread?.projectId);
+  const environmentConfigQuery = useQuery(
+    projectEnvironmentConfigQueryOptions({
+      projectId: activeProject?.id ?? null,
+      fileLocation: settings.environmentFileLocation,
+      enabled: activeProject !== undefined && !activeProject?.remote,
+    }),
+  );
+  const environmentConfig = environmentConfigQuery.data;
+  const availableLocalEnvironments = environmentConfig?.environments ?? [];
+  const selectedEnvironmentId =
+    activeThread?.environment?.environmentId ??
+    (isLocalDraftThread ? (draftThread?.selectedEnvironmentId ?? null) : null) ??
+    environmentConfig?.defaults.selectedEnvironmentId ??
+    null;
+  const selectedEnvironment =
+    availableLocalEnvironments.find((environment) => environment.id === selectedEnvironmentId) ??
+    null;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -1492,6 +1512,93 @@ export default function ChatView({ threadId }: ChatViewProps) {
       terminalState.terminalIds,
     ],
   );
+  const runEnvironmentStartupActions = useCallback(
+    async (input: {
+      environment: EnvironmentDefinition;
+      worktreePath: string;
+      threadId: ThreadId;
+    }) => {
+      if (!activeProject) return;
+      const startupScripts = input.environment.startupActionIds.map((actionId) => {
+        const script = activeProject.scripts.find((candidate) => candidate.id === actionId);
+        if (!script) {
+          throw new Error(
+            `Environment "${input.environment.name}" references missing action "${actionId}".`,
+          );
+        }
+        return script;
+      });
+      const api = readNativeApi();
+      if (api) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: input.threadId,
+          environment: {
+            environmentId: input.environment.id,
+            category: input.environment.category,
+            mode: input.environment.mode,
+            startupState: "running",
+            startupLastRunAt: new Date().toISOString(),
+            startupLastActionId: null,
+            startupLastExitCode: null,
+            startupLastError: null,
+          },
+        });
+      }
+
+      let lastActionId: string | null = null;
+      try {
+        for (const script of startupScripts) {
+          lastActionId = script.id;
+          await runProjectScript(script, {
+            cwd: input.worktreePath,
+            worktreePath: input.worktreePath,
+            rememberAsLastInvoked: false,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (api) {
+          await api.orchestration.dispatchCommand({
+            type: "thread.meta.update",
+            commandId: newCommandId(),
+            threadId: input.threadId,
+            environment: {
+              environmentId: input.environment.id,
+              category: input.environment.category,
+              mode: input.environment.mode,
+              startupState: "failed",
+              startupLastRunAt: new Date().toISOString(),
+              startupLastActionId: lastActionId,
+              startupLastExitCode: null,
+              startupLastError: message,
+            },
+          });
+        }
+        throw error;
+      }
+
+      if (api) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: input.threadId,
+          environment: {
+            environmentId: input.environment.id,
+            category: input.environment.category,
+            mode: input.environment.mode,
+            startupState: "succeeded",
+            startupLastRunAt: new Date().toISOString(),
+            startupLastActionId: lastActionId,
+            startupLastExitCode: 0,
+            startupLastError: null,
+          },
+        });
+      }
+    },
+    [activeProject, runProjectScript],
+  );
   const persistProjectScripts = useCallback(
     async (input: {
       projectId: ProjectId;
@@ -2146,7 +2253,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeWorktreePath = activeThread?.worktreePath;
   const envMode: DraftThreadEnvMode = resolveEffectiveThreadEnvMode({
     worktreePath: activeWorktreePath,
-    draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
+    draftThreadEnvMode:
+      selectedEnvironment !== null
+        ? "worktree"
+        : isLocalDraftThread
+          ? draftThread?.envMode
+          : undefined,
     projectRemote: activeProject?.remote ?? null,
   });
 
@@ -2534,7 +2646,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (shouldCreateWorktree && !activeThread.branch) {
       setStoreThreadError(
         threadIdForSend,
-        "Select a base branch before sending in New worktree mode.",
+        selectedEnvironment
+          ? `Select a base branch before sending with environment "${selectedEnvironment.name}".`
+          : "Select a base branch before sending in New worktree mode.",
       );
       return;
     }
@@ -2679,34 +2793,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
           interactionMode,
           branch: nextThreadBranch,
           worktreePath: nextThreadWorktreePath,
+          ...(selectedEnvironment
+            ? {
+                environment: {
+                  environmentId: selectedEnvironment.id,
+                  category: selectedEnvironment.category,
+                  mode: selectedEnvironment.mode,
+                  startupState: baseBranchForWorktree ? "pending" : "succeeded",
+                  startupLastRunAt: null,
+                  startupLastActionId: null,
+                  startupLastExitCode: null,
+                  startupLastError: null,
+                },
+              }
+            : {}),
           createdAt: activeThread.createdAt,
         });
         createdServerThreadForLocalDraft = true;
       }
 
-      let setupScript: ProjectScript | null = null;
-      if (baseBranchForWorktree) {
-        setupScript = setupProjectScript(activeProject.scripts);
-      }
-      if (setupScript) {
-        let shouldRunSetupScript = false;
-        if (isServerThread) {
-          shouldRunSetupScript = true;
-        } else {
-          if (createdServerThreadForLocalDraft) {
-            shouldRunSetupScript = true;
-          }
-        }
-        if (shouldRunSetupScript) {
-          const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
-            worktreePath: nextThreadWorktreePath,
-            rememberAsLastInvoked: false,
-          };
-          if (nextThreadWorktreePath) {
-            setupScriptOptions.cwd = nextThreadWorktreePath;
-          }
-          await runProjectScript(setupScript, setupScriptOptions);
-        }
+      if (
+        selectedEnvironment !== null &&
+        baseBranchForWorktree !== null &&
+        nextThreadWorktreePath !== null &&
+        (isServerThread || createdServerThreadForLocalDraft)
+      ) {
+        await runEnvironmentStartupActions({
+          environment: selectedEnvironment,
+          worktreePath: nextThreadWorktreePath,
+          threadId: threadIdForSend,
+        });
       }
 
       // Auto-title from first message
@@ -3279,6 +3395,43 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
   );
+  const onSelectedEnvironmentChange = useCallback(
+    (environmentId: string | null) => {
+      const nextEnvironment =
+        availableLocalEnvironments.find((environment) => environment.id === environmentId) ?? null;
+      if (isLocalDraftThread) {
+        setDraftThreadContext(threadId, {
+          selectedEnvironmentId: environmentId,
+          envMode: nextEnvironment ? "worktree" : "local",
+        });
+      } else if (activeThread) {
+        const api = readNativeApi();
+        if (api) {
+          void api.orchestration.dispatchCommand({
+            type: "thread.meta.update",
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            environment: nextEnvironment
+              ? {
+                  environmentId: nextEnvironment.id,
+                  category: nextEnvironment.category,
+                  mode: nextEnvironment.mode,
+                }
+              : null,
+          });
+        }
+      }
+      scheduleComposerFocus();
+    },
+    [
+      activeThread,
+      availableLocalEnvironments,
+      isLocalDraftThread,
+      scheduleComposerFocus,
+      setDraftThreadContext,
+      threadId,
+    ],
+  );
 
   const applyPromptReplacement = useCallback(
     (
@@ -3640,6 +3793,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
         error={visibleThreadError}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
+      {activeThread.environment?.startupState ? (
+        <div className="border-b border-border/60 bg-muted/30 px-4 py-2 text-xs text-muted-foreground sm:px-5">
+          {activeThread.environment.startupState === "running"
+            ? "Running environment startup actions"
+            : activeThread.environment.startupState === "pending"
+              ? "Preparing environment"
+              : activeThread.environment.startupState === "failed"
+                ? `Environment failed to start${
+                    activeThread.environment.startupLastError
+                      ? `: ${activeThread.environment.startupLastError}`
+                      : ""
+                  }`
+                : "Environment ready"}
+        </div>
+      ) : null}
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
@@ -4226,8 +4394,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
             <BranchToolbar
               threadId={activeThread.id}
               onEnvModeChange={onEnvModeChange}
+              onSelectedEnvironmentChange={onSelectedEnvironmentChange}
               envLocked={envLocked}
+              environments={availableLocalEnvironments}
               projectRemote={activeProject?.remote ?? null}
+              selectedEnvironmentId={selectedEnvironmentId}
               providerThreadId={showComposerThreadId ? visibleProviderThreadId : null}
               onComposerFocusRequest={scheduleComposerFocus}
               {...(canCheckoutPullRequestIntoThread

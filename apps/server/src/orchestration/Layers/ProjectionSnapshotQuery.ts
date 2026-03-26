@@ -1,5 +1,9 @@
 import {
   ChatAttachment,
+  EnvironmentCategory,
+  EnvironmentFileLocation,
+  EnvironmentMode,
+  EnvironmentStartupState,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -52,6 +56,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
+    environmentFileLocation: EnvironmentFileLocation,
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -64,6 +69,9 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    environmentCategory: Schema.NullOr(EnvironmentCategory),
+    environmentMode: Schema.NullOr(EnvironmentMode),
+    environmentStartupState: Schema.NullOr(EnvironmentStartupState),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -256,6 +264,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          environment_file_location AS "environmentFileLocation",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -278,6 +287,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          environment_id AS "environmentId",
+          environment_category AS "environmentCategory",
+          environment_mode AS "environmentMode",
+          environment_startup_state AS "environmentStartupState",
+          environment_startup_last_run_at AS "environmentStartupLastRunAt",
+          environment_startup_last_action_id AS "environmentStartupLastActionId",
+          environment_startup_last_exit_code AS "environmentStartupLastExitCode",
+          environment_startup_last_error AS "environmentStartupLastError",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -687,6 +704,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             remote: row.remote,
             defaultModelSelection: row.defaultModelSelection,
             scripts: row.scripts,
+            environmentFileLocation: row.environmentFileLocation ?? "project",
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
@@ -702,6 +720,30 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            ...(row.environmentCategory !== null && row.environmentMode !== null
+              ? {
+                  environment: {
+                    environmentId: row.environmentId ?? null,
+                    category: row.environmentCategory,
+                    mode: row.environmentMode,
+                    ...(row.environmentStartupState !== null
+                      ? { startupState: row.environmentStartupState }
+                      : {}),
+                    ...(row.environmentStartupLastRunAt !== null
+                      ? { startupLastRunAt: row.environmentStartupLastRunAt }
+                      : {}),
+                    ...(row.environmentStartupLastActionId !== null
+                      ? { startupLastActionId: row.environmentStartupLastActionId }
+                      : {}),
+                    ...(row.environmentStartupLastExitCode !== null
+                      ? { startupLastExitCode: row.environmentStartupLastExitCode }
+                      : {}),
+                    ...(row.environmentStartupLastError !== null
+                      ? { startupLastError: row.environmentStartupLastError }
+                      : {}),
+                  },
+                }
+              : {}),
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,

@@ -154,6 +154,7 @@ function mapProjectsFromReadModel(
       id: project.id,
       name: project.title,
       cwd: project.workspaceRoot,
+      environmentFileLocation: project.environmentFileLocation ?? "project",
       defaultModelSelection:
         existing?.defaultModelSelection ??
         (project.defaultModelSelection
@@ -356,6 +357,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        environment: thread.environment ?? null,
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
           turnId: checkpoint.turnId,
           completedAt: checkpoint.completedAt,
