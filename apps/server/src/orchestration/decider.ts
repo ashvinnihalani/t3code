@@ -80,6 +80,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           remote: command.remote,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          environmentFileLocation: "project",
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -110,6 +111,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.environmentFileLocation !== undefined
+            ? { environmentFileLocation: command.environmentFileLocation }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -165,6 +169,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          ...(command.environment !== undefined ? { environment: command.environment } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -216,6 +221,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.environment !== undefined ? { environment: command.environment } : {}),
           updatedAt: occurredAt,
         },
       };

@@ -128,6 +128,12 @@ export function createWsNativeApi(): NativeApi {
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
       openInEditor: (input) => transport.request(WS_METHODS.projectsOpenInEditor, input),
       openPathInEditor: (input) => transport.request(WS_METHODS.projectsOpenPathInEditor, input),
+      readEnvironmentConfig: (input) =>
+        transport.request(WS_METHODS.projectsReadEnvironmentConfig, input),
+      writeEnvironmentConfig: (input) =>
+        transport.request(WS_METHODS.projectsWriteEnvironmentConfig, input),
+      migrateEnvironmentConfig: (input) =>
+        transport.request(WS_METHODS.projectsMigrateEnvironmentConfig, input),
     },
     shell: {
       openInEditor: (target, editor) =>

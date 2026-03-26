@@ -37,9 +37,12 @@ import {
 import { KeybindingRule } from "./keybindings";
 import { RemoteProjectValidationInput } from "./remote";
 import {
+  ProjectMigrateEnvironmentConfigInput,
   ProjectOpenInEditorInput,
   ProjectOpenPathInEditorInput,
+  ProjectReadEnvironmentConfigInput,
   ProjectSearchEntriesInput,
+  ProjectWriteEnvironmentConfigInput,
   ProjectWriteFileInput,
 } from "./project";
 import { OpenInEditorInput } from "./editor";
@@ -56,6 +59,9 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   projectsOpenInEditor: "projects.openInEditor",
   projectsOpenPathInEditor: "projects.openPathInEditor",
+  projectsReadEnvironmentConfig: "projects.readEnvironmentConfig",
+  projectsWriteEnvironmentConfig: "projects.writeEnvironmentConfig",
+  projectsMigrateEnvironmentConfig: "projects.migrateEnvironmentConfig",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -125,6 +131,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
   tagRequestBody(WS_METHODS.projectsOpenInEditor, ProjectOpenInEditorInput),
   tagRequestBody(WS_METHODS.projectsOpenPathInEditor, ProjectOpenPathInEditorInput),
+  tagRequestBody(WS_METHODS.projectsReadEnvironmentConfig, ProjectReadEnvironmentConfigInput),
+  tagRequestBody(WS_METHODS.projectsWriteEnvironmentConfig, ProjectWriteEnvironmentConfigInput),
+  tagRequestBody(WS_METHODS.projectsMigrateEnvironmentConfig, ProjectMigrateEnvironmentConfigInput),
 
   // Shell methods
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),

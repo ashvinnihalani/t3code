@@ -15,6 +15,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ClientOrchestrationCommand,
+  type EnvironmentFileLocation,
   type OrchestrationCommand,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
@@ -76,6 +77,12 @@ import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { listSshHosts } from "./sshHosts";
 import { validateRemoteProjectOverSsh } from "./remote/validateRemoteProject";
+import {
+  migrateEnvironmentConfigFile,
+  readEnvironmentConfigFile,
+  resolveEnvironmentConfigPath,
+  writeEnvironmentConfigFile,
+} from "./environmentConfig";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -975,6 +982,27 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     }
     return project.workspaceRoot;
   });
+  const resolveEnvironmentConfigTarget = Effect.fnUntraced(function* (input: {
+    readonly projectId: ProjectId;
+    readonly fileLocation: EnvironmentFileLocation;
+    readonly operation: string;
+  }) {
+    const project = yield* resolveProject(input.projectId);
+    if (project.remote) {
+      return yield* new RouteRequestError({
+        message: `${input.operation} is unavailable for remote projects.`,
+      });
+    }
+    return {
+      project,
+      path: resolveEnvironmentConfigPath({
+        fileLocation: input.fileLocation,
+        projectId: input.projectId,
+        projectRoot: project.workspaceRoot,
+        baseDir: serverConfig.baseDir,
+      }),
+    };
+  });
   const checkpointDiffQuery = yield* CheckpointDiffQuery;
   const orchestrationReactor = yield* OrchestrationReactor;
   const { openInEditor } = yield* Open;
@@ -1193,6 +1221,78 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           target,
           editor: body.editor,
         });
+      }
+
+      case WS_METHODS.projectsReadEnvironmentConfig: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveEnvironmentConfigTarget({
+          projectId: body.projectId,
+          fileLocation: body.fileLocation,
+          operation: "Environment config read",
+        });
+        const config = yield* Effect.tryPromise({
+          try: () => readEnvironmentConfigFile(target.path),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to read environment config: ${String(cause)}`,
+            }),
+        });
+        return {
+          path: target.path,
+          config,
+        };
+      }
+
+      case WS_METHODS.projectsWriteEnvironmentConfig: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveEnvironmentConfigTarget({
+          projectId: body.projectId,
+          fileLocation: body.fileLocation,
+          operation: "Environment config write",
+        });
+        yield* Effect.tryPromise({
+          try: () => writeEnvironmentConfigFile(target.path, body.config),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to write environment config: ${String(cause)}`,
+            }),
+        });
+        return { path: target.path };
+      }
+
+      case WS_METHODS.projectsMigrateEnvironmentConfig: {
+        const body = stripRequestTag(request.body);
+        const fromTarget = yield* resolveEnvironmentConfigTarget({
+          projectId: body.projectId,
+          fileLocation: body.from,
+          operation: "Environment config migration",
+        });
+        const toTarget = yield* resolveEnvironmentConfigTarget({
+          projectId: body.projectId,
+          fileLocation: body.to,
+          operation: "Environment config migration",
+        });
+        if (fromTarget.path === toTarget.path) {
+          return {
+            path: toTarget.path,
+            migrated: false,
+          };
+        }
+        const migrated = yield* Effect.tryPromise({
+          try: () =>
+            migrateEnvironmentConfigFile({
+              fromPath: fromTarget.path,
+              toPath: toTarget.path,
+            }),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to migrate environment config: ${String(cause)}`,
+            }),
+        });
+        return {
+          path: toTarget.path,
+          migrated,
+        };
       }
 
       case WS_METHODS.shellOpenInEditor: {

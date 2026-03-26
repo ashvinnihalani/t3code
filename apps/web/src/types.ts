@@ -1,4 +1,8 @@
 import type {
+  EnvironmentCategory,
+  EnvironmentFileLocation,
+  EnvironmentMode,
+  EnvironmentStartupState,
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationSessionReconnectState,
@@ -85,10 +89,22 @@ export interface Project {
   cwd: string;
   remote?: ProjectRemoteTarget | null;
   defaultModelSelection: ModelSelection | null;
+  environmentFileLocation?: EnvironmentFileLocation | undefined;
   expanded: boolean;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+}
+
+export interface ThreadEnvironmentSelection {
+  environmentId: string | null;
+  category: EnvironmentCategory;
+  mode: EnvironmentMode;
+  startupState?: EnvironmentStartupState | undefined;
+  startupLastRunAt?: string | null | undefined;
+  startupLastActionId?: string | null | undefined;
+  startupLastExitCode?: number | null | undefined;
+  startupLastError?: string | null | undefined;
 }
 
 export interface Thread {
@@ -109,6 +125,7 @@ export interface Thread {
   lastVisitedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  environment?: ThreadEnvironmentSelection | null | undefined;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

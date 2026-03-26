@@ -42,6 +42,10 @@ export const THREAD_ID_DISPLAY_MODE_OPTIONS = ["hidden", "composer", "message"] 
 export type ThreadIdDisplayMode = (typeof THREAD_ID_DISPLAY_MODE_OPTIONS)[number];
 export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
 
+export const ENVIRONMENT_FILE_LOCATION_OPTIONS = ["project", "t3code"] as const;
+export type EnvironmentFileLocationSetting = (typeof ENVIRONMENT_FILE_LOCATION_OPTIONS)[number];
+export const DEFAULT_ENVIRONMENT_FILE_LOCATION: EnvironmentFileLocationSetting = "project";
+
 export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
 
 const DEFAULT_GIT_TEXT_GENERATION_MODEL_SELECTION = {
@@ -97,6 +101,10 @@ export const AppSettingsSchema = Schema.Struct({
   defaultThreadEnvMode: Schema.Literals(["local", "worktree"]).pipe(
     Schema.withConstructorDefault(() => Option.some("local")),
     Schema.withDecodingDefault(() => "local" as const),
+  ),
+  environmentFileLocation: Schema.Literals(ENVIRONMENT_FILE_LOCATION_OPTIONS).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_ENVIRONMENT_FILE_LOCATION)),
+    Schema.withDecodingDefault(() => DEFAULT_ENVIRONMENT_FILE_LOCATION),
   ),
   gitDefaultAction: Schema.Literals(GIT_DEFAULT_ACTION_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_DEFAULT_ACTION)),

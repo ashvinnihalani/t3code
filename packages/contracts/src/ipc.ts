@@ -22,7 +22,13 @@ import type {
 import type {
   ProjectOpenInEditorInput,
   ProjectOpenPathInEditorInput,
+  ProjectReadEnvironmentConfigInput,
+  ProjectReadEnvironmentConfigResult,
   ProjectSearchEntriesInput,
+  ProjectMigrateEnvironmentConfigInput,
+  ProjectMigrateEnvironmentConfigResult,
+  ProjectWriteEnvironmentConfigInput,
+  ProjectWriteEnvironmentConfigResult,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -145,6 +151,15 @@ export interface NativeApi {
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
     openInEditor: (input: ProjectOpenInEditorInput) => Promise<void>;
     openPathInEditor: (input: ProjectOpenPathInEditorInput) => Promise<void>;
+    readEnvironmentConfig: (
+      input: ProjectReadEnvironmentConfigInput,
+    ) => Promise<ProjectReadEnvironmentConfigResult>;
+    writeEnvironmentConfig: (
+      input: ProjectWriteEnvironmentConfigInput,
+    ) => Promise<ProjectWriteEnvironmentConfigResult>;
+    migrateEnvironmentConfig: (
+      input: ProjectMigrateEnvironmentConfigInput,
+    ) => Promise<ProjectMigrateEnvironmentConfigResult>;
   };
   shell: {
     openInEditor: (target: string, editor: EditorId) => Promise<void>;

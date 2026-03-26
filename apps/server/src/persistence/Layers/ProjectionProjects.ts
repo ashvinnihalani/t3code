@@ -2,7 +2,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Schema, Struct } from "effect";
 
-import { ModelSelection, ProjectRemoteTarget, ProjectScript } from "@t3tools/contracts";
+import {
+  EnvironmentFileLocation,
+  ModelSelection,
+  ProjectRemoteTarget,
+  ProjectScript,
+} from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionProjectInput,
@@ -16,6 +21,7 @@ const ProjectionProjectDbRow = ProjectionProject.mapFields(
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
+    environmentFileLocation: EnvironmentFileLocation,
   }),
 );
 type ProjectionProjectDbRow = typeof ProjectionProjectDbRow.Type;
@@ -34,6 +40,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json,
           default_model_selection_json,
           scripts_json,
+          environment_file_location,
           created_at,
           updated_at,
           deleted_at
@@ -45,6 +52,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.remote !== null ? JSON.stringify(row.remote) : null},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
+          ${row.environmentFileLocation ?? "project"},
           ${row.createdAt},
           ${row.updatedAt},
           ${row.deletedAt}
@@ -56,6 +64,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json = excluded.remote_json,
           default_model_selection_json = excluded.default_model_selection_json,
           scripts_json = excluded.scripts_json,
+          environment_file_location = excluded.environment_file_location,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           deleted_at = excluded.deleted_at
@@ -74,6 +83,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          environment_file_location AS "environmentFileLocation",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -94,6 +104,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          environment_file_location AS "environmentFileLocation",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"

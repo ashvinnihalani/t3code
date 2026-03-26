@@ -271,6 +271,7 @@ describe("wsNativeApi", () => {
         workspaceRoot: "/tmp/workspace",
         defaultModelSelection: null,
         scripts: [],
+        environmentFileLocation: "project",
         createdAt: "2026-02-24T00:00:00.000Z",
         updatedAt: "2026-02-24T00:00:00.000Z",
       },

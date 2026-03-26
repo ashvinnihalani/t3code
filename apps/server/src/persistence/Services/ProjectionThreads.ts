@@ -7,6 +7,8 @@
  * @module ProjectionThreadRepository
  */
 import {
+  EnvironmentMode,
+  EnvironmentStartupState,
   IsoDateTime,
   ModelSelection,
   ProjectId,
@@ -29,6 +31,14 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  environmentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  environmentCategory: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  environmentMode: Schema.optionalKey(Schema.NullOr(EnvironmentMode)),
+  environmentStartupState: Schema.optionalKey(Schema.NullOr(EnvironmentStartupState)),
+  environmentStartupLastRunAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
+  environmentStartupLastActionId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  environmentStartupLastExitCode: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  environmentStartupLastError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

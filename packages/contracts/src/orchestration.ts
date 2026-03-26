@@ -148,6 +148,50 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const EnvironmentCategory = Schema.Literals(["local", "remote"]);
+export type EnvironmentCategory = typeof EnvironmentCategory.Type;
+
+export const EnvironmentMode = Schema.Literal("managed-worktree");
+export type EnvironmentMode = typeof EnvironmentMode.Type;
+
+export const EnvironmentFileLocation = Schema.Literals(["project", "t3code"]);
+export type EnvironmentFileLocation = typeof EnvironmentFileLocation.Type;
+
+export const EnvironmentStartupState = Schema.Literals([
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+]);
+export type EnvironmentStartupState = typeof EnvironmentStartupState.Type;
+
+export const EnvironmentId = TrimmedNonEmptyString;
+export type EnvironmentId = typeof EnvironmentId.Type;
+
+export const EnvironmentDefinition = Schema.Struct({
+  id: EnvironmentId,
+  name: TrimmedNonEmptyString,
+  category: EnvironmentCategory,
+  mode: EnvironmentMode,
+  startupActionIds: Schema.Array(TrimmedNonEmptyString),
+  runtimeMode: RuntimeMode,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type EnvironmentDefinition = typeof EnvironmentDefinition.Type;
+
+export const ThreadEnvironmentSelection = Schema.Struct({
+  environmentId: Schema.NullOr(EnvironmentId),
+  category: EnvironmentCategory,
+  mode: EnvironmentMode,
+  startupState: Schema.optional(EnvironmentStartupState),
+  startupLastRunAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  startupLastActionId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  startupLastExitCode: Schema.optional(Schema.NullOr(Schema.Number)),
+  startupLastError: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+export type ThreadEnvironmentSelection = typeof ThreadEnvironmentSelection.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -155,6 +199,7 @@ export const OrchestrationProject = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  environmentFileLocation: Schema.optionalKey(EnvironmentFileLocation),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -304,6 +349,7 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  environment: Schema.optional(Schema.NullOr(ThreadEnvironmentSelection)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -344,6 +390,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  environmentFileLocation: Schema.optional(EnvironmentFileLocation),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -365,6 +412,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  environment: Schema.optional(Schema.NullOr(ThreadEnvironmentSelection)),
   createdAt: IsoDateTime,
 });
 
@@ -382,6 +430,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  environment: Schema.optional(Schema.NullOr(ThreadEnvironmentSelection)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -651,6 +700,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  environmentFileLocation: Schema.optionalKey(EnvironmentFileLocation),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -662,6 +712,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  environmentFileLocation: Schema.optional(EnvironmentFileLocation),
   updatedAt: IsoDateTime,
 });
 
@@ -681,6 +732,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  environment: Schema.optional(Schema.NullOr(ThreadEnvironmentSelection)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -696,6 +748,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  environment: Schema.optional(Schema.NullOr(ThreadEnvironmentSelection)),
   updatedAt: IsoDateTime,
 });
 
