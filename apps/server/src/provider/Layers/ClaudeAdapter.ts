@@ -341,19 +341,24 @@ function normalizeClaudeTokenUsage(
       ? record.output_tokens
       : 0;
   const derivedUsedTokens = inputTokens + outputTokens;
-  const usedTokens = directUsedTokens ?? (derivedUsedTokens > 0 ? derivedUsedTokens : undefined);
-  if (usedTokens === undefined || usedTokens <= 0) {
+  const rawUsedTokens = directUsedTokens ?? (derivedUsedTokens > 0 ? derivedUsedTokens : undefined);
+  if (rawUsedTokens === undefined || rawUsedTokens <= 0) {
     return undefined;
   }
+
+  const hasContextWindow =
+    typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0;
+  const usedTokens = hasContextWindow ? Math.min(rawUsedTokens, contextWindow) : rawUsedTokens;
+  const totalProcessedTokens =
+    hasContextWindow && rawUsedTokens > contextWindow ? rawUsedTokens : undefined;
 
   return {
     usedTokens,
     lastUsedTokens: usedTokens,
+    ...(totalProcessedTokens !== undefined ? { totalProcessedTokens } : {}),
     ...(inputTokens > 0 ? { inputTokens } : {}),
     ...(outputTokens > 0 ? { outputTokens } : {}),
-    ...(typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
-      ? { maxTokens: contextWindow }
-      : {}),
+    ...(hasContextWindow ? { maxTokens: contextWindow } : {}),
     ...(typeof record.tool_uses === "number" && Number.isFinite(record.tool_uses)
       ? { toolUses: record.tool_uses }
       : {}),
@@ -2045,6 +2050,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             });
             return;
           case "compact_boundary":
+            yield* emitRuntimeWarning(
+              context,
+              "Claude emitted compact_boundary.",
+              message as Record<string, unknown>,
+            );
             yield* offerRuntimeEvent({
               ...base,
               type: "thread.state.changed",
