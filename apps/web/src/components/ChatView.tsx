@@ -3644,11 +3644,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner
         status={visibleProviderStatus}
-        onDismiss={
-          visibleProviderStatus?.kind === "local"
-            ? () => dismissLocalCodexErrors(new Date().toISOString())
-            : undefined
-        }
+        {...(visibleProviderStatus?.kind === "local"
+          ? {
+              onDismiss: () => dismissLocalCodexErrors(new Date().toISOString()),
+            }
+          : {})}
       />
       <ThreadErrorBanner
         error={visibleThreadError}
