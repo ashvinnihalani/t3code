@@ -179,6 +179,24 @@ describe("resolveVisibleProviderHealthStatus", () => {
       }),
     ).toBeNull();
   });
+
+  it("hides dismissed local Kiro provider health until a newer status arrives", () => {
+    expect(
+      resolveVisibleProviderHealthStatus({
+        status: {
+          provider: "kiro",
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          checkedAt: "2026-03-16T00:00:00.000Z",
+          message: "Kiro CLI timed out while running command.",
+        },
+        projectRemote: null,
+        session: null,
+        localCodexErrorsDismissedAfter: "2026-03-16T01:00:00.000Z",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("resolveVisibleProviderThreadId", () => {

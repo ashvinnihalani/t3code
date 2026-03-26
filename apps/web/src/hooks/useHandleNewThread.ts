@@ -1,4 +1,9 @@
-import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type ModelSelection,
+  type ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 import {
@@ -21,6 +26,9 @@ export function useHandleNewThread() {
   const activeDraftThread = useComposerDraftStore((store) =>
     routeThreadId ? (store.draftThreadsByThreadId[routeThreadId] ?? null) : null,
   );
+  const activeComposerDraft = useComposerDraftStore((store) =>
+    routeThreadId ? (store.draftsByThreadId[routeThreadId] ?? null) : null,
+  );
 
   const activeThread = routeThreadId
     ? threads.find((thread) => thread.id === routeThreadId)
@@ -41,6 +49,7 @@ export function useHandleNewThread() {
         getDraftThread,
         getDraftThreadByProjectId,
         applyStickyState,
+        setModelSelection,
         setDraftThreadContext,
         setProjectDraftThreadId,
       } = useComposerDraftStore.getState();
@@ -131,6 +140,13 @@ export function useHandleNewThread() {
       const createdAt = new Date().toISOString();
       return (async () => {
         const resolvedEnvMode = resolveEnvMode(options?.worktreePath ?? null);
+        const inheritedSelections = activeComposerDraft
+          ? Object.values(activeComposerDraft.modelSelectionByProvider)
+          : activeThread?.modelSelection
+            ? [activeThread.modelSelection]
+            : [];
+        const inheritedActiveProvider =
+          activeComposerDraft?.activeProvider ?? activeThread?.modelSelection?.provider ?? null;
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
           branch: options?.branch ?? null,
@@ -139,6 +155,13 @@ export function useHandleNewThread() {
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(threadId);
+        for (const selection of inheritedSelections.toSorted((left, right) => {
+          if (left.provider === inheritedActiveProvider) return 1;
+          if (right.provider === inheritedActiveProvider) return -1;
+          return left.provider.localeCompare(right.provider);
+        })) {
+          setModelSelection(threadId, selection satisfies ModelSelection);
+        }
 
         await navigate({
           to: "/$threadId",
@@ -146,7 +169,7 @@ export function useHandleNewThread() {
         });
       })();
     },
-    [navigate, projects, routeThreadId],
+    [activeComposerDraft, activeThread?.modelSelection, navigate, projects, routeThreadId],
   );
 
   return {

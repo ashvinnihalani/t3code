@@ -113,6 +113,32 @@ describe("derivePendingApprovals", () => {
     ]);
   });
 
+  it("keeps unknown approval request types actionable", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-unknown",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-unknown",
+          requestType: "unknown",
+          detail: "Querying knowledge base",
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([
+      {
+        requestId: "req-unknown",
+        requestKind: "other",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        detail: "Querying knowledge base",
+      },
+    ]);
+  });
+
   it("clears stale pending approvals when provider reports unknown pending request", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -140,6 +166,29 @@ describe("derivePendingApprovals", () => {
     ];
 
     expect(derivePendingApprovals(activities)).toEqual([]);
+  });
+
+  it("hides pending approvals for threads without an actionable session", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-disconnected",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-disconnected",
+          requestType: "unknown",
+          detail: "Querying knowledge base",
+        },
+      }),
+    ];
+
+    expect(
+      derivePendingApprovals(activities, {
+        orchestrationStatus: "disconnected",
+      }),
+    ).toEqual([]);
   });
 });
 

@@ -38,6 +38,10 @@ interface PendingPermissionRequest {
   readonly rpcRequestId: number | string;
   readonly requestId: string;
   readonly toolCallId: string | undefined;
+  readonly requestType: Extract<
+    ProviderRuntimeEvent,
+    { type: "request.opened" }
+  >["payload"]["requestType"];
   readonly options: ReadonlyArray<{
     readonly optionId: string;
     readonly kind?: string;
@@ -284,6 +288,33 @@ function defaultModeId(modeState: KiroModeState): string | undefined {
   )?.id;
 }
 
+function runtimeModeFromModeDescriptor(
+  mode: KiroModeDescriptor,
+): ProviderSession["runtimeMode"] | undefined {
+  const tokens = modeTokens(mode);
+  if (
+    tokens.includes("code") ||
+    tokens.includes("full tool access") ||
+    tokens.includes("full access") ||
+    tokens.includes("auto-accept") ||
+    tokens.includes("auto accept") ||
+    tokens.includes("trust-all") ||
+    tokens.includes("trust all")
+  ) {
+    return "full-access";
+  }
+  if (
+    tokens.includes("ask") ||
+    tokens.includes("manual accept") ||
+    tokens.includes("request permission") ||
+    tokens.includes("approval") ||
+    tokens.includes("supervised")
+  ) {
+    return "approval-required";
+  }
+  return undefined;
+}
+
 function resolveInteractionMode(modeState: KiroModeState): ProviderInteractionMode | undefined {
   const currentMode = modeState.availableModes.find((mode) => mode.id === modeState.currentModeId);
   return currentMode ? interactionModeFromModeDescriptor(currentMode) : undefined;
@@ -299,6 +330,30 @@ function resolveModeIdForInteractionMode(
   return modeState.availableModes.find(
     (mode) => interactionModeFromModeDescriptor(mode) === interactionMode,
   )?.id;
+}
+
+function resolveModeIdForRuntimeMode(
+  modeState: KiroModeState,
+  runtimeMode: ProviderSession["runtimeMode"],
+): string | undefined {
+  return modeState.availableModes.find(
+    (mode) => runtimeModeFromModeDescriptor(mode) === runtimeMode,
+  )?.id;
+}
+
+function resolveModeIdForSessionState(input: {
+  readonly modeState: KiroModeState;
+  readonly runtimeMode: ProviderSession["runtimeMode"];
+  readonly interactionMode: ProviderInteractionMode;
+}): string | undefined {
+  if (input.interactionMode === "default") {
+    return (
+      resolveModeIdForRuntimeMode(input.modeState, input.runtimeMode) ??
+      defaultModeId(input.modeState) ??
+      input.modeState.currentModeId
+    );
+  }
+  return resolveModeIdForInteractionMode(input.modeState, input.interactionMode);
 }
 
 function extractModeState(value: unknown): KiroModeState | undefined {
@@ -758,6 +813,7 @@ export class KiroAcpManager extends EventEmitter {
     });
 
     this.sessions.set(session.threadId, session);
+    await this.applyRuntimeMode(session);
     if (input.model) {
       await this.setModel(session, input.model);
     }
@@ -805,9 +861,7 @@ export class KiroAcpManager extends EventEmitter {
     if (input.model && input.model !== session.model) {
       await this.setModel(session, input.model);
     }
-    if (input.interactionMode) {
-      await this.setInteractionMode(session, input.interactionMode);
-    }
+    await this.setSessionMode(session, input.interactionMode ?? "default");
 
     const turnId = TurnId.makeUnsafe(`kiro:${crypto.randomUUID()}`);
     session.activeTurnId = turnId;
@@ -890,7 +944,7 @@ export class KiroAcpManager extends EventEmitter {
         ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
         requestId: RuntimeRequestId.makeUnsafe(requestId),
         payload: {
-          requestType: toCanonicalRequestType(undefined),
+          requestType: pending.requestType,
           decision,
         },
       }),
@@ -1106,7 +1160,11 @@ export class KiroAcpManager extends EventEmitter {
     session: KiroSessionState,
     interactionMode: ProviderInteractionMode,
   ): Promise<void> {
-    const modeId = resolveModeIdForInteractionMode(session.modeState, interactionMode);
+    const modeId = resolveModeIdForSessionState({
+      modeState: session.modeState,
+      runtimeMode: session.runtimeMode,
+      interactionMode,
+    });
     if (!modeId || modeId === session.modeState.currentModeId) {
       return;
     }
@@ -1123,6 +1181,17 @@ export class KiroAcpManager extends EventEmitter {
     this.emitModeMetadata(session);
   }
 
+  private async applyRuntimeMode(session: KiroSessionState): Promise<void> {
+    await this.setSessionMode(session, "default");
+  }
+
+  private async setSessionMode(
+    session: KiroSessionState,
+    interactionMode: ProviderInteractionMode,
+  ): Promise<void> {
+    await this.setInteractionMode(session, interactionMode);
+  }
+
   private async handleRequest(
     session: KiroSessionState,
     message: JsonRpcRequestMessage,
@@ -1135,6 +1204,11 @@ export class KiroAcpManager extends EventEmitter {
     const params = asRecord(message.params);
     const toolCall = asRecord(params?.toolCall);
     const requestId = `kiro:${asString(toolCall?.toolCallId) ?? crypto.randomUUID()}`;
+    const toolCallId = normalizeNonEmpty(asString(toolCall?.toolCallId));
+    const toolKind =
+      normalizeNonEmpty(asString(toolCall?.kind)) ??
+      (toolCallId ? session.toolCallKinds.get(toolCallId) : undefined);
+    const requestType = toCanonicalRequestType(toolKind);
     const options = (asArray(params?.options) ?? []).reduce<
       Array<{ optionId: string; kind?: string }>
     >((acc, entry) => {
@@ -1147,11 +1221,11 @@ export class KiroAcpManager extends EventEmitter {
       acc.push(kind ? { optionId, kind } : { optionId });
       return acc;
     }, []);
-    const toolCallId = normalizeNonEmpty(asString(toolCall?.toolCallId));
     session.pendingPermissionRequests.set(requestId, {
       rpcRequestId: message.id,
       requestId,
       toolCallId,
+      requestType,
       options,
     });
     this.emit(
@@ -1162,7 +1236,7 @@ export class KiroAcpManager extends EventEmitter {
         requestId: RuntimeRequestId.makeUnsafe(requestId),
         ...(toolCallId ? { itemId: RuntimeItemId.makeUnsafe(toolCallId) } : {}),
         payload: {
-          requestType: toCanonicalRequestType(normalizeNonEmpty(asString(toolCall?.kind))),
+          requestType,
           ...(normalizeNonEmpty(asString(toolCall?.title))
             ? { detail: normalizeNonEmpty(asString(toolCall?.title)) }
             : {}),

@@ -259,6 +259,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const localCodexErrorsDismissedAfter = useStore((store) => store.localCodexErrorsDismissedAfter);
+  const dismissLocalCodexErrors = useStore((store) => store.dismissLocalCodexErrors);
   const { settings } = useAppSettings();
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -339,6 +340,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     Record<ThreadId, string | null>
   >({});
   const [sendPhase, setSendPhase] = useState<SendPhase>("idle");
+  const [sendThreadId, setSendThreadId] = useState<ThreadId | null>(null);
   const [sendStartedAt, setSendStartedAt] = useState<string | null>(null);
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
@@ -697,14 +699,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [lockedProvider, modelOptionsByProvider],
   );
   const phase = derivePhase(activeThread?.session ?? null);
-  const isSendBusy = sendPhase !== "idle";
-  const isPreparingWorktree = sendPhase === "preparing-worktree";
+  const isSendBusy = sendPhase !== "idle" && sendThreadId === activeThread?.id;
+  const isPreparingWorktree = isSendBusy && sendPhase === "preparing-worktree";
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
-    sendStartedAt,
+    sendThreadId === activeThread?.id ? sendStartedAt : null,
   );
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
@@ -716,8 +718,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn?.turnId, threadActivities],
   );
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
+    () => derivePendingApprovals(threadActivities, activeThread?.session ?? null),
+    [activeThread?.session, threadActivities],
   );
   const pendingUserInputs = useMemo(
     () => derivePendingUserInputs(threadActivities),
@@ -2160,13 +2162,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [phase]);
 
-  const beginSendPhase = useCallback((nextPhase: Exclude<SendPhase, "idle">) => {
-    setSendStartedAt((current) => current ?? new Date().toISOString());
-    setSendPhase(nextPhase);
-  }, []);
+  const beginSendPhase = useCallback(
+    (nextPhase: Exclude<SendPhase, "idle">, nextThreadId: ThreadId | null) => {
+      setSendThreadId(nextThreadId);
+      setSendStartedAt((current) => current ?? new Date().toISOString());
+      setSendPhase(nextPhase);
+    },
+    [],
+  );
 
   const resetSendPhase = useCallback(() => {
     setSendPhase("idle");
+    setSendThreadId(null);
     setSendStartedAt(null);
   }, []);
 
@@ -2540,7 +2547,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
-    beginSendPhase(baseBranchForWorktree ? "preparing-worktree" : "sending-turn");
+    beginSendPhase(baseBranchForWorktree ? "preparing-worktree" : "sending-turn", threadIdForSend);
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -2613,7 +2620,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     await (async () => {
       // On first message: lock in branch + create worktree if needed.
       if (baseBranchForWorktree) {
-        beginSendPhase("preparing-worktree");
+        beginSendPhase("preparing-worktree", threadIdForSend);
         const newBranch = buildTemporaryWorktreeBranchName();
         const result = await createWorktreeMutation.mutateAsync({
           cwd: activeProject.cwd,
@@ -2729,7 +2736,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
       }
 
-      beginSendPhase("sending-turn");
+      beginSendPhase("sending-turn", threadIdForSend);
       const turnAttachments = await turnAttachmentsPromise;
       await api.orchestration.dispatchCommand({
         type: "thread.turn.start",
@@ -2989,7 +2996,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      beginSendPhase("sending-turn");
+      beginSendPhase("sending-turn", threadIdForSend);
       setThreadError(threadIdForSend, null);
       setOptimisticUserMessages((existing) => [
         ...existing,
@@ -3118,7 +3125,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
     sendInFlightRef.current = true;
-    beginSendPhase("sending-turn");
+    beginSendPhase("sending-turn", nextThreadId);
     const finish = () => {
       sendInFlightRef.current = false;
       resetSendPhase();
@@ -3635,7 +3642,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       </header>
 
       {/* Error banner */}
-      <ProviderHealthBanner status={visibleProviderStatus} />
+      <ProviderHealthBanner
+        status={visibleProviderStatus}
+        onDismiss={
+          visibleProviderStatus?.kind === "local"
+            ? () => dismissLocalCodexErrors(new Date().toISOString())
+            : undefined
+        }
+      />
       <ThreadErrorBanner
         error={visibleThreadError}
         onDismiss={() => setThreadError(activeThread.id, null)}

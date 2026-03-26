@@ -47,7 +47,7 @@ export interface WorkLogEntry {
 
 export interface PendingApproval {
   requestId: ApprovalRequestId;
-  requestKind: "command" | "file-read" | "file-change";
+  requestKind: "command" | "file-read" | "file-change" | "other";
   createdAt: string;
   detail?: string;
 }
@@ -145,7 +145,7 @@ export function deriveActiveWorkStartedAt(
   return sendStartedAt;
 }
 
-function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
+function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] {
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
@@ -156,13 +156,22 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
     case "apply_patch_approval":
       return "file-change";
     default:
-      return null;
+      return "other";
   }
 }
 
 export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  session?: Pick<ThreadSession, "orchestrationStatus"> | null,
 ): PendingApproval[] {
+  if (
+    session &&
+    session.orchestrationStatus !== "ready" &&
+    session.orchestrationStatus !== "running" &&
+    session.orchestrationStatus !== "interrupted"
+  ) {
+    return [];
+  }
   const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
 
@@ -179,17 +188,18 @@ export function derivePendingApprovals(
       payload &&
       (payload.requestKind === "command" ||
         payload.requestKind === "file-read" ||
-        payload.requestKind === "file-change")
+        payload.requestKind === "file-change" ||
+        payload.requestKind === "other")
         ? payload.requestKind
         : payload
           ? requestKindFromRequestType(payload.requestType)
           : null;
     const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
 
-    if (activity.kind === "approval.requested" && requestId && requestKind) {
+    if (activity.kind === "approval.requested" && requestId) {
       openByRequestId.set(requestId, {
         requestId,
-        requestKind,
+        requestKind: requestKind ?? "other",
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
       });
@@ -549,7 +559,8 @@ function extractWorkLogRequestKind(
   if (
     payload?.requestKind === "command" ||
     payload?.requestKind === "file-read" ||
-    payload?.requestKind === "file-change"
+    payload?.requestKind === "file-change" ||
+    payload?.requestKind === "other"
   ) {
     return payload.requestKind;
   }

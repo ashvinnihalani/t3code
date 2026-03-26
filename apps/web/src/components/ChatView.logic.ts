@@ -288,7 +288,7 @@ export function resolveVisibleProviderHealthStatus(input: {
   }
 
   if (
-    input.status?.provider === "codex" &&
+    input.status &&
     input.status.status !== "ready" &&
     isOlderThanOrEqualToDismissedAt(input.status.checkedAt, input.localCodexErrorsDismissedAfter)
   ) {
@@ -316,7 +316,7 @@ export function resolveVisibleThreadError(input: {
   }
 
   const session = input.thread?.session ?? null;
-  if (session?.provider !== "codex" || session.lastError !== error) {
+  if (session?.lastError !== error) {
     return error;
   }
 
