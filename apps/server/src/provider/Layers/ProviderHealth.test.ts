@@ -1,7 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
+import { TestClock } from "effect/testing";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -27,21 +28,6 @@ function mockHandle(result: { stdout: string; stderr: string; code: number }) {
     stdin: Sink.drain,
     stdout: Stream.make(encoder.encode(result.stdout)),
     stderr: Stream.make(encoder.encode(result.stderr)),
-    all: Stream.empty,
-    getInputFd: () => Sink.drain,
-    getOutputFd: () => Stream.empty,
-  });
-}
-
-function hangingHandle() {
-  return ChildProcessSpawner.makeHandle({
-    pid: ChildProcessSpawner.ProcessId(1),
-    exitCode: Effect.never,
-    isRunning: Effect.succeed(true),
-    kill: () => Effect.void,
-    stdin: Sink.drain,
-    stdout: Stream.empty,
-    stderr: Stream.empty,
     all: Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
@@ -656,7 +642,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("falls back to plain whoami when the json auth probe times out", () =>
       Effect.gen(function* () {
-        const status = yield* checkKiroProviderStatus;
+        const statusFiber = yield* Effect.forkScoped(checkKiroProviderStatus);
+        yield* TestClock.adjust("11 seconds");
+        const status = yield* Fiber.join(statusFiber);
         assert.strictEqual(status.provider, "kiro");
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.available, true);
@@ -671,7 +659,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               );
             }
             if (joined === "whoami --format json") {
-              return Effect.succeed(hangingHandle());
+              return Effect.never;
             }
             if (joined === "whoami") {
               return Effect.succeed(

@@ -798,9 +798,7 @@ function SettingsRouteView() {
                   <Select
                     value={settings.threadIdDisplayMode}
                     onValueChange={(value) => {
-                      if (
-                        !THREAD_ID_DISPLAY_MODE_OPTIONS.includes(value as ThreadIdDisplayMode)
-                      ) {
+                      if (!THREAD_ID_DISPLAY_MODE_OPTIONS.includes(value as ThreadIdDisplayMode)) {
                         return;
                       }
                       updateSettings({
@@ -904,7 +902,9 @@ function SettingsRouteView() {
                     }}
                   >
                     <SelectTrigger className="w-full sm:w-52" aria-label="Default git action">
-                      <SelectValue>{GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}</SelectValue>
+                      <SelectValue>
+                        {GIT_DEFAULT_ACTION_LABELS[settings.gitDefaultAction]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectPopup align="end" alignItemWithTrigger={false}>
                       {GIT_DEFAULT_ACTION_OPTIONS.map((option) => (
@@ -1048,7 +1048,9 @@ function SettingsRouteView() {
                     <Select
                       value={selectedCustomModelProvider}
                       onValueChange={(value) => {
-                        if (!MODEL_PROVIDER_SETTINGS.some((provider) => provider.provider === value)) {
+                        if (
+                          !MODEL_PROVIDER_SETTINGS.some((provider) => provider.provider === value)
+                        ) {
                           return;
                         }
                         setSelectedCustomModelProvider(value as ProviderKind);

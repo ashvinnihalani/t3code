@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
+import { ClaudeModelOptions, CodexModelOptions, KiroModelOptions } from "./model";
 import { GitRequestSettings } from "./git";
 import { ProjectRemoteTarget } from "./remote";
 import {
@@ -63,6 +63,7 @@ export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 export const KiroModelSelection = Schema.Struct({
   provider: Schema.Literal("kiro"),
   model: TrimmedNonEmptyString,
+  options: Schema.optional(KiroModelOptions),
 });
 export type KiroModelSelection = typeof KiroModelSelection.Type;
 

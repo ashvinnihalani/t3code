@@ -91,9 +91,7 @@ const makeIsolatedGitCore = (
   makeGitCore({
     executeOverride:
       typeof executeOverride === "function" ? executeOverride : executeOverride.execute,
-  }).pipe(
-    Effect.provide(Layer.provideMerge(ServerConfigLayer, NodeServices.layer)),
-  );
+  }).pipe(Effect.provide(Layer.provideMerge(ServerConfigLayer, NodeServices.layer)));
 
 /** Create a repo with an initial commit so branches work. */
 function initRepoWithCommit(

@@ -20,9 +20,13 @@ export const ClaudeModelOptions = Schema.Struct({
 });
 export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 
+export const KiroModelOptions = Schema.Struct({});
+export type KiroModelOptions = typeof KiroModelOptions.Type;
+
 export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),
   claudeAgent: Schema.optional(ClaudeModelOptions),
+  kiro: Schema.optional(KiroModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
