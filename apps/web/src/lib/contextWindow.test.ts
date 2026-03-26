@@ -64,4 +64,18 @@ describe("contextWindow", () => {
     expect(snapshot?.usedTokens).toBe(81_659);
     expect(snapshot?.totalProcessedTokens).toBe(748_126);
   });
+
+  it("prefers provider-supplied usage percentages when tokens are unavailable", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([
+      makeActivity("activity-1", "context-window.updated", {
+        usedTokens: 590,
+        usedPercentage: 5.9,
+        compactsAutomatically: true,
+      }),
+    ]);
+
+    expect(snapshot?.usedPercentage).toBe(5.9);
+    expect(snapshot?.maxTokens).toBeNull();
+    expect(snapshot?.remainingPercentage).toBe(94.1);
+  });
 });
