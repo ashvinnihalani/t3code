@@ -742,7 +742,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         resolvedThreadId: providerThreadId,
         requestedRuntimeMode: input.runtimeMode,
       }).pipe(this.runPromise);
-      this.emitLifecycleEvent(context, "session/ready", `Connected to thread ${providerThreadId}`);
+      this.emitLifecycleEvent(
+        context,
+        "session/ready",
+        threadOpenMethod === "thread/resume"
+          ? `Reconnected to thread ${providerThreadId}`
+          : `Connected to thread ${providerThreadId}`,
+      );
       return { ...context.session };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Codex session.";

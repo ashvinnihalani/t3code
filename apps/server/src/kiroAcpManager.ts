@@ -163,6 +163,14 @@ function readResumeSessionId(resumeCursor: unknown): string | undefined {
   );
 }
 
+function kiroSessionStartedMessage(sessionId: string | undefined): string {
+  return sessionId ? `Attempting to resume thread ${sessionId}.` : "Starting a new Kiro thread.";
+}
+
+function kiroThreadConnectedMessage(sessionId: string, resumed: boolean): string {
+  return resumed ? `Reconnected to thread ${sessionId}` : `Connected to thread ${sessionId}`;
+}
+
 function modeTokens(mode: KiroModeDescriptor): string {
   return [mode.id, mode.name, mode.description]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
@@ -656,7 +664,7 @@ export class KiroAcpManager extends EventEmitter {
       this.runtimeEvent(session, {
         type: "session.started",
         payload: {
-          message: "Kiro ACP session started",
+          message: kiroSessionStartedMessage(resumeSessionId),
           resume: resumeCursorFromSessionId(session.sessionId),
         },
       }),
@@ -667,6 +675,7 @@ export class KiroAcpManager extends EventEmitter {
         type: "thread.started",
         payload: {
           providerThreadId: session.sessionId,
+          message: kiroThreadConnectedMessage(session.sessionId, Boolean(resumeSessionId)),
         },
       }),
     );

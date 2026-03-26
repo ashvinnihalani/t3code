@@ -2012,6 +2012,9 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(sessionStarted?.type, "session.started");
       if (sessionStarted?.type === "session.started") {
         assert.equal(sessionStarted.threadId, THREAD_ID);
+        assert.deepEqual(sessionStarted.payload, {
+          message: "Starting a new Claude Code thread.",
+        });
       }
 
       const threadStarted = runtimeEvents[4];
@@ -2020,6 +2023,7 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(threadStarted.threadId, THREAD_ID);
         assert.deepEqual(threadStarted.payload, {
           providerThreadId: "sdk-thread-real",
+          message: "Connected to thread sdk-thread-real",
         });
       }
     }).pipe(
