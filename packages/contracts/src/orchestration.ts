@@ -148,6 +148,15 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const ProjectGitMode = Schema.Literals(["none", "single", "multi"]);
+export type ProjectGitMode = typeof ProjectGitMode.Type;
+
+export const ProjectGitRepo = Schema.Struct({
+  repoPath: TrimmedNonEmptyString,
+  displayName: TrimmedNonEmptyString,
+});
+export type ProjectGitRepo = typeof ProjectGitRepo.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -155,6 +164,8 @@ export const OrchestrationProject = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  gitMode: Schema.optional(ProjectGitMode),
+  gitRepos: Schema.optional(Schema.NullOr(Schema.Array(ProjectGitRepo))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -344,6 +355,8 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  gitMode: Schema.optional(ProjectGitMode),
+  gitRepos: Schema.optional(Schema.NullOr(Schema.Array(ProjectGitRepo))),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -651,6 +664,8 @@ export const ProjectCreatedPayload = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  gitMode: Schema.optional(ProjectGitMode),
+  gitRepos: Schema.optional(Schema.NullOr(Schema.Array(ProjectGitRepo))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -662,6 +677,8 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  gitMode: Schema.optional(ProjectGitMode),
+  gitRepos: Schema.optional(Schema.NullOr(Schema.Array(ProjectGitRepo))),
   updatedAt: IsoDateTime,
 });
 

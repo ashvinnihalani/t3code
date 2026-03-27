@@ -80,6 +80,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           remote: command.remote,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          gitMode: "none",
+          gitRepos: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -110,6 +112,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.gitMode !== undefined ? { gitMode: command.gitMode } : {}),
+          ...(command.gitRepos !== undefined ? { gitRepos: command.gitRepos } : {}),
           updatedAt: occurredAt,
         },
       };

@@ -51,7 +51,8 @@ export default function BranchToolbar({
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
+  const isMultiRepo = activeProject?.gitMode === "multi";
+  const branchCwd = isMultiRepo ? null : (activeWorktreePath ?? activeProject?.cwd ?? null);
   const hasServerThread = serverThread !== undefined;
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
@@ -176,7 +177,7 @@ export default function BranchToolbar({
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}
         effectiveEnvMode={effectiveEnvMode}
-        envLocked={envLocked}
+        envLocked={envLocked || isMultiRepo}
         onSetThreadBranch={setThreadBranch}
         {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
         {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}

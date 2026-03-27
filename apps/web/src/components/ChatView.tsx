@@ -1048,8 +1048,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeProject?.id, activeProject?.remote, activeThread?.id, gitCwd],
   );
   const gitTarget = useMemo(
-    () => ({ cwd: gitCwd, projectId: activeProject?.id ?? null }),
-    [activeProject?.id, gitCwd],
+    () =>
+      activeProject?.gitMode === "multi"
+        ? { cwd: null, projectId: activeProject.id }
+        : { cwd: gitCwd, projectId: activeProject?.id ?? null },
+    [activeProject?.gitMode, activeProject?.id, gitCwd],
   );
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
@@ -1210,8 +1213,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       worktreePath: activeThreadWorktreePath,
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
-  // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = branchesQuery.data?.isRepo ?? true;
+  const isGitRepo =
+    activeProject?.gitMode === "multi" ? false : (branchesQuery.data?.isRepo ?? true);
   const fallbackComposerThreadId =
     showComposerThreadId && !isGitRepo ? visibleProviderThreadId : null;
   const terminalToggleShortcutLabel = useMemo(
@@ -3605,7 +3608,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           draftThreadTitleOverride={isLocalDraftThread ? draftThreadTitleOverride : null}
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
+          activeProjectGitMode={activeProject?.gitMode ?? null}
           activeProjectRemote={activeProject?.remote ?? null}
+          disableGitActions={activeProject?.gitMode === "multi"}
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}

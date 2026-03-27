@@ -24,5 +24,6 @@ export function resolveThreadWorkspaceCwd(input: {
     return worktreeCwd;
   }
 
-  return input.projects.find((project) => project.id === input.thread.projectId)?.workspaceRoot;
+  const project = input.projects.find((entry) => entry.id === input.thread.projectId);
+  return project?.workspaceRoot;
 }

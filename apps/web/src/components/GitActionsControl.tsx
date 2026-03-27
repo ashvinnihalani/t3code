@@ -59,6 +59,7 @@ interface GitActionsControlProps {
   gitTarget: GitQueryTarget;
   activeThreadId: ThreadId | null;
   projectRemote: ProjectRemoteTarget | null;
+  disableGitActions?: boolean;
 }
 
 interface PendingDefaultBranchAction {
@@ -212,6 +213,7 @@ export default function GitActionsControl({
   gitTarget,
   activeThreadId,
   projectRemote,
+  disableGitActions = false,
 }: GitActionsControlProps) {
   const { settings } = useAppSettings();
   const gitCwd = gitTarget.cwd;
@@ -296,19 +298,32 @@ export default function GitActionsControl({
   }, [branchList?.branches, gitStatusForActions?.branch]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isGitActionRunning],
+    () =>
+      buildMenuItems(
+        gitStatusForActions,
+        disableGitActions ? true : isGitActionRunning,
+        hasOriginRemote,
+      ),
+    [disableGitActions, gitStatusForActions, hasOriginRemote, isGitActionRunning],
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(
-        gitStatusForActions,
-        isGitActionRunning,
-        isDefaultBranch,
-        hasOriginRemote,
-        settings.gitDefaultAction,
-      ),
+      disableGitActions
+        ? {
+            label: "Commit",
+            disabled: true,
+            kind: "show_hint" as const,
+            hint: "Git actions are disabled for multi-repo projects right now.",
+          }
+        : resolveQuickAction(
+            gitStatusForActions,
+            isGitActionRunning,
+            isDefaultBranch,
+            hasOriginRemote,
+            settings.gitDefaultAction,
+          ),
     [
+      disableGitActions,
       gitStatusForActions,
       hasOriginRemote,
       isDefaultBranch,
@@ -450,6 +465,14 @@ export default function GitActionsControl({
       progressToastId,
       filePaths,
     }: RunGitActionWithToastInput) => {
+      if (disableGitActions) {
+        toastManager.add({
+          type: "error",
+          title: "Git actions are disabled for multi-repo projects right now.",
+          data: threadToastData,
+        });
+        return;
+      }
       const actionStatus = statusOverride ?? gitStatusForActions;
       const actionBranch = actionStatus?.branch ?? null;
       const actionIsDefaultBranch =

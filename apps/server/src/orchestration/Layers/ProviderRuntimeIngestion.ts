@@ -582,7 +582,10 @@ const make = Effect.gen(function* () {
     if (!project) {
       return false;
     }
-    const workspaceCwd = thread.worktreePath ?? project.workspaceRoot;
+    const workspaceCwd = resolveThreadWorkspaceCwd({
+      thread,
+      projects: [project],
+    });
     if (!workspaceCwd) {
       return false;
     }

@@ -5,6 +5,8 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  ProjectGitMode,
+  ProjectGitRepo,
   ProjectRemoteTarget,
   ProjectScript as ContractProjectScript,
   ThreadId,
@@ -89,6 +91,8 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+  gitMode?: ProjectGitMode | undefined;
+  gitRepos?: ProjectGitRepo[] | null | undefined;
 }
 
 export interface Thread {
