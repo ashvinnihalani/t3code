@@ -148,6 +148,7 @@ interface ClaudeSessionContext {
   readonly basePermissionMode: PermissionMode | undefined;
   readonly threadOpenMethod: "start" | "resume";
   readonly requestedResumeThreadId: string | undefined;
+  currentApiModelId: string | undefined;
   resumeSessionId: string | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -2862,6 +2863,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           basePermissionMode: permissionMode,
           threadOpenMethod: existingResumeSessionId ? "resume" : "start",
           requestedResumeThreadId: existingResumeSessionId,
+          currentApiModelId: apiModelId,
           resumeSessionId: sessionId,
           pendingApprovals,
           pendingUserInputs,
@@ -2956,10 +2958,18 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         if (modelSelection?.model) {
-          yield* Effect.tryPromise({
-            try: () => context.query.setModel(modelSelection.model),
-            catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
-          });
+          const apiModelId = resolveApiModelId(modelSelection);
+          if (context.currentApiModelId !== apiModelId) {
+            yield* Effect.tryPromise({
+              try: () => context.query.setModel(apiModelId),
+              catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
+            });
+            context.currentApiModelId = apiModelId;
+          }
+          context.session = {
+            ...context.session,
+            model: modelSelection.model,
+          };
         }
 
         // Apply interaction mode by switching the SDK's permission mode.
