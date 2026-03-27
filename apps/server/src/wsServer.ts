@@ -963,6 +963,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     return project.remote ?? null;
   });
 
+  const ensureMultiRepoGitDisabled = Effect.fnUntraced(function* (projectId?: ProjectId) {
+    if (!projectId) {
+      return;
+    }
+    const project = yield* resolveProject(projectId);
+    if (project.gitMode === "multi") {
+      return yield* new RouteRequestError({
+        message: "Git operations are disabled for multi-repo projects right now.",
+      });
+    }
+  });
+
   const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
     readonly projectId: ProjectId;
     readonly operation: string;
@@ -1202,6 +1214,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitStatus: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.status({
           ...body,
@@ -1211,12 +1224,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitPull: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.pullCurrentBranch(body.cwd, remote);
       }
 
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.runStackedAction(
           {
@@ -1235,6 +1250,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitResolvePullRequest: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.resolvePullRequest({
           ...body,
@@ -1244,6 +1260,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitPreparePullRequestThread: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.preparePullRequestThread({
           ...body,
@@ -1253,6 +1270,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitListBranches: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.listBranches({
           ...body,
@@ -1262,6 +1280,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitCreateWorktree: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.createWorktree({
           ...body,
@@ -1271,6 +1290,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitRemoveWorktree: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.removeWorktree({
           ...body,
@@ -1280,6 +1300,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitCreateBranch: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.createBranch({
           ...body,
@@ -1289,6 +1310,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitCheckout: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* Effect.scoped(
           git.checkoutBranch({
@@ -1300,6 +1322,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitInit: {
         const body = stripRequestTag(request.body);
+        yield* ensureMultiRepoGitDisabled(body.projectId);
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.initRepo({
           ...body,

@@ -518,13 +518,19 @@ export default function Sidebar() {
   );
   const threadGitTargets = useMemo(
     () =>
-      threads.map((thread) => ({
-        threadId: thread.id,
-        branch: thread.branch,
-        projectId: thread.projectId,
-        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
-      })),
-    [projectCwdById, threads],
+      threads.map((thread) => {
+        const project = projects.find((entry) => entry.id === thread.projectId);
+        return {
+          threadId: thread.id,
+          branch: thread.branch,
+          projectId: thread.projectId,
+          cwd:
+            project?.gitMode === "multi"
+              ? null
+              : (thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null),
+        };
+      }),
+    [projectCwdById, projects, threads],
   );
   const threadGitStatusTargets = useMemo(
     () => [

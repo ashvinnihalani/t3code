@@ -168,6 +168,8 @@ function mapProjectsFromReadModel(
       remote: project.remote ?? null,
       expanded: true,
       scripts: project.scripts.map((script) => ({ ...script })),
+      gitMode: project.gitMode ?? "none",
+      gitRepos: project.gitRepos?.map((repo) => ({ ...repo })) ?? null,
     } satisfies Project;
     const projectKey = projectPersistenceKey(nextProject);
     return {

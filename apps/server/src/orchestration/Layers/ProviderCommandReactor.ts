@@ -310,8 +310,8 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
-    const projectRemote =
-      readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+    const project = readModel.projects.find((entry) => entry.id === thread.projectId) ?? null;
+    const projectRemote = project?.remote ?? null;
     const effectiveProviderOptions = resolveProjectScopedProviderOptions({
       ...(preferredProvider !== undefined ? { provider: preferredProvider } : {}),
       ...(options?.providerOptions !== undefined

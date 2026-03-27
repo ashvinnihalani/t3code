@@ -185,6 +185,8 @@ export function projectEvent(
             ...(payload.remote !== undefined ? { remote: payload.remote } : {}),
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            gitMode: payload.gitMode,
+            gitRepos: payload.gitRepos,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -218,6 +220,8 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.gitMode !== undefined ? { gitMode: payload.gitMode } : {}),
+                  ...(payload.gitRepos !== undefined ? { gitRepos: payload.gitRepos } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,

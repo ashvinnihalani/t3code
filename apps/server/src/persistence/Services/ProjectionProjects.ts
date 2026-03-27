@@ -9,6 +9,8 @@
 import {
   IsoDateTime,
   ModelSelection,
+  ProjectGitMode,
+  ProjectGitRepo,
   ProjectId,
   ProjectRemoteTarget,
   ProjectScript,
@@ -25,6 +27,8 @@ export const ProjectionProject = Schema.Struct({
   remote: Schema.NullOr(ProjectRemoteTarget),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  gitMode: Schema.optional(ProjectGitMode),
+  gitRepos: Schema.optional(Schema.NullOr(Schema.Array(ProjectGitRepo))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),

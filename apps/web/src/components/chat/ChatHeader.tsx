@@ -1,6 +1,7 @@
 import {
   type EditorId,
   type ProjectId,
+  type ProjectGitMode,
   type ProjectRemoteTarget,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
@@ -24,7 +25,9 @@ interface ChatHeaderProps {
   draftThreadTitleOverride: string | null;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
+  activeProjectGitMode: ProjectGitMode | null;
   activeProjectRemote: ProjectRemoteTarget | null;
+  disableGitActions?: boolean;
   isRemoteProject: boolean;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -54,7 +57,9 @@ export const ChatHeader = memo(function ChatHeader({
   draftThreadTitleOverride,
   activeProjectId,
   activeProjectName,
+  activeProjectGitMode,
   activeProjectRemote,
+  disableGitActions = false,
   isRemoteProject,
   isGitRepo,
   openInCwd,
@@ -81,6 +86,14 @@ export const ChatHeader = memo(function ChatHeader({
   const draftThreadTitleInputRef = useRef<HTMLInputElement | null>(null);
   const isDraftThreadTitleEditable = onDraftThreadTitleOverrideChange !== null;
   const visibleDraftThreadTitle = draftThreadTitleOverride?.trim() || activeThreadTitle;
+  const gitModeLabel =
+    activeProjectGitMode === null
+      ? null
+      : activeProjectGitMode === "multi"
+        ? "Multiple Git Repos"
+        : activeProjectGitMode === "single"
+          ? "Git Repo"
+          : "No Git";
 
   useEffect(() => {
     setIsEditingDraftThreadTitle(false);
@@ -146,9 +159,13 @@ export const ChatHeader = memo(function ChatHeader({
             {activeProjectName}
           </Badge>
         )}
-        {activeProjectName && !isGitRepo && !isRemoteProject && (
-          <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-            No Git
+        {activeProjectName && gitModeLabel && (
+          <Badge
+            variant="outline"
+            className="shrink-0 text-[10px] text-amber-700 data-[git-mode=single]:text-foreground data-[git-mode=multi]:text-foreground"
+            data-git-mode={activeProjectGitMode}
+          >
+            {gitModeLabel}
           </Badge>
         )}
       </div>
@@ -180,6 +197,7 @@ export const ChatHeader = memo(function ChatHeader({
             gitTarget={gitTarget}
             activeThreadId={activeThreadId}
             projectRemote={activeProjectRemote}
+            disableGitActions={disableGitActions}
           />
         )}
         <Tooltip>
@@ -224,7 +242,9 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="bottom">
             {!isGitRepo
-              ? "Diff panel is unavailable because this project is not a git repository."
+              ? activeProjectGitMode === "multi"
+                ? "Diff panel is unavailable for multi-repo projects right now."
+                : "Diff panel is unavailable because this project is not a git repository."
               : diffToggleShortcutLabel
                 ? `Toggle diff panel (${diffToggleShortcutLabel})`
                 : "Toggle diff panel"}

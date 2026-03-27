@@ -6,6 +6,7 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  ProjectGitRepo,
   ProjectRemoteTarget,
   ProjectScript,
   ThreadId,
@@ -40,6 +41,7 @@ import { ProjectionThreadProposedPlan } from "../../persistence/Services/Project
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { readPersistedRemoteSessionMetadata } from "../../provider/remoteSessionMetadata.ts";
+import { discoverProjectRepos } from "../../git/projectRepos.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -52,6 +54,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
+    gitRepos: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProjectGitRepo))),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -256,6 +259,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           remote_json AS "remote",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          git_mode AS "gitMode",
+          git_repos_json AS "gitRepos",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -680,17 +685,36 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt = maxIso(updatedAt, row.lastSeenAt);
           }
 
-          const projects: ReadonlyArray<OrchestrationProject> = projectRows.map((row) => ({
-            id: row.projectId,
-            title: row.title,
-            workspaceRoot: row.workspaceRoot,
-            remote: row.remote,
-            defaultModelSelection: row.defaultModelSelection,
-            scripts: row.scripts,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-            deletedAt: row.deletedAt,
-          }));
+          const projects: ReadonlyArray<OrchestrationProject> = yield* Effect.forEach(
+            projectRows,
+            (row) =>
+              Effect.tryPromise({
+                try: () =>
+                  discoverProjectRepos({
+                    workspaceRoot: row.workspaceRoot,
+                    remote: row.remote,
+                  }),
+                catch: () => ({
+                  gitMode: row.gitMode ?? "none",
+                  gitRepos: row.gitRepos ?? null,
+                }),
+              }).pipe(
+                Effect.map((discovery) => ({
+                  id: row.projectId,
+                  title: row.title,
+                  workspaceRoot: row.workspaceRoot,
+                  remote: row.remote,
+                  defaultModelSelection: row.defaultModelSelection,
+                  scripts: row.scripts,
+                  gitMode: discovery.gitMode,
+                  gitRepos: discovery.gitRepos,
+                  createdAt: row.createdAt,
+                  updatedAt: row.updatedAt,
+                  deletedAt: row.deletedAt,
+                })),
+              ),
+            { concurrency: 4 },
+          );
           const projectsById = new Map(projects.map((project) => [project.id, project] as const));
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
