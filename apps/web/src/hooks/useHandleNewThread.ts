@@ -68,7 +68,7 @@ export function useHandleNewThread() {
       if (storedDraftThread) {
         return (async () => {
           const resolvedEnvMode = resolveEnvMode(
-            storedDraftThread.worktreePath,
+            storedDraftThread.worktreePath[0] ?? null,
             storedDraftThread.envMode,
           );
           const shouldNormalizeStoredEnvMode = resolvedEnvMode !== storedDraftThread.envMode;
@@ -81,6 +81,9 @@ export function useHandleNewThread() {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+              ...(project?.cwd
+                ? { projectPath: storedDraftThread.projectPath || project.cwd }
+                : {}),
               ...(hasEnvModeOption || shouldNormalizeStoredEnvMode
                 ? { envMode: resolvedEnvMode }
                 : {}),
@@ -105,7 +108,7 @@ export function useHandleNewThread() {
         latestActiveDraftThread.projectId === projectId
       ) {
         const resolvedEnvMode = resolveEnvMode(
-          latestActiveDraftThread.worktreePath,
+          latestActiveDraftThread.worktreePath[0] ?? null,
           latestActiveDraftThread.envMode,
         );
         const shouldNormalizeActiveEnvMode = resolvedEnvMode !== latestActiveDraftThread.envMode;
@@ -118,6 +121,9 @@ export function useHandleNewThread() {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+            ...(project?.cwd
+              ? { projectPath: latestActiveDraftThread.projectPath || project.cwd }
+              : {}),
             ...(hasEnvModeOption || shouldNormalizeActiveEnvMode
               ? { envMode: resolvedEnvMode }
               : {}),
@@ -133,6 +139,7 @@ export function useHandleNewThread() {
         const resolvedEnvMode = resolveEnvMode(options?.worktreePath ?? null);
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
+          ...(project?.cwd ? { projectPath: project.cwd } : {}),
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: resolvedEnvMode,

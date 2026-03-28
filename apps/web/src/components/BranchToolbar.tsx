@@ -1,6 +1,7 @@
 import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
+import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { FolderIcon, GitForkIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -19,6 +20,28 @@ const envModeItems = [
   { value: "local", label: "Local" },
   { value: "worktree", label: "New worktree" },
 ] as const;
+
+function deriveMultiRepoProjectPathFromChildWorktreePath(
+  childWorktreePath: string,
+  repoPath: string | null,
+): string {
+  if (!repoPath) {
+    return childWorktreePath;
+  }
+  const repoSegments = repoPath.split("/").filter((segment) => segment.length > 0);
+  if (repoSegments.length === 0) {
+    return childWorktreePath;
+  }
+  let parentPath = childWorktreePath;
+  for (let index = 0; index < repoSegments.length; index += 1) {
+    const separatorIndex = Math.max(parentPath.lastIndexOf("/"), parentPath.lastIndexOf("\\"));
+    if (separatorIndex < 0) {
+      return childWorktreePath;
+    }
+    parentPath = parentPath.slice(0, separatorIndex);
+  }
+  return parentPath;
+}
 
 interface BranchToolbarProps {
   threadId: ThreadId;
@@ -48,11 +71,40 @@ export default function BranchToolbar({
   const serverThread = threads.find((thread) => thread.id === threadId);
   const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
   const activeProject = projects.find((project) => project.id === activeProjectId);
+  const activeProjectRoot = activeProject?.cwd ?? "";
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
-  const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
-  const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const isMultiRepo = activeProject?.gitMode === "multi";
-  const branchCwd = isMultiRepo ? null : (activeWorktreePath ?? activeProject?.cwd ?? null);
+  const gitRepos = useMemo(() => activeProject?.gitRepos ?? [], [activeProject?.gitRepos]);
+  const [selectedRepoPath, setSelectedRepoPath] = useState<string | null>(
+    gitRepos[0]?.repoPath ?? null,
+  );
+  const selectedRepoIndex = useMemo(
+    () =>
+      selectedRepoPath ? gitRepos.findIndex((repo) => repo.repoPath === selectedRepoPath) : -1,
+    [gitRepos, selectedRepoPath],
+  );
+  const resolvedSelectedRepoIndex = selectedRepoIndex >= 0 ? selectedRepoIndex : 0;
+  const activeThreadBranch = isMultiRepo
+    ? (serverThread?.branch[resolvedSelectedRepoIndex] ??
+      draftThread?.branch[resolvedSelectedRepoIndex] ??
+      null)
+    : serverThread
+      ? getSingleRepoBranch(serverThread)
+      : (draftThread?.branch[0] ?? null);
+  const activeWorktreePath = isMultiRepo
+    ? (serverThread?.worktreePath[resolvedSelectedRepoIndex] ??
+      draftThread?.worktreePath[resolvedSelectedRepoIndex] ??
+      null)
+    : serverThread
+      ? getSingleRepoWorktreePath(serverThread)
+      : (draftThread?.worktreePath[0] ?? null);
+  const branchCwd =
+    activeProject === undefined
+      ? null
+      : isMultiRepo
+        ? (activeWorktreePath ??
+          (selectedRepoPath ? `${activeProject.cwd}/${selectedRepoPath}` : activeProject.cwd))
+        : (activeWorktreePath ?? activeProject.cwd);
   const hasServerThread = serverThread !== undefined;
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
@@ -78,18 +130,71 @@ export default function BranchToolbar({
           .catch(() => undefined);
       }
       if (api && hasServerThread) {
+        const nextBranch = [...(serverThread?.branch ?? [null])];
+        const nextWorktreePath = [...(serverThread?.worktreePath ?? [null])];
+        nextBranch[resolvedSelectedRepoIndex] = branch;
+        nextWorktreePath[resolvedSelectedRepoIndex] = worktreePath;
+        const nextProjectPath = isMultiRepo
+          ? nextWorktreePath.some((value) => value !== null)
+            ? serverThread?.projectPath !== activeProjectRoot
+              ? serverThread?.projectPath
+              : worktreePath
+                ? deriveMultiRepoProjectPathFromChildWorktreePath(
+                    worktreePath,
+                    selectedRepoPath ?? gitRepos[0]?.repoPath ?? null,
+                  )
+                : activeProjectRoot
+            : activeProjectRoot
+          : (worktreePath ?? activeProjectRoot);
         void api.orchestration.dispatchCommand({
           type: "thread.meta.update",
           commandId: newCommandId(),
           threadId: activeThreadId,
-          branch,
-          worktreePath,
+          projectPath: nextProjectPath,
+          branch: nextBranch,
+          worktreePath: nextWorktreePath,
         });
       }
       if (hasServerThread) {
-        setThreadBranchAction(activeThreadId, branch, worktreePath);
+        const nextBranch = [...(serverThread?.branch ?? [null])];
+        const nextWorktreePath = [...(serverThread?.worktreePath ?? [null])];
+        nextBranch[resolvedSelectedRepoIndex] = branch;
+        nextWorktreePath[resolvedSelectedRepoIndex] = worktreePath;
+        const nextProjectPath = isMultiRepo
+          ? nextWorktreePath.some((value) => value !== null)
+            ? serverThread?.projectPath !== activeProjectRoot
+              ? serverThread?.projectPath
+              : worktreePath
+                ? deriveMultiRepoProjectPathFromChildWorktreePath(
+                    worktreePath,
+                    selectedRepoPath ?? gitRepos[0]?.repoPath ?? null,
+                  )
+                : activeProjectRoot
+            : activeProjectRoot
+          : (worktreePath ?? activeProjectRoot);
+        setThreadBranchAction(
+          activeThreadId,
+          branch,
+          worktreePath,
+          resolvedSelectedRepoIndex,
+          nextProjectPath,
+        );
         return;
       }
+      const nextDraftWorktreePath = [...(draftThread?.worktreePath ?? [null])];
+      nextDraftWorktreePath[resolvedSelectedRepoIndex] = worktreePath;
+      const nextDraftProjectPath = isMultiRepo
+        ? nextDraftWorktreePath.some((value) => value !== null)
+          ? draftThread?.projectPath && draftThread.projectPath !== activeProjectRoot
+            ? draftThread.projectPath
+            : worktreePath
+              ? deriveMultiRepoProjectPathFromChildWorktreePath(
+                  worktreePath,
+                  selectedRepoPath ?? gitRepos[0]?.repoPath ?? null,
+                )
+              : activeProjectRoot
+          : activeProjectRoot
+        : (worktreePath ?? activeProjectRoot);
       const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
         nextWorktreePath: worktreePath,
         currentWorktreePath: activeWorktreePath,
@@ -98,6 +203,8 @@ export default function BranchToolbar({
       setDraftThreadContext(threadId, {
         branch,
         worktreePath,
+        branchIndex: resolvedSelectedRepoIndex,
+        projectPath: nextDraftProjectPath,
         envMode: nextDraftEnvMode,
       });
     },
@@ -110,13 +217,23 @@ export default function BranchToolbar({
       setDraftThreadContext,
       threadId,
       effectiveEnvMode,
+      resolvedSelectedRepoIndex,
+      serverThread?.branch,
+      serverThread?.projectPath,
+      serverThread?.worktreePath,
+      activeProjectRoot,
+      draftThread?.projectPath,
+      draftThread?.worktreePath,
+      gitRepos,
+      isMultiRepo,
+      selectedRepoPath,
     ],
   );
 
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div className="mx-auto flex w-full max-w-3xl items-start justify-between px-5 pb-3 pt-1">
       <div className="flex min-w-0 items-center gap-2">
         {envLocked || activeWorktreePath || !supportsWorktreeEnv ? (
           <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
@@ -170,18 +287,40 @@ export default function BranchToolbar({
         ) : null}
       </div>
 
-      <BranchToolbarBranchSelector
-        activeProjectId={activeProject.id}
-        activeProjectCwd={activeProject.cwd}
-        activeThreadBranch={activeThreadBranch}
-        activeWorktreePath={activeWorktreePath}
-        branchCwd={branchCwd}
-        effectiveEnvMode={effectiveEnvMode}
-        envLocked={envLocked || isMultiRepo}
-        onSetThreadBranch={setThreadBranch}
-        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      <div className="flex min-w-0 items-center gap-2">
+        {isMultiRepo && gitRepos.length > 0 ? (
+          <Select
+            value={selectedRepoPath ?? gitRepos[0]?.repoPath}
+            onValueChange={setSelectedRepoPath}
+            items={gitRepos.map((repo) => ({ value: repo.repoPath, label: repo.displayName }))}
+          >
+            <SelectTrigger variant="ghost" size="xs" className="font-medium">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              {gitRepos.map((repo) => (
+                <SelectItem key={repo.repoPath} value={repo.repoPath}>
+                  {repo.displayName}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        ) : null}
+
+        <BranchToolbarBranchSelector
+          activeProjectId={activeProject.id}
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          repoPath={isMultiRepo ? (selectedRepoPath ?? gitRepos[0]?.repoPath ?? null) : null}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          onSetThreadBranch={setThreadBranch}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      </div>
     </div>
   );
 }

@@ -74,6 +74,19 @@ describe("resolveBranchToolbarValue", () => {
         activeWorktreePath: null,
         activeThreadBranch: null,
         currentGitBranch: "main",
+        defaultBranch: "main",
+      }),
+    ).toBe("main");
+  });
+
+  it("prefers the default branch over the current branch when unset outside an existing worktree", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "local",
+        activeWorktreePath: null,
+        activeThreadBranch: null,
+        currentGitBranch: "feature/current",
+        defaultBranch: "main",
       }),
     ).toBe("main");
   });
@@ -85,6 +98,7 @@ describe("resolveBranchToolbarValue", () => {
         activeWorktreePath: null,
         activeThreadBranch: "feature/base",
         currentGitBranch: "main",
+        defaultBranch: "main",
       }),
     ).toBe("feature/base");
   });
@@ -96,8 +110,21 @@ describe("resolveBranchToolbarValue", () => {
         activeWorktreePath: null,
         activeThreadBranch: "feature/base",
         currentGitBranch: "main",
+        defaultBranch: "main",
       }),
-    ).toBe("main");
+    ).toBe("feature/base");
+  });
+
+  it("shows the actual checked-out branch inside an existing worktree", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "worktree",
+        activeWorktreePath: "/repo/.t3/worktrees/feature/base",
+        activeThreadBranch: "feature/base",
+        currentGitBranch: "main",
+        defaultBranch: "main",
+      }),
+    ).toBe("feature/base");
   });
 });
 

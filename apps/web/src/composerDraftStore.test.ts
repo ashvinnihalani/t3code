@@ -466,8 +466,9 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toEqual({
       threadId,
       projectId,
-      branch: "feature/test",
-      worktreePath: "/tmp/worktree-test",
+      projectPath: "/tmp/worktree-test",
+      branch: ["feature/test"],
+      worktreePath: ["/tmp/worktree-test"],
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -475,8 +476,9 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
       projectId,
-      branch: "feature/test",
-      worktreePath: "/tmp/worktree-test",
+      projectPath: "/tmp/worktree-test",
+      branch: ["feature/test"],
+      worktreePath: ["/tmp/worktree-test"],
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -564,8 +566,8 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
       projectId,
-      branch: "feature/next",
-      worktreePath: "/tmp/feature-next",
+      branch: ["feature/next"],
+      worktreePath: ["/tmp/feature-next"],
       envMode: "worktree",
     });
   });
@@ -597,8 +599,8 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
       projectId,
-      branch: "main",
-      worktreePath: "/tmp/main-worktree",
+      branch: ["main"],
+      worktreePath: ["/tmp/main-worktree"],
       envMode: "worktree",
     });
   });
@@ -623,8 +625,46 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
       projectId,
+      branch: ["feature/base"],
+      worktreePath: [null],
+      envMode: "worktree",
+    });
+  });
+
+  it("derives projectPath from worktreePath when no projectPath is provided", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId, {
       branch: "feature/base",
+      worktreePath: "/tmp/feature-base",
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
+      projectId,
+      projectPath: "/tmp/feature-base",
+      branch: ["feature/base"],
+      worktreePath: ["/tmp/feature-base"],
+      envMode: "worktree",
+    });
+  });
+
+  it("derives updated projectPath from worktreePath in setDraftThreadContext", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId, {
+      branch: "main",
       worktreePath: null,
+      projectPath: "",
+    });
+
+    store.setDraftThreadContext(threadId, {
+      branch: "feature/next",
+      worktreePath: "/tmp/feature-next",
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
+      projectId,
+      projectPath: "/tmp/feature-next",
+      branch: ["feature/next"],
+      worktreePath: ["/tmp/feature-next"],
       envMode: "worktree",
     });
   });

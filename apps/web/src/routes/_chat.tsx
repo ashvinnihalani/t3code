@@ -1,4 +1,5 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
+import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -71,10 +72,16 @@ function ChatRouteGlobalShortcuts() {
       event.preventDefault();
       event.stopPropagation();
       void handleNewThread(projectId, {
-        branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-        worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
+        branch: activeThread
+          ? getSingleRepoBranch(activeThread)
+          : (activeDraftThread?.branch[0] ?? null),
+        worktreePath: activeThread
+          ? getSingleRepoWorktreePath(activeThread)
+          : (activeDraftThread?.worktreePath[0] ?? null),
         envMode: resolveEffectiveThreadEnvMode({
-          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
+          worktreePath: activeThread
+            ? getSingleRepoWorktreePath(activeThread)
+            : (activeDraftThread?.worktreePath[0] ?? null),
           draftThreadEnvMode: activeDraftThread?.envMode,
           projectRemote: activeProject?.remote ?? null,
         }),

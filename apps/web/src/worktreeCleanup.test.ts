@@ -24,8 +24,9 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
-    branch: null,
-    worktreePath: null,
+    projectPath: "/tmp/project",
+    branch: [null],
+    worktreePath: [null],
     ...overrides,
   };
 }
@@ -43,7 +44,7 @@ describe("getOrphanedWorktreePathForThread", () => {
   });
 
   it("returns the path when no other thread links to that worktree", () => {
-    const threads = [makeThread({ worktreePath: "/tmp/repo/worktrees/feature-a" })];
+    const threads = [makeThread({ worktreePath: ["/tmp/repo/worktrees/feature-a"] })];
     const result = getOrphanedWorktreePathForThread(threads, ThreadId.makeUnsafe("thread-1"));
     expect(result).toBe("/tmp/repo/worktrees/feature-a");
   });
@@ -52,11 +53,11 @@ describe("getOrphanedWorktreePathForThread", () => {
     const threads = [
       makeThread({
         id: ThreadId.makeUnsafe("thread-1"),
-        worktreePath: "/tmp/repo/worktrees/feature-a",
+        worktreePath: ["/tmp/repo/worktrees/feature-a"],
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-2"),
-        worktreePath: "/tmp/repo/worktrees/feature-a",
+        worktreePath: ["/tmp/repo/worktrees/feature-a"],
       }),
     ];
     const result = getOrphanedWorktreePathForThread(threads, ThreadId.makeUnsafe("thread-1"));
@@ -67,11 +68,11 @@ describe("getOrphanedWorktreePathForThread", () => {
     const threads = [
       makeThread({
         id: ThreadId.makeUnsafe("thread-1"),
-        worktreePath: "/tmp/repo/worktrees/feature-a",
+        worktreePath: ["/tmp/repo/worktrees/feature-a"],
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-2"),
-        worktreePath: "/tmp/repo/worktrees/feature-b",
+        worktreePath: ["/tmp/repo/worktrees/feature-b"],
       }),
     ];
     const result = getOrphanedWorktreePathForThread(threads, ThreadId.makeUnsafe("thread-1"));

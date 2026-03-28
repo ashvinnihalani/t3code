@@ -11,6 +11,7 @@ import {
   dismissLocalCodexErrors,
   markThreadUnread,
   reorderProjects,
+  setThreadBranch,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -36,8 +37,9 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
-    branch: null,
-    worktreePath: null,
+    projectPath: "/tmp/project",
+    branch: [null],
+    worktreePath: [null],
     ...overrides,
   };
 }
@@ -74,8 +76,9 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: DEFAULT_INTERACTION_MODE,
-    branch: null,
-    worktreePath: null,
+    projectPath: "/tmp/project",
+    branch: [null],
+    worktreePath: [null],
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
@@ -297,6 +300,32 @@ describe("store pure functions", () => {
     expect(next.threads[0]?.error).toBeNull();
     expect(next.threads[1]?.error).toBe("You can attach up to 20 images per message.");
     expect(next.threads[2]?.error).toBe("Remote Codex session failed.");
+  });
+
+  it("resets the thread project root when leaving the last multi-repo worktree", () => {
+    const initialState = makeState(
+      makeThread({
+        projectPath: "/tmp/project/.t3/worktrees/thread-1",
+        branch: ["t3code/feature-a", null],
+        worktreePath: ["/tmp/project/.t3/worktrees/thread-1/repo-a", null],
+      }),
+    );
+
+    const next = setThreadBranch(
+      initialState,
+      ThreadId.makeUnsafe("thread-1"),
+      "main",
+      null,
+      0,
+      "/tmp/project",
+    );
+
+    expect(next.threads[0]).toMatchObject({
+      projectPath: "/tmp/project",
+      branch: ["main", null],
+      worktreePath: [null, null],
+      session: null,
+    });
   });
 });
 

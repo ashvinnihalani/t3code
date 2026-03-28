@@ -2,6 +2,7 @@ import * as Http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Exit, Layer, PlatformError, PubSub, Scope, Stream } from "effect";
@@ -417,8 +418,9 @@ async function createProjectAndThread(input: {
       },
       interactionMode: "default",
       runtimeMode: "full-access",
-      branch: null,
-      worktreePath: input.worktreePath ?? null,
+      projectPath: input.worktreePath ?? workspaceRoot,
+      branch: [null],
+      worktreePath: [input.worktreePath ?? null],
       createdAt,
     },
   );
@@ -610,7 +612,17 @@ describe("WebSocket Server", () => {
       providerHealth?: ProviderHealthShape;
       open?: OpenShape;
       gitManager?: GitManagerShape;
-      gitCore?: Pick<GitCoreShape, "listBranches" | "initRepo" | "pullCurrentBranch">;
+      gitCore?: Partial<
+        Pick<
+          GitCoreShape,
+          | "listBranches"
+          | "initRepo"
+          | "pullCurrentBranch"
+          | "checkoutBranch"
+          | "createWorktree"
+          | "createBranch"
+        >
+      >;
       terminalManager?: TerminalManagerShape;
     } = {},
   ): Promise<Http.Server> {
@@ -863,12 +875,13 @@ describe("WebSocket Server", () => {
         id: string;
         projectId: string;
         title: string;
+        projectPath: string;
         modelSelection: {
           provider: string;
           model: string;
         };
-        branch: string | null;
-        worktreePath: string | null;
+        branch: Array<string | null>;
+        worktreePath: Array<string | null>;
       }>;
     };
     const bootstrapProjectId = (welcome.data as { bootstrapProjectId?: string }).bootstrapProjectId;
@@ -899,8 +912,9 @@ describe("WebSocket Server", () => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          branch: null,
-          worktreePath: null,
+          projectPath: "/test/bootstrap-workspace",
+          branch: [null],
+          worktreePath: [null],
         }),
       ]),
     );
@@ -1518,8 +1532,9 @@ describe("WebSocket Server", () => {
       },
       runtimeMode: "full-access",
       interactionMode: "default",
-      branch: null,
-      worktreePath: null,
+      projectPath: workspaceRoot,
+      branch: [null],
+      worktreePath: [null],
       createdAt,
     });
     expect(createThreadResponse.error).toBeUndefined();
@@ -1603,8 +1618,9 @@ describe("WebSocket Server", () => {
       },
       runtimeMode: "full-access",
       interactionMode: "default",
-      branch: null,
-      worktreePath: null,
+      projectPath: workspaceRoot,
+      branch: [null],
+      worktreePath: [null],
       createdAt,
     });
     expect(createThreadResponse.error).toBeUndefined();
@@ -2077,6 +2093,176 @@ describe("WebSocket Server", () => {
     expect(response.error).toBeUndefined();
     expect(response.result).toEqual(statusResult);
     expect(status).toHaveBeenCalledWith({ cwd: "/test" });
+  });
+
+  it("routes multi-repo local checkout to the selected repo root", async () => {
+    const checkoutBranch = vi.fn(() => Effect.void as any);
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-checkout-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    fs.mkdirSync(path.join(workspaceRoot, "src", "Other"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "Other") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch: vi.fn(() => Effect.void as any),
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree: vi.fn(() => Effect.void as any),
+        checkoutBranch,
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const createdAt = new Date().toISOString();
+    const projectId = ProjectId.makeUnsafe("project-multi-local-checkout");
+
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+    await vi.waitFor(async () => {
+      const snapshotResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getSnapshot);
+      expect(snapshotResponse.error).toBeUndefined();
+      const snapshot = snapshotResponse.result as {
+        projects: Array<{
+          id: string;
+          gitMode?: string;
+          gitRepos?: Array<{ repoPath: string }> | null;
+        }>;
+      };
+      expect(snapshot.projects.find((project) => project.id === projectId)?.gitMode).toBe("multi");
+      expect(
+        snapshot.projects.find((project) => project.id === projectId)?.gitRepos?.[0]?.repoPath,
+      ).toBe("src/NeMo");
+    });
+
+    const response = await sendRequest(ws, WS_METHODS.gitCheckout, {
+      cwd: workspaceRoot,
+      projectId,
+      repoPath: "src/NeMo",
+      branch: "origin/zoezeng_dev_ift",
+    });
+    expect(response.error).toBeUndefined();
+    expect(checkoutBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: path.join(workspaceRoot, "src", "NeMo"),
+        branch: "origin/zoezeng_dev_ift",
+        projectId,
+        repoPath: "src/NeMo",
+      }),
+    );
+  });
+
+  it("routes multi-repo local worktree creation to the selected repo root", async () => {
+    const createWorktree = vi.fn(
+      () =>
+        Effect.succeed({
+          worktree: {
+            path: "/tmp/worktree",
+            branch: "t3code/56f9d65c-src-NeMo",
+          },
+        }) as any,
+    );
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-worktree-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch: vi.fn(() => Effect.void as any),
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree,
+        checkoutBranch: vi.fn(() => Effect.void as any),
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const createdAt = new Date().toISOString();
+    const projectId = ProjectId.makeUnsafe("project-multi-local-worktree");
+
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+    await vi.waitFor(async () => {
+      const snapshotResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getSnapshot);
+      expect(snapshotResponse.error).toBeUndefined();
+      const snapshot = snapshotResponse.result as {
+        projects: Array<{
+          id: string;
+          gitMode?: string;
+          gitRepos?: Array<{ repoPath: string }> | null;
+        }>;
+      };
+      expect(snapshot.projects.find((project) => project.id === projectId)?.gitMode).toBe("multi");
+      expect(
+        snapshot.projects.find((project) => project.id === projectId)?.gitRepos?.[0]?.repoPath,
+      ).toBe("src/NeMo");
+    });
+
+    const response = await sendRequest(ws, WS_METHODS.gitCreateWorktree, {
+      cwd: workspaceRoot,
+      projectId,
+      repoPath: "src/NeMo",
+      branch: "nemo-2.4.0rc0_d0126ce",
+      newBranch: "t3code/56f9d65c-src-NeMo",
+      path: "/Users/ashvinn/.t3-dev/worktrees/sfailib/t3code-36707a57/src/NeMo",
+    });
+    expect(response.error).toBeUndefined();
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: path.join(workspaceRoot, "src", "NeMo"),
+        branch: "nemo-2.4.0rc0_d0126ce",
+        newBranch: "t3code/56f9d65c-src-NeMo",
+        path: "/Users/ashvinn/.t3-dev/worktrees/sfailib/t3code-36707a57/src/NeMo",
+        projectId,
+        repoPath: "src/NeMo",
+      }),
+    );
   });
 
   it("supports git pull request routing over websocket", async () => {

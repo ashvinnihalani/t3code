@@ -35,6 +35,10 @@
     "./schemaJson": {
       "types": "./src/schemaJson.ts",
       "import": "./src/schemaJson.ts"
+    },
+    "./threadGit": {
+      "types": "./src/threadGit.ts",
+      "import": "./src/threadGit.ts"
     }
   },
   "scripts": {

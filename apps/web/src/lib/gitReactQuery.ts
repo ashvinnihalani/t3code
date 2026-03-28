@@ -15,36 +15,64 @@ const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 export interface GitQueryTarget {
   cwd: string | null;
   projectId: ProjectId | null;
+  repoPath?: string | null;
 }
 
-function toGitApiTarget(target: GitQueryTarget): { cwd: string; projectId?: ProjectId } {
+function toGitApiTarget(target: GitQueryTarget): {
+  cwd: string;
+  projectId?: ProjectId;
+  repoPath?: string;
+} {
   if (!target.cwd) {
     throw new Error("Git is unavailable.");
   }
   return {
     cwd: target.cwd,
     ...(target.projectId ? { projectId: target.projectId } : {}),
+    ...(target.repoPath ? { repoPath: target.repoPath } : {}),
   };
 }
 
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (target: GitQueryTarget, settings?: GitRequestSettings) =>
-    ["git", "status", target.projectId, target.cwd, settings?.githubBinaryPath ?? null] as const,
-  branches: (target: GitQueryTarget) => ["git", "branches", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "status",
+      target.projectId,
+      target.cwd,
+      target.repoPath ?? null,
+      settings?.githubBinaryPath ?? null,
+    ] as const,
+  branches: (target: GitQueryTarget) =>
+    ["git", "branches", target.projectId, target.cwd, target.repoPath ?? null] as const,
 };
 
 export const gitMutationKeys = {
   init: (target: GitQueryTarget) =>
-    ["git", "mutation", "init", target.projectId, target.cwd] as const,
+    ["git", "mutation", "init", target.projectId, target.cwd, target.repoPath ?? null] as const,
   checkout: (target: GitQueryTarget) =>
-    ["git", "mutation", "checkout", target.projectId, target.cwd] as const,
+    ["git", "mutation", "checkout", target.projectId, target.cwd, target.repoPath ?? null] as const,
   runStackedAction: (target: GitQueryTarget) =>
-    ["git", "mutation", "run-stacked-action", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "run-stacked-action",
+      target.projectId,
+      target.cwd,
+      target.repoPath ?? null,
+    ] as const,
   pull: (target: GitQueryTarget) =>
-    ["git", "mutation", "pull", target.projectId, target.cwd] as const,
+    ["git", "mutation", "pull", target.projectId, target.cwd, target.repoPath ?? null] as const,
   preparePullRequestThread: (target: GitQueryTarget) =>
-    ["git", "mutation", "prepare-pull-request-thread", target.projectId, target.cwd] as const,
+    [
+      "git",
+      "mutation",
+      "prepare-pull-request-thread",
+      target.projectId,
+      target.cwd,
+      target.repoPath ?? null,
+    ] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
@@ -95,6 +123,7 @@ export function gitResolvePullRequestQueryOptions(input: {
       "pull-request",
       input.target.projectId,
       input.target.cwd,
+      input.target.repoPath ?? null,
       input.reference,
       input.settings?.githubBinaryPath ?? null,
     ] as const,
@@ -209,12 +238,14 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
     mutationFn: async ({
       cwd,
       projectId,
+      repoPath,
       branch,
       newBranch,
       path,
     }: {
       cwd: string;
       projectId?: ProjectId | null;
+      repoPath?: string | null;
       branch: string;
       newBranch: string;
       path?: string | null;
@@ -223,6 +254,7 @@ export function gitCreateWorktreeMutationOptions(input: { queryClient: QueryClie
       return api.git.createWorktree({
         cwd,
         ...(projectId ? { projectId } : {}),
+        ...(repoPath ? { repoPath } : {}),
         branch,
         newBranch,
         path: path ?? null,

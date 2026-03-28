@@ -29,6 +29,7 @@ import {
   getModelCapabilities,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
+import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -218,6 +219,60 @@ function formatOutgoingPrompt(params: {
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+
+function sanitizeWorktreePathSegment(value: string): string {
+  const cleaned = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned.length > 0 ? cleaned : "project";
+}
+
+function sanitizeRepoSuffixForBranch(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._/-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildMultiRepoWorktreeBranchName(input: {
+  baseBranchName: string;
+  displayName: string;
+  repoPath: string;
+  duplicateDisplayNames: ReadonlySet<string>;
+}): string {
+  const preferredSuffix = sanitizeRepoSuffixForBranch(input.displayName);
+  const fallbackSuffix = sanitizeRepoSuffixForBranch(input.repoPath.replaceAll("/", "-"));
+  const suffix =
+    preferredSuffix.length > 0 && !input.duplicateDisplayNames.has(input.displayName)
+      ? preferredSuffix
+      : fallbackSuffix;
+  return `${input.baseBranchName}-${suffix}`;
+}
+
+function joinRepoPath(...parts: Array<string>): string {
+  return parts
+    .flatMap((part) => part.split("/"))
+    .filter((part) => part.length > 0)
+    .join("/");
+}
+
+function deriveSyntheticParentPath(childWorktreePath: string, repoPath: string): string {
+  let resolvedPath = childWorktreePath;
+  const segments = repoPath.split("/").filter((segment) => segment.length > 0);
+  for (let index = 0; index < segments.length; index += 1) {
+    const lastSeparatorIndex = Math.max(
+      resolvedPath.lastIndexOf("/"),
+      resolvedPath.lastIndexOf("\\"),
+    );
+    if (lastSeparatorIndex < 0) {
+      return childWorktreePath;
+    }
+    resolvedPath = resolvedPath.slice(0, lastSeparatorIndex);
+  }
+  return resolvedPath;
+}
 
 const extendReplacementRangeForTrailingSpace = (
   text: string,
@@ -1035,7 +1090,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.cwd },
-        worktreePath: activeThread?.worktreePath ?? null,
+        worktreePath: activeThread
+          ? (getSingleRepoWorktreePath(activeThread) ??
+            (activeProject.gitMode === "multi" ? activeThread.projectPath : null))
+          : null,
       })
     : null;
   const activeProjectLinkContext = useMemo(
@@ -1203,7 +1261,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const timelineProviderThreadId =
     settings.threadIdDisplayMode === "message" ? visibleProviderThreadId : null;
   const activeProjectCwd = activeProject?.cwd ?? null;
-  const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
+  const activeThreadWorktreePath = activeThread ? getSingleRepoWorktreePath(activeThread) : null;
   const threadTerminalRuntimeEnv = useMemo(() => {
     if (!activeProjectCwd) return {};
     return projectScriptRuntimeEnv({
@@ -1214,7 +1272,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
   const isGitRepo =
-    activeProject?.gitMode === "multi" ? false : (branchesQuery.data?.isRepo ?? true);
+    activeProject?.gitMode === "multi"
+      ? (activeProject.gitRepos?.length ?? 0) > 0
+      : (branchesQuery.data?.isRepo ?? true);
+  const showGitToolbar = isGitRepo || activeProject?.gitMode === "multi";
   const fallbackComposerThreadId =
     showComposerThreadId && !isGitRepo ? visibleProviderThreadId : null;
   const terminalToggleShortcutLabel = useMemo(
@@ -1445,7 +1506,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         project: {
           cwd: activeProject.cwd,
         },
-        worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
+        worktreePath:
+          options?.worktreePath ??
+          getSingleRepoWorktreePath(activeThread) ??
+          (activeProject.gitMode === "multi" ? activeThread.projectPath : null),
         ...(options?.env ? { extraEnv: options.env } : {}),
       });
       const openTerminalInput: Parameters<typeof api.terminal.open>[0] = shouldCreateNewTerminal
@@ -2146,7 +2210,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeExpandedImage, expandedImage, navigateExpandedImage]);
 
-  const activeWorktreePath = activeThread?.worktreePath;
+  const activeWorktreePath = activeThread ? getSingleRepoWorktreePath(activeThread) : null;
   const envMode: DraftThreadEnvMode = resolveEffectiveThreadEnvMode({
     worktreePath: activeWorktreePath,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
@@ -2525,16 +2589,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!activeProject) return;
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
-    const baseBranchForWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
-        ? activeThread.branch
-        : null;
+    const isMultiRepoProject =
+      activeProject.gitMode === "multi" && (activeProject.gitRepos?.length ?? 0) > 0;
+    const hasExistingWorktree = isMultiRepoProject
+      ? activeThread.worktreePath.some((value) => value !== null)
+      : getSingleRepoWorktreePath(activeThread) !== null;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
-    const shouldCreateWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
-    if (shouldCreateWorktree && !activeThread.branch) {
+    const shouldCreateWorktree = isFirstMessage && envMode === "worktree" && !hasExistingWorktree;
+    if (shouldCreateWorktree && !isMultiRepoProject && !getSingleRepoBranch(activeThread)) {
       setStoreThreadError(
         threadIdForSend,
         "Select a base branch before sending in New worktree mode.",
@@ -2543,7 +2607,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
-    beginSendPhase(baseBranchForWorktree ? "preparing-worktree" : "sending-turn");
+    beginSendPhase(shouldCreateWorktree ? "preparing-worktree" : "sending-turn");
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -2611,32 +2675,168 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
     let createdServerThreadForLocalDraft = false;
     let turnStartSucceeded = false;
+    let nextThreadProjectPath = activeThread.projectPath || activeProject.cwd;
     let nextThreadBranch = activeThread.branch;
     let nextThreadWorktreePath = activeThread.worktreePath;
+    let createdWorktreePathsForCleanup: string[] = [];
     await (async () => {
       // On first message: lock in branch + create worktree if needed.
-      if (baseBranchForWorktree) {
+      if (shouldCreateWorktree) {
         beginSendPhase("preparing-worktree");
-        const newBranch = buildTemporaryWorktreeBranchName();
-        const result = await createWorktreeMutation.mutateAsync({
-          cwd: activeProject.cwd,
-          projectId: activeProject.id,
-          branch: baseBranchForWorktree,
-          newBranch,
-        });
-        nextThreadBranch = result.worktree.branch;
-        nextThreadWorktreePath = result.worktree.path;
-        if (isServerThread) {
-          await api.orchestration.dispatchCommand({
-            type: "thread.meta.update",
-            commandId: newCommandId(),
-            threadId: threadIdForSend,
-            branch: result.worktree.branch,
-            worktreePath: result.worktree.path,
+        if (isMultiRepoProject) {
+          const gitRepos = activeProject.gitRepos ?? [];
+          const duplicateDisplayNames = new Set(
+            gitRepos
+              .map((repo) => repo.displayName)
+              .filter(
+                (displayName, index, values) =>
+                  values.indexOf(displayName) !== index && displayName.length > 0,
+              ),
+          );
+          const syntheticParentBranch = buildTemporaryWorktreeBranchName();
+          const syntheticRoot = joinRepoPath(
+            sanitizeWorktreePathSegment(basenameOfPath(activeProject.cwd)),
+            syntheticParentBranch.replaceAll("/", "-"),
+          );
+          const resolvedBaseBranches = await Promise.all(
+            gitRepos.map(async (repo, index) => {
+              const selectedBranch = activeThread.branch[index] ?? null;
+              if (selectedBranch) {
+                return selectedBranch;
+              }
+              const status = await api.git.status({
+                cwd: activeProject.cwd,
+                projectId: activeProject.id,
+                repoPath: repo.repoPath,
+              });
+              if (!status.branch) {
+                throw new Error(`Could not determine the current branch for ${repo.displayName}.`);
+              }
+              return status.branch;
+            }),
+          );
+          const createdWorktrees: Array<{
+            repoPath: string;
+            branch: string;
+            path: string;
+          }> = [];
+          for (const [index, repo] of gitRepos.entries()) {
+            const baseBranch = resolvedBaseBranches[index];
+            if (!baseBranch) {
+              throw new Error(`Could not resolve a base branch for ${repo.displayName}.`);
+            }
+            const newBranch = buildMultiRepoWorktreeBranchName({
+              baseBranchName: buildTemporaryWorktreeBranchName(),
+              displayName: repo.displayName,
+              repoPath: repo.repoPath,
+              duplicateDisplayNames,
+            });
+            const result = await createWorktreeMutation.mutateAsync({
+              cwd: activeProject.cwd,
+              projectId: activeProject.id,
+              repoPath: repo.repoPath,
+              branch: baseBranch,
+              newBranch,
+              path: joinRepoPath(syntheticRoot, repo.repoPath),
+            });
+            createdWorktrees.push({
+              repoPath: repo.repoPath,
+              branch: result.worktree.branch,
+              path: result.worktree.path,
+            });
+          }
+
+          nextThreadBranch = gitRepos.map(
+            (repo) =>
+              createdWorktrees.find((worktree) => worktree.repoPath === repo.repoPath)?.branch ??
+              null,
+          );
+          nextThreadWorktreePath = gitRepos.map(
+            (repo) =>
+              createdWorktrees.find((worktree) => worktree.repoPath === repo.repoPath)?.path ??
+              null,
+          );
+          const firstCreatedWorktree = createdWorktrees[0];
+          if (!firstCreatedWorktree) {
+            throw new Error("Failed to create multi-repo worktrees.");
+          }
+          nextThreadProjectPath = deriveSyntheticParentPath(
+            firstCreatedWorktree.path,
+            firstCreatedWorktree.repoPath,
+          );
+          createdWorktreePathsForCleanup = createdWorktrees.map((worktree) => worktree.path);
+          if (!isServerThread) {
+            nextThreadBranch.forEach((branch, index) => {
+              setDraftThreadContext(threadIdForSend, {
+                branch,
+                worktreePath: nextThreadWorktreePath[index] ?? null,
+                branchIndex: index,
+                projectPath: nextThreadProjectPath,
+              });
+            });
+          }
+          if (isServerThread) {
+            await api.orchestration.dispatchCommand({
+              type: "thread.meta.update",
+              commandId: newCommandId(),
+              threadId: threadIdForSend,
+              projectPath: nextThreadProjectPath,
+              branch: nextThreadBranch,
+              worktreePath: nextThreadWorktreePath,
+            });
+            nextThreadBranch.forEach((branch, index) => {
+              setStoreThreadBranch(
+                threadIdForSend,
+                branch,
+                nextThreadWorktreePath[index] ?? null,
+                index,
+                nextThreadProjectPath,
+              );
+            });
+          }
+        } else {
+          const baseBranchForWorktree = getSingleRepoBranch(activeThread);
+          if (!baseBranchForWorktree) {
+            throw new Error("Select a base branch before sending in New worktree mode.");
+          }
+          const newBranch = buildTemporaryWorktreeBranchName();
+          const result = await createWorktreeMutation.mutateAsync({
+            cwd: activeProject.cwd,
+            projectId: activeProject.id,
+            branch: baseBranchForWorktree,
+            newBranch,
           });
-          // Keep local thread state in sync immediately so terminal drawer opens
-          // with the worktree cwd/env instead of briefly using the project root.
-          setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
+          nextThreadProjectPath = result.worktree.path;
+          nextThreadBranch = [result.worktree.branch];
+          nextThreadWorktreePath = [result.worktree.path];
+          createdWorktreePathsForCleanup = [result.worktree.path];
+          if (!isServerThread) {
+            setDraftThreadContext(threadIdForSend, {
+              branch: result.worktree.branch,
+              worktreePath: result.worktree.path,
+              branchIndex: 0,
+              projectPath: result.worktree.path,
+            });
+          }
+          if (isServerThread) {
+            await api.orchestration.dispatchCommand({
+              type: "thread.meta.update",
+              commandId: newCommandId(),
+              threadId: threadIdForSend,
+              projectPath: result.worktree.path,
+              branch: [result.worktree.branch],
+              worktreePath: [result.worktree.path],
+            });
+            // Keep local thread state in sync immediately so terminal drawer opens
+            // with the worktree cwd/env instead of briefly using the project root.
+            setStoreThreadBranch(
+              threadIdForSend,
+              result.worktree.branch,
+              result.worktree.path,
+              0,
+              result.worktree.path,
+            );
+          }
         }
       }
 
@@ -2680,6 +2880,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
+          projectPath: nextThreadProjectPath,
           branch: nextThreadBranch,
           worktreePath: nextThreadWorktreePath,
           createdAt: activeThread.createdAt,
@@ -2688,7 +2889,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
 
       let setupScript: ProjectScript | null = null;
-      if (baseBranchForWorktree) {
+      if (shouldCreateWorktree) {
         setupScript = setupProjectScript(activeProject.scripts);
       }
       if (setupScript) {
@@ -2702,11 +2903,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
         if (shouldRunSetupScript) {
           const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
-            worktreePath: nextThreadWorktreePath,
+            worktreePath: nextThreadProjectPath,
             rememberAsLastInvoked: false,
           };
-          if (nextThreadWorktreePath) {
-            setupScriptOptions.cwd = nextThreadWorktreePath;
+          if (nextThreadProjectPath) {
+            setupScriptOptions.cwd = nextThreadProjectPath;
           }
           await runProjectScript(setupScript, setupScriptOptions);
         }
@@ -2765,6 +2966,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: threadIdForSend,
           })
           .catch(() => undefined);
+      }
+      if (!turnStartSucceeded && createdWorktreePathsForCleanup.length > 0) {
+        await Promise.allSettled(
+          createdWorktreePathsForCleanup.map((worktreePath) =>
+            api.git.removeWorktree({
+              cwd: worktreePath,
+              path: worktreePath,
+              force: true,
+            }),
+          ),
+        );
       }
       if (
         !turnStartSucceeded &&
@@ -3137,6 +3349,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
+        projectPath: activeThread.projectPath,
         branch: activeThread.branch,
         worktreePath: activeThread.worktreePath,
         createdAt,
@@ -3614,7 +3827,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
-          openInProjectRoot={activeThread.worktreePath === null}
+          openInProjectRoot={getSingleRepoWorktreePath(activeThread) === null}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
@@ -3710,7 +3923,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </div>
 
           {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+          <div
+            className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", showGitToolbar ? "pb-1" : "pb-3 sm:pb-4")}
+          >
             <form
               ref={composerFormRef}
               onSubmit={onSend}
@@ -4227,7 +4442,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             </form>
           </div>
 
-          {isGitRepo && (
+          {showGitToolbar && (
             <BranchToolbar
               threadId={activeThread.id}
               onEnvModeChange={onEnvModeChange}

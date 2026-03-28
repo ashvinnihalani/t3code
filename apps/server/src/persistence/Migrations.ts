@@ -32,6 +32,7 @@ import Migration0016 from "./Migrations/016_ProjectionThreadProposedPlanImplemen
 import Migration0017 from "./Migrations/017_ProjectionTurnsSourceProposedPlan.ts";
 import Migration0018 from "./Migrations/018_CanonicalizeModelSelections.ts";
 import Migration0019 from "./Migrations/019_MultiRepoProjectionState.ts";
+import Migration0020 from "./Migrations/020_MultiRepoThreadPaths.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -63,6 +64,7 @@ export const migrationEntries = [
   [17, "ProjectionTurnsSourceProposedPlan", Migration0017],
   [18, "CanonicalizeModelSelections", Migration0018],
   [19, "MultiRepoProjectionState", Migration0019],
+  [20, "MultiRepoThreadPaths", Migration0020],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

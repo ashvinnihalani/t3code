@@ -265,8 +265,9 @@ describe("ProviderCommandReactor", () => {
         modelSelection: modelSelection,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
+        projectPath: "/tmp/project",
+        branch: [null],
+        worktreePath: [null],
         createdAt: now,
       }),
     );
@@ -353,8 +354,9 @@ describe("ProviderCommandReactor", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
+        projectPath: "/tmp/project",
+        branch: [null],
+        worktreePath: [null],
         createdAt: now,
       }),
     );
@@ -433,8 +435,9 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.makeUnsafe("cmd-thread-meta-worktree"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        branch: "t3code/abc12345",
-        worktreePath: "/tmp/provider-project-worktree",
+        projectPath: "/tmp/provider-project-worktree",
+        branch: ["t3code/abc12345"],
+        worktreePath: ["/tmp/provider-project-worktree"],
       }),
     );
 
@@ -481,6 +484,63 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("preserves sibling repo branch state when renaming a first-turn worktree branch", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.generateBranchName.mockImplementation((input: unknown) =>
+      Effect.succeed({
+        branch:
+          typeof input === "object" && input !== null && "message" in input
+            ? "feature/multi-repo-branch"
+            : "feature/fallback-branch",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-multi-repo-worktree"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        projectPath: "/tmp/provider-project-worktree-parent",
+        branch: ["t3code/abc12345", "t3code/def67890"],
+        worktreePath: [
+          "/tmp/provider-project-worktree-parent/repo-a",
+          "/tmp/provider-project-worktree-parent/repo-b",
+        ],
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-multi-repo-git-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-multi-repo-git-settings"),
+          role: "user",
+          text: "rename this worktree branch",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.projectPath).toBe("/tmp/provider-project-worktree-parent");
+    expect(thread?.branch).toEqual(["t3code/feature/multi-repo-branch", "t3code/def67890"]);
+    expect(thread?.worktreePath).toEqual([
+      "/tmp/provider-project-worktree-parent/repo-a",
+      "/tmp/provider-project-worktree-parent/repo-b",
+    ]);
+  });
+
   it("applies global git settings when renaming a remote worktree branch", async () => {
     const harness = await createHarness({
       projectWorkspaceRoot: "/srv/provider-project",
@@ -505,8 +565,9 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.makeUnsafe("cmd-thread-meta-remote-worktree"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        branch: "t3code/def67890",
-        worktreePath: "/srv/provider-project/.worktrees/thread-1",
+        projectPath: "/srv/provider-project/.worktrees/thread-1",
+        branch: ["t3code/def67890"],
+        worktreePath: ["/srv/provider-project/.worktrees/thread-1"],
       }),
     );
 

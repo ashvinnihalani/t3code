@@ -1,6 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
+import { getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, type TurnId } from "@t3tools/contracts";
 import {
@@ -188,7 +189,9 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const activeCwd = activeThread
+    ? (getSingleRepoWorktreePath(activeThread) ?? activeProject?.cwd ?? null)
+    : (activeProject?.cwd ?? null);
   const gitTarget = useMemo(
     () => ({ cwd: activeCwd, projectId: activeProject?.id ?? null }),
     [activeCwd, activeProject?.id],

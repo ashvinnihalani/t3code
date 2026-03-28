@@ -1,3 +1,4 @@
+import nodePath from "node:path";
 import {
   Cache,
   Data,
@@ -18,7 +19,7 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { buildSshExecArgs, readRemoteHomeDir } from "../../sshCommand";
+import { buildSshExecArgs, quotePosixShell, readRemoteHomeDir } from "../../sshCommand";
 import { ServerConfig } from "../../config.ts";
 import { runProcess } from "../../processRunner";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
@@ -28,7 +29,6 @@ import {
   type ExecuteGitInput,
   type ExecuteGitProgress,
   type ExecuteGitResult,
-  type GitCommitOptions,
   type GitCoreShape,
   type GitExecutionContext,
 } from "../Services/GitCore.ts";
@@ -1758,11 +1758,64 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 localCwd: process.cwd(),
               }) ?? "/tmp")
             : null;
-        const worktreePath =
-          input.path ??
-          (remoteHomeDir
-            ? path.join(remoteHomeDir, ".t3", "worktrees", repoName, sanitizedBranch)
-            : path.join(worktreesDir, repoName, sanitizedBranch));
+        const defaultWorktreeRoot = remoteHomeDir
+          ? nodePath.posix.join(remoteHomeDir, ".t3", "worktrees")
+          : worktreesDir;
+        const worktreePath = input.path
+          ? remoteHomeDir
+            ? nodePath.posix.isAbsolute(input.path)
+              ? input.path
+              : nodePath.posix.join(defaultWorktreeRoot, input.path)
+            : path.isAbsolute(input.path)
+              ? input.path
+              : path.join(defaultWorktreeRoot, input.path)
+          : remoteHomeDir
+            ? nodePath.posix.join(defaultWorktreeRoot, repoName, sanitizedBranch)
+            : path.join(defaultWorktreeRoot, repoName, sanitizedBranch);
+        const remoteTarget = input.remote;
+        if (remoteTarget?.kind === "ssh") {
+          const parentDirectory = nodePath.posix.dirname(worktreePath);
+          yield* Effect.tryPromise(() =>
+            runProcess(
+              "ssh",
+              buildSshExecArgs({
+                hostAlias: remoteTarget.hostAlias,
+                command: "sh",
+                args: ["-lc", `mkdir -p ${quotePosixShell(parentDirectory)}`],
+                localCwd: process.cwd(),
+              }),
+              {
+                cwd: process.cwd(),
+                timeoutMs: 30_000,
+                outputMode: "truncate",
+              },
+            ),
+          ).pipe(
+            Effect.mapError((cause) =>
+              createGitCommandError(
+                "GitCore.createWorktree",
+                input.cwd,
+                ["worktree", "add", worktreePath, input.branch],
+                "failed to create parent directory for worktree",
+                cause,
+              ),
+            ),
+          );
+        } else {
+          yield* fileSystem
+            .makeDirectory(path.dirname(worktreePath), { recursive: true })
+            .pipe(
+              Effect.mapError((cause) =>
+                createGitCommandError(
+                  "GitCore.createWorktree",
+                  input.cwd,
+                  ["worktree", "add", worktreePath, input.branch],
+                  "failed to create parent directory for worktree",
+                  cause,
+                ),
+              ),
+            );
+        }
         const args = input.newBranch
           ? ["worktree", "add", "-b", input.newBranch, worktreePath, input.branch]
           : ["worktree", "add", worktreePath, input.branch];

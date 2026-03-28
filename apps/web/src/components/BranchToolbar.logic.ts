@@ -35,12 +35,13 @@ export function resolveBranchToolbarValue(input: {
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
+  defaultBranch: string | null;
 }): string | null {
-  const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
-  if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+  const { activeWorktreePath, activeThreadBranch, currentGitBranch, defaultBranch } = input;
+  if (!activeWorktreePath) {
+    return activeThreadBranch ?? defaultBranch ?? currentGitBranch;
   }
-  return currentGitBranch ?? activeThreadBranch;
+  return activeThreadBranch ?? currentGitBranch;
 }
 
 export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {

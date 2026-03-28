@@ -165,8 +165,9 @@ describe("StartupThreadReconciler", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "full-access",
-        branch: null,
-        worktreePath: null,
+        projectPath: "/tmp/project",
+        branch: [null],
+        worktreePath: [null],
         createdAt,
       }),
     );

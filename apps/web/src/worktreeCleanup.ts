@@ -17,7 +17,7 @@ export function getOrphanedWorktreePathForThread(
     return null;
   }
 
-  const targetWorktreePath = normalizeWorktreePath(targetThread.worktreePath);
+  const targetWorktreePath = normalizeWorktreePath(targetThread.worktreePath[0] ?? null);
   if (!targetWorktreePath) {
     return null;
   }
@@ -26,7 +26,7 @@ export function getOrphanedWorktreePathForThread(
     if (thread.id === threadId) {
       return false;
     }
-    return normalizeWorktreePath(thread.worktreePath) === targetWorktreePath;
+    return normalizeWorktreePath(thread.worktreePath[0] ?? null) === targetWorktreePath;
   });
 
   return isShared ? null : targetWorktreePath;

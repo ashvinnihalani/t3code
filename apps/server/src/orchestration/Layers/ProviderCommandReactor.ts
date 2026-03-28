@@ -499,17 +499,21 @@ const make = Effect.gen(function* () {
 
   const maybeGenerateAndRenameWorktreeBranchForFirstTurn = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
-    readonly branch: string | null;
-    readonly worktreePath: string | null;
+    readonly projectPath: string;
+    readonly branch: ReadonlyArray<string | null>;
+    readonly worktreePath: ReadonlyArray<string | null>;
+    readonly activeRepoIndex: number;
     readonly messageId: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly gitSettings?: GitRequestSettings;
   }) {
-    if (!input.branch || !input.worktreePath) {
+    const oldBranch = input.branch[input.activeRepoIndex] ?? null;
+    const cwd = input.worktreePath[input.activeRepoIndex] ?? null;
+    if (!oldBranch || !cwd) {
       return;
     }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+    if (!isTemporaryWorktreeBranch(oldBranch)) {
       return;
     }
 
@@ -524,8 +528,6 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const oldBranch = input.branch;
-    const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* textGeneration
       .generateBranchName({
@@ -558,14 +560,20 @@ const make = Effect.gen(function* () {
               newBranch: targetBranch,
               ...(projectRemote ? { remote: projectRemote } : {}),
             }),
-            (renamed) =>
-              orchestrationEngine.dispatch({
+            (renamed) => {
+              const nextBranch = [...input.branch];
+              const nextWorktreePath = [...input.worktreePath];
+              nextBranch[input.activeRepoIndex] = renamed.branch;
+              nextWorktreePath[input.activeRepoIndex] = cwd;
+              return orchestrationEngine.dispatch({
                 type: "thread.meta.update",
                 commandId: serverCommandId("worktree-branch-rename"),
                 threadId: input.threadId,
-                branch: renamed.branch,
-                worktreePath: cwd,
-              }),
+                projectPath: input.projectPath,
+                branch: nextBranch,
+                worktreePath: nextWorktreePath,
+              });
+            },
           );
         }),
         Effect.catchCause((cause) =>
@@ -603,17 +611,22 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-      threadId: event.payload.threadId,
-      branch: thread.branch,
-      worktreePath: thread.worktreePath,
-      messageId: message.id,
-      messageText: message.text,
-      ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-      ...(event.payload.gitSettings !== undefined
-        ? { gitSettings: event.payload.gitSettings }
-        : {}),
-    }).pipe(Effect.forkScoped);
+    const activeRepoIndex = thread.worktreePath.findIndex((value) => value !== null);
+    if (activeRepoIndex >= 0) {
+      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+        threadId: event.payload.threadId,
+        projectPath: thread.projectPath,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+        activeRepoIndex,
+        messageId: message.id,
+        messageText: message.text,
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+        ...(event.payload.gitSettings !== undefined
+          ? { gitSettings: event.payload.gitSettings }
+          : {}),
+      }).pipe(Effect.forkScoped);
+    }
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
