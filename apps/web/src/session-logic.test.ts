@@ -144,11 +144,11 @@ describe("derivePendingApprovals", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("includes Kiro as an available provider", () => {
+  it("includes Kiro as an unavailable provider", () => {
     expect(PROVIDER_OPTIONS).toContainEqual({
       value: "kiro",
       label: "Kiro CLI",
-      available: true,
+      available: false,
     });
   });
 });
@@ -787,7 +787,7 @@ describe("PROVIDER_OPTIONS", () => {
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "claudeAgent", label: "Claude", available: true },
-      { value: "kiro", label: "Kiro CLI", available: true },
+      { value: "kiro", label: "Kiro CLI", available: false },
       { value: "cursor", label: "Cursor", available: false },
     ]);
     expect(claude).toEqual({
