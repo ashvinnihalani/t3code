@@ -246,7 +246,7 @@ function ChatMarkdown({ text, linkContext, isStreaming = false }: ChatMarkdownPr
       a({ node: _node, href, ...props }) {
         const target = resolveProjectEditorTargetFromMarkdownHref(href, linkContext);
         if (!target) {
-          return <a {...props} href={href} target="_blank" rel="noreferrer" />;
+          return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
         }
 
         return (
