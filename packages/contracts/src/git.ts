@@ -70,6 +70,7 @@ export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 export const GitStatusInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  repoPath: Schema.optional(TrimmedNonEmptyStringSchema),
   settings: Schema.optional(GitRequestSettings),
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
@@ -98,12 +99,14 @@ export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 export const GitListBranchesInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  repoPath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
 
 export const GitCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  repoPath: Schema.optional(TrimmedNonEmptyStringSchema),
   branch: TrimmedNonEmptyStringSchema,
   newBranch: Schema.optional(TrimmedNonEmptyStringSchema),
   path: Schema.NullOr(TrimmedNonEmptyStringSchema),
@@ -138,6 +141,7 @@ export type GitRemoveWorktreeInput = typeof GitRemoveWorktreeInput.Type;
 export const GitCreateBranchInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  repoPath: Schema.optional(TrimmedNonEmptyStringSchema),
   branch: TrimmedNonEmptyStringSchema,
 });
 export type GitCreateBranchInput = typeof GitCreateBranchInput.Type;
@@ -145,6 +149,7 @@ export type GitCreateBranchInput = typeof GitCreateBranchInput.Type;
 export const GitCheckoutInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   projectId: Schema.optional(ProjectId),
+  repoPath: Schema.optional(TrimmedNonEmptyStringSchema),
   branch: TrimmedNonEmptyStringSchema,
 });
 export type GitCheckoutInput = typeof GitCheckoutInput.Type;

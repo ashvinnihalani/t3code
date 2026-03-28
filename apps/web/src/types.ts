@@ -111,8 +111,9 @@ export interface Thread {
   updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
-  branch: string | null;
-  worktreePath: string | null;
+  projectPath: string;
+  branch: ReadonlyArray<string | null>;
+  worktreePath: ReadonlyArray<string | null>;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

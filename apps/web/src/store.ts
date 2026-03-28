@@ -8,6 +8,7 @@ import {
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+import { setBranchAtIndex, setWorktreePathAtIndex } from "@t3tools/shared/threadGit";
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -21,7 +22,7 @@ export interface AppState {
   localCodexErrorsDismissedAfter: string | null;
 }
 
-const PERSISTED_STATE_KEY = "t3code:renderer-state:v9";
+const PERSISTED_STATE_KEY = "t3code:renderer-state:v10";
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",
   "t3code:renderer-state:v7",
@@ -356,6 +357,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         updatedAt: thread.updatedAt,
         latestTurn: thread.latestTurn,
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
+        projectPath: thread.projectPath,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
@@ -488,14 +490,27 @@ export function setThreadBranch(
   threadId: ThreadId,
   branch: string | null,
   worktreePath: string | null,
+  branchIndex = 0,
+  projectPath?: string,
 ): AppState {
   const threads = updateThread(state.threads, threadId, (t) => {
-    if (t.branch === branch && t.worktreePath === worktreePath) return t;
-    const cwdChanged = t.worktreePath !== worktreePath;
+    const nextBranch = setBranchAtIndex(t.branch, branchIndex, branch);
+    const nextWorktreePath = setWorktreePathAtIndex(t.worktreePath, branchIndex, worktreePath);
+    const nextProjectPath = projectPath ?? worktreePath ?? t.projectPath;
+    if (
+      t.projectPath === nextProjectPath &&
+      JSON.stringify(t.branch) === JSON.stringify(nextBranch) &&
+      JSON.stringify(t.worktreePath) === JSON.stringify(nextWorktreePath)
+    ) {
+      return t;
+    }
+    const cwdChanged =
+      (t.worktreePath[0] ?? null) !== worktreePath || t.projectPath !== nextProjectPath;
     return {
       ...t,
-      branch,
-      worktreePath,
+      projectPath: nextProjectPath,
+      branch: nextBranch,
+      worktreePath: nextWorktreePath,
       ...(cwdChanged ? { session: null } : {}),
     };
   });
@@ -513,7 +528,13 @@ interface AppStore extends AppState {
   reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   dismissLocalCodexErrors: (dismissedAt: string) => void;
-  setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  setThreadBranch: (
+    threadId: ThreadId,
+    branch: string | null,
+    worktreePath: string | null,
+    branchIndex?: number,
+    projectPath?: string,
+  ) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -530,8 +551,10 @@ export const useStore = create<AppStore>((set) => ({
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
   dismissLocalCodexErrors: (dismissedAt) =>
     set((state) => dismissLocalCodexErrors(state, dismissedAt)),
-  setThreadBranch: (threadId, branch, worktreePath) =>
-    set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  setThreadBranch: (threadId, branch, worktreePath, branchIndex, projectPath) =>
+    set((state) =>
+      setThreadBranch(state, threadId, branch, worktreePath, branchIndex, projectPath),
+    ),
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

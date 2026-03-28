@@ -93,6 +93,7 @@ import {
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
+import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
   getFallbackThreadIdAfterDelete,
@@ -522,12 +523,12 @@ export default function Sidebar() {
         const project = projects.find((entry) => entry.id === thread.projectId);
         return {
           threadId: thread.id,
-          branch: thread.branch,
+          branch: getSingleRepoBranch(thread),
           projectId: thread.projectId,
           cwd:
             project?.gitMode === "multi"
               ? null
-              : (thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null),
+              : (getSingleRepoWorktreePath(thread) ?? projectCwdById.get(thread.projectId) ?? null),
         };
       }),
     [projectCwdById, projects, threads],
@@ -992,7 +993,7 @@ export default function Sidebar() {
       const thread = threads.find((t) => t.id === threadId);
       if (!thread) return;
       const threadWorkspacePath =
-        thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
+        getSingleRepoWorktreePath(thread) ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },

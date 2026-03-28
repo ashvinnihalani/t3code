@@ -47,6 +47,7 @@ interface BranchToolbarBranchSelectorProps {
   activeThreadBranch: string | null;
   activeWorktreePath: string | null;
   branchCwd: string | null;
+  repoPath: string | null;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
@@ -79,6 +80,7 @@ export function BranchToolbarBranchSelector({
   activeThreadBranch,
   activeWorktreePath,
   branchCwd,
+  repoPath,
   effectiveEnvMode,
   envLocked,
   onSetThreadBranch,
@@ -90,8 +92,8 @@ export function BranchToolbarBranchSelector({
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
   const gitTarget = useMemo(
-    () => ({ cwd: branchCwd, projectId: activeProjectId }),
-    [activeProjectId, branchCwd],
+    () => ({ cwd: branchCwd, projectId: activeProjectId, repoPath }),
+    [activeProjectId, branchCwd, repoPath],
   );
 
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
@@ -100,6 +102,7 @@ export function BranchToolbarBranchSelector({
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],
   );
+  const defaultBranchName = branches.find((branch) => branch.isDefault)?.name ?? null;
   const currentGitBranch =
     branchStatusQuery.data?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
   const canonicalActiveBranch = resolveBranchToolbarValue({
@@ -107,6 +110,7 @@ export function BranchToolbarBranchSelector({
     activeWorktreePath,
     activeThreadBranch,
     currentGitBranch,
+    defaultBranch: defaultBranchName,
   });
   const branchNames = useMemo(() => branches.map((branch) => branch.name), [branches]);
   const branchByName = useMemo(
@@ -199,6 +203,7 @@ export function BranchToolbarBranchSelector({
         await api.git.checkout({
           cwd: selectionTarget.checkoutCwd,
           projectId: activeProjectId,
+          ...(repoPath ? { repoPath } : {}),
           branch: branch.name,
         });
         await invalidateGitQueries(queryClient);
@@ -214,7 +219,11 @@ export function BranchToolbarBranchSelector({
       let nextBranchName = selectedBranchName;
       if (branch.isRemote) {
         const status = await api.git
-          .status({ cwd: branchCwd, projectId: activeProjectId })
+          .status({
+            cwd: selectionTarget.checkoutCwd,
+            projectId: activeProjectId,
+            ...(repoPath ? { repoPath } : {}),
+          })
           .catch(() => null);
         if (status?.branch) {
           nextBranchName = status.branch;
@@ -238,9 +247,19 @@ export function BranchToolbarBranchSelector({
       setOptimisticBranch(name);
 
       try {
-        await api.git.createBranch({ cwd: branchCwd, projectId: activeProjectId, branch: name });
+        await api.git.createBranch({
+          cwd: branchCwd,
+          projectId: activeProjectId,
+          ...(repoPath ? { repoPath } : {}),
+          branch: name,
+        });
         try {
-          await api.git.checkout({ cwd: branchCwd, projectId: activeProjectId, branch: name });
+          await api.git.checkout({
+            cwd: branchCwd,
+            projectId: activeProjectId,
+            ...(repoPath ? { repoPath } : {}),
+            branch: name,
+          });
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -265,20 +284,15 @@ export function BranchToolbarBranchSelector({
   };
 
   useEffect(() => {
-    if (
-      effectiveEnvMode !== "worktree" ||
-      activeWorktreePath ||
-      activeThreadBranch ||
-      !currentGitBranch
-    ) {
+    if (activeWorktreePath || activeThreadBranch || (!defaultBranchName && !currentGitBranch)) {
       return;
     }
-    onSetThreadBranch(currentGitBranch, null);
+    onSetThreadBranch(currentGitBranch ?? defaultBranchName, null);
   }, [
     activeThreadBranch,
     activeWorktreePath,
     currentGitBranch,
-    effectiveEnvMode,
+    defaultBranchName,
     onSetThreadBranch,
   ]);
 

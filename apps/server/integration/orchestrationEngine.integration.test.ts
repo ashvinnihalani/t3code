@@ -135,8 +135,9 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
-      branch: null,
-      worktreePath: harness.workspaceDir,
+      projectPath: harness.workspaceDir,
+      branch: [null],
+      worktreePath: [null],
       createdAt,
     });
   });
@@ -284,8 +285,9 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
-          branch: null,
-          worktreePath: harness.workspaceDir,
+          projectPath: harness.workspaceDir,
+          branch: [null],
+          worktreePath: [null],
           createdAt,
         });
 

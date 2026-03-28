@@ -12,6 +12,7 @@ import { GitCommandError } from "../Errors.ts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
 import { ServerConfig } from "../../config.ts";
 import * as sshCommand from "../../sshCommand.ts";
+import * as processRunner from "../../processRunner.ts";
 
 // ── Helpers ──
 
@@ -1073,6 +1074,9 @@ it.layer(TestLayer)("git integration", (it) => {
           const readRemoteHomeDirSpy = vi
             .spyOn(sshCommand, "readRemoteHomeDir")
             .mockReturnValue("/home/remote-user");
+          const runProcessSpy = vi
+            .spyOn(processRunner, "runProcess")
+            .mockResolvedValue({ code: 0, stdout: "", stderr: "", signal: null, timedOut: false });
           let executeInput: Parameters<GitCoreShape["execute"]>[0] | null = null;
           const core = yield* makeIsolatedGitCore({
             execute: (input) => {
@@ -1116,6 +1120,7 @@ it.layer(TestLayer)("git integration", (it) => {
               "feature/demo",
             ],
           });
+          expect(runProcessSpy).toHaveBeenCalledTimes(1);
         }),
     );
 

@@ -67,6 +67,8 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    branch: Schema.fromJsonString(Schema.Array(Schema.NullOr(Schema.String))),
+    worktreePath: Schema.fromJsonString(Schema.Array(Schema.NullOr(Schema.String))),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -281,8 +283,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
-          branch,
-          worktree_path AS "worktreePath",
+          project_path AS "projectPath",
+          branch_json AS "branch",
+          worktree_path_json AS "worktreePath",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -724,6 +727,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             modelSelection: row.modelSelection,
             runtimeMode: row.runtimeMode,
             interactionMode: row.interactionMode,
+            projectPath: row.projectPath,
             branch: row.branch,
             worktreePath: row.worktreePath,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,

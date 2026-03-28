@@ -7,6 +7,7 @@
  * @module Server
  */
 import http from "node:http";
+import fs from "node:fs/promises";
 import nodePath from "node:path";
 import type { Duplex } from "node:stream";
 
@@ -76,6 +77,8 @@ import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { listSshHosts } from "./sshHosts";
 import { validateRemoteProjectOverSsh } from "./remote/validateRemoteProject";
+import { buildSshExecArgs, quotePosixShell, readRemoteHomeDir } from "./sshCommand";
+import { runProcess } from "./processRunner";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -907,7 +910,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
     return {
       project,
-      baseRoot: thread.worktreePath ?? project.workspaceRoot,
+      baseRoot: thread.projectPath,
     };
   });
 
@@ -963,16 +966,263 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     return project.remote ?? null;
   });
 
-  const ensureMultiRepoGitDisabled = Effect.fnUntraced(function* (projectId?: ProjectId) {
-    if (!projectId) {
-      return;
+  const resolveGitOperationTarget = Effect.fnUntraced(function* (input: {
+    readonly cwd: string;
+    readonly projectId?: ProjectId;
+    readonly threadId?: ThreadId;
+    readonly repoPath?: string;
+    readonly operation: string;
+  }) {
+    if (!input.projectId) {
+      return {
+        cwd: input.cwd,
+        remote: null,
+      };
     }
-    const project = yield* resolveProject(projectId);
-    if (project.gitMode === "multi") {
+
+    const project = yield* resolveProject(input.projectId);
+    const remote = project.remote ?? null;
+    if (project.gitMode !== "multi") {
+      return {
+        cwd: input.cwd,
+        remote,
+      };
+    }
+
+    const repoPath = input.repoPath?.trim();
+    if (!repoPath) {
       return yield* new RouteRequestError({
-        message: "Git operations are disabled for multi-repo projects right now.",
+        message: `${input.operation} requires a repository selection for multi-repo projects.`,
       });
     }
+    const repoIndex = project.gitRepos?.findIndex((repo) => repo.repoPath === repoPath) ?? -1;
+    if (repoIndex < 0) {
+      return yield* new RouteRequestError({
+        message: `Unknown repo path '${repoPath}' for project '${input.projectId}'.`,
+      });
+    }
+    const repoCwd =
+      remote?.kind === "ssh"
+        ? nodePath.posix.join(project.workspaceRoot, repoPath)
+        : path.join(project.workspaceRoot, repoPath);
+
+    if (input.threadId) {
+      const thread = yield* resolveThread(input.threadId);
+      if (thread.projectId !== project.id) {
+        return yield* new RouteRequestError({
+          message: `Thread '${input.threadId}' does not belong to project '${input.projectId}'.`,
+        });
+      }
+      return {
+        cwd: thread.worktreePath[repoIndex] ?? repoCwd,
+        remote,
+      };
+    }
+
+    return {
+      cwd: repoCwd,
+      remote,
+    };
+  });
+
+  const resolveSyntheticParentPath = (input: {
+    readonly requestedWorktreePath: string;
+    readonly repoPath: string;
+  }) => {
+    const repoSegments = input.repoPath.split("/").filter((segment) => segment.length > 0);
+    if (repoSegments.length === 0) {
+      return input.requestedWorktreePath;
+    }
+
+    let absoluteWorktreePath = input.requestedWorktreePath;
+    if (!nodePath.isAbsolute(absoluteWorktreePath)) {
+      absoluteWorktreePath = nodePath.join(serverConfig.worktreesDir, absoluteWorktreePath);
+    }
+
+    let syntheticParentPath = absoluteWorktreePath;
+    for (let index = 0; index < repoSegments.length; index += 1) {
+      syntheticParentPath = nodePath.dirname(syntheticParentPath);
+    }
+    return syntheticParentPath;
+  };
+
+  const ensureLocalSyntheticParentExtras = Effect.fnUntraced(function* (input: {
+    readonly workspaceRoot: string;
+    readonly syntheticParentPath: string;
+    readonly repoRootNames: ReadonlySet<string>;
+  }) {
+    yield* Effect.tryPromise(() =>
+      fs.mkdir(input.syntheticParentPath, {
+        recursive: true,
+      }),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RouteRequestError({
+            message:
+              cause instanceof Error && cause.message.length > 0
+                ? cause.message
+                : "Failed to create the synthetic worktree parent directory.",
+          }),
+      ),
+    );
+
+    const entries = yield* Effect.tryPromise(() =>
+      fs.readdir(input.workspaceRoot, { withFileTypes: true }),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RouteRequestError({
+            message:
+              cause instanceof Error && cause.message.length > 0
+                ? cause.message
+                : "Failed to read project root entries.",
+          }),
+      ),
+    );
+
+    for (const entry of entries) {
+      if (entry.name === ".git" || input.repoRootNames.has(entry.name)) {
+        continue;
+      }
+
+      const sourcePath = nodePath.join(input.workspaceRoot, entry.name);
+      const destinationPath = nodePath.join(input.syntheticParentPath, entry.name);
+      yield* Effect.tryPromise(() =>
+        fs.cp(sourcePath, destinationPath, {
+          recursive: true,
+          force: false,
+          errorOnExist: false,
+          preserveTimestamps: true,
+        }),
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error && cause.message.length > 0
+                  ? cause.message
+                  : `Failed to copy '${entry.name}' into the synthetic worktree parent.`,
+            }),
+        ),
+      );
+    }
+  });
+
+  const ensureRemoteSyntheticParentExtras = Effect.fnUntraced(function* (input: {
+    readonly workspaceRoot: string;
+    readonly syntheticParentPath: string;
+    readonly hostAlias: string;
+    readonly repoRootNames: ReadonlySet<string>;
+  }) {
+    const skipConditions = [...input.repoRootNames, ".git"].map(
+      (name) => `[ "$name" = ${quotePosixShell(name)} ]`,
+    );
+    const script = [
+      `source_root=${quotePosixShell(input.workspaceRoot)}`,
+      `target_root=${quotePosixShell(input.syntheticParentPath)}`,
+      'mkdir -p "$target_root"',
+      'for child in "$source_root"/* "$source_root"/.[!.]* "$source_root"/..?*; do',
+      '  [ -e "$child" ] || continue',
+      "  name=${child##*/}",
+      ...(skipConditions.length > 0
+        ? [`  if ${skipConditions.join(" || ")}; then continue; fi`]
+        : []),
+      '  target="$target_root/$name"',
+      '  [ -e "$target" ] && continue',
+      '  cp -R "$child" "$target"',
+      "done",
+    ].join("\n");
+
+    yield* Effect.tryPromise(() =>
+      runProcess(
+        "ssh",
+        buildSshExecArgs({
+          hostAlias: input.hostAlias,
+          command: "sh",
+          args: ["-lc", script],
+          localCwd: process.cwd(),
+        }),
+        {
+          cwd: process.cwd(),
+          timeoutMs: 30_000,
+          outputMode: "truncate",
+        },
+      ),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RouteRequestError({
+            message:
+              cause instanceof Error && cause.message.length > 0
+                ? cause.message
+                : "Failed to copy project root entries into the remote synthetic worktree parent.",
+          }),
+      ),
+    );
+  });
+
+  const ensureSyntheticParentExtras = Effect.fnUntraced(function* (input: {
+    readonly projectId?: ProjectId;
+    readonly repoPath?: string;
+    readonly requestedWorktreePath: string | null;
+  }) {
+    if (!input.projectId || !input.requestedWorktreePath) {
+      return;
+    }
+
+    const project = yield* resolveProject(input.projectId);
+    if (project.gitMode !== "multi" || !project.gitRepos || project.gitRepos.length === 0) {
+      return;
+    }
+
+    const repoPath = input.repoPath?.trim();
+    if (!repoPath) {
+      return;
+    }
+
+    const repoExists = project.gitRepos.some((repo) => repo.repoPath === repoPath);
+    if (!repoExists) {
+      return;
+    }
+
+    const repoRootNames = new Set(
+      project.gitRepos
+        .map((repo) => repo.repoPath.split("/")[0]?.trim() ?? "")
+        .filter((name) => name.length > 0),
+    );
+
+    if (project.remote?.kind === "ssh") {
+      const remoteHomeDir =
+        readRemoteHomeDir({
+          hostAlias: project.remote.hostAlias,
+          localCwd: process.cwd(),
+        }) ?? "/tmp";
+      const absoluteWorktreePath = nodePath.posix.isAbsolute(input.requestedWorktreePath)
+        ? input.requestedWorktreePath
+        : nodePath.posix.join(remoteHomeDir, ".t3", "worktrees", input.requestedWorktreePath);
+      const repoSegments = repoPath.split("/").filter((segment) => segment.length > 0);
+      let syntheticParentPath = absoluteWorktreePath;
+      for (let index = 0; index < repoSegments.length; index += 1) {
+        syntheticParentPath = nodePath.posix.dirname(syntheticParentPath);
+      }
+      yield* ensureRemoteSyntheticParentExtras({
+        workspaceRoot: project.workspaceRoot,
+        syntheticParentPath,
+        hostAlias: project.remote.hostAlias,
+        repoRootNames,
+      });
+      return;
+    }
+
+    yield* ensureLocalSyntheticParentExtras({
+      workspaceRoot: project.workspaceRoot,
+      syntheticParentPath: resolveSyntheticParentPath({
+        requestedWorktreePath: input.requestedWorktreePath,
+        repoPath,
+      }),
+      repoRootNames,
+    });
   });
 
   const resolveLocalProjectWorkspaceRoot = Effect.fnUntraced(function* (input: {
@@ -1060,8 +1310,9 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           modelSelection: bootstrapProjectDefaultModelSelection,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
+          projectPath: existingProject?.workspaceRoot ?? cwd,
+          branch: [null],
+          worktreePath: [null],
           createdAt,
         });
         welcomeBootstrapProjectId = bootstrapProjectId;
@@ -1214,24 +1465,40 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitStatus: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const { cwd, remote } = yield* resolveGitOperationTarget({
+          cwd: body.cwd,
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          operation: "Git status",
+        });
         return yield* gitManager.status({
           ...body,
+          cwd,
           ...(remote ? { remote } : {}),
         });
       }
 
       case WS_METHODS.gitPull: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message: "Pull is out of scope for multi-repo projects in this release.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.pullCurrentBranch(body.cwd, remote);
       }
 
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message:
+              "Commit, push, and PR actions are out of scope for multi-repo projects in this release.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.runStackedAction(
           {
@@ -1250,7 +1517,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitResolvePullRequest: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message: "PR actions are out of scope for multi-repo projects in this release.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.resolvePullRequest({
           ...body,
@@ -1260,7 +1532,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitPreparePullRequestThread: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message: "PR actions are out of scope for multi-repo projects in this release.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* gitManager.preparePullRequestThread({
           ...body,
@@ -1270,27 +1547,48 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitListBranches: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const { cwd, remote } = yield* resolveGitOperationTarget({
+          cwd: body.cwd,
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          operation: "Listing branches",
+        });
         return yield* git.listBranches({
           ...body,
+          cwd,
           ...(remote ? { remote } : {}),
         });
       }
 
       case WS_METHODS.gitCreateWorktree: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        yield* ensureSyntheticParentExtras({
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          requestedWorktreePath: body.path ?? null,
+        });
+        const { cwd, remote } = yield* resolveGitOperationTarget({
+          cwd: body.cwd,
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          operation: "Creating a worktree",
+        });
         return yield* git.createWorktree({
           ...body,
+          cwd,
           ...(remote ? { remote } : {}),
         });
       }
 
       case WS_METHODS.gitRemoveWorktree: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message:
+              "Worktree removal outside thread cleanup is unavailable for multi-repo projects in this release.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.removeWorktree({
           ...body,
@@ -1300,21 +1598,31 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitCreateBranch: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const { cwd, remote } = yield* resolveGitOperationTarget({
+          cwd: body.cwd,
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          operation: "Creating a branch",
+        });
         return yield* git.createBranch({
           ...body,
+          cwd,
           ...(remote ? { remote } : {}),
         });
       }
 
       case WS_METHODS.gitCheckout: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
-        const remote = yield* resolveProjectRemote(body.projectId);
+        const { cwd, remote } = yield* resolveGitOperationTarget({
+          cwd: body.cwd,
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.repoPath ? { repoPath: body.repoPath } : {}),
+          operation: "Checking out a branch",
+        });
         return yield* Effect.scoped(
           git.checkoutBranch({
             ...body,
+            cwd,
             ...(remote ? { remote } : {}),
           }),
         );
@@ -1322,7 +1630,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.gitInit: {
         const body = stripRequestTag(request.body);
-        yield* ensureMultiRepoGitDisabled(body.projectId);
+        const project = body.projectId ? yield* resolveProject(body.projectId) : null;
+        if (project?.gitMode === "multi") {
+          return yield* new RouteRequestError({
+            message: "Git init is unavailable for multi-repo projects.",
+          });
+        }
         const remote = yield* resolveProjectRemote(body.projectId);
         return yield* git.initRepo({
           ...body,

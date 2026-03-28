@@ -244,8 +244,9 @@ function createSnapshotForTargetUser(options: {
         },
         interactionMode: "default",
         runtimeMode: "full-access",
-        branch: "main",
-        worktreePath: null,
+        projectPath: "/repo",
+        branch: ["main"],
+        worktreePath: [null],
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -342,8 +343,9 @@ function addThreadToSnapshot(
         },
         interactionMode: "default",
         runtimeMode: "full-access",
-        branch: "main",
-        worktreePath: null,
+        projectPath: "/repo",
+        branch: ["main"],
+        worktreePath: [null],
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -374,6 +376,25 @@ function createDraftOnlySnapshot(): OrchestrationReadModel {
   return {
     ...snapshot,
     threads: [],
+  };
+}
+
+function createMultiRepoDraftOnlySnapshot(): OrchestrationReadModel {
+  const snapshot = createDraftOnlySnapshot();
+  return {
+    ...snapshot,
+    projects: snapshot.projects.map((project) =>
+      project.id === PROJECT_ID
+        ? {
+            ...project,
+            gitMode: "multi" as const,
+            gitRepos: [
+              { repoPath: "apps/web", displayName: "web" },
+              { repoPath: "services/api", displayName: "api" },
+            ],
+          }
+        : project,
+    ),
   };
 }
 
@@ -1200,8 +1221,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          projectPath: "/repo",
+          branch: [null],
+          worktreePath: [null],
           envMode: "local",
         },
       },
@@ -1249,6 +1271,249 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("renders the multi-repo selector beside the branch selector", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo/project",
+          branch: [null, null],
+          worktreePath: [null, null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createMultiRepoDraftOnlySnapshot(),
+    });
+
+    try {
+      const localButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "Local",
+          ) as HTMLButtonElement | null,
+        "Unable to find Local selector.",
+      );
+      const repoButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "web",
+          ) as HTMLButtonElement | null,
+        "Unable to find repo selector.",
+      );
+      const branchButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "main",
+          ) as HTMLButtonElement | null,
+        "Unable to find branch selector.",
+      );
+
+      const localRect = localButton.getBoundingClientRect();
+      const repoRect = repoButton.getBoundingClientRect();
+      const branchRect = branchButton.getBoundingClientRect();
+
+      expect(Math.abs(repoRect.top - branchRect.top)).toBeLessThanOrEqual(2);
+      expect(repoRect.left).toBeLessThan(branchRect.left);
+      expect(localRect.left).toBeLessThan(repoRect.left);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("matches single-repo toolbar vertical spacing for multi-repo drafts", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo/project",
+          branch: [null],
+          worktreePath: [null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const singleRepoMounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      const singleLocalButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "Local",
+          ) as HTMLButtonElement | null,
+        "Unable to find single-repo Local selector.",
+      );
+      const singleBranchButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "main",
+          ) as HTMLButtonElement | null,
+        "Unable to find single-repo branch selector.",
+      );
+
+      const singleLocalRect = singleLocalButton.getBoundingClientRect();
+      const singleBranchRect = singleBranchButton.getBoundingClientRect();
+
+      await singleRepoMounted.cleanup();
+
+      useComposerDraftStore.setState({
+        draftThreadsByThreadId: {
+          [THREAD_ID]: {
+            projectId: PROJECT_ID,
+            createdAt: NOW_ISO,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            projectPath: "/repo/project",
+            branch: [null, null],
+            worktreePath: [null, null],
+            envMode: "local",
+          },
+        },
+        projectDraftThreadIdByProjectId: {
+          [PROJECT_ID]: THREAD_ID,
+        },
+      });
+
+      const multiRepoMounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: createMultiRepoDraftOnlySnapshot(),
+      });
+
+      try {
+        const multiLocalButton = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.trim() === "Local",
+            ) as HTMLButtonElement | null,
+          "Unable to find multi-repo Local selector.",
+        );
+        const multiRepoButton = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.trim() === "web",
+            ) as HTMLButtonElement | null,
+          "Unable to find multi-repo repo selector.",
+        );
+        const multiBranchButton = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.trim() === "main",
+            ) as HTMLButtonElement | null,
+          "Unable to find multi-repo branch selector.",
+        );
+
+        const multiLocalRect = multiLocalButton.getBoundingClientRect();
+        const multiRepoRect = multiRepoButton.getBoundingClientRect();
+        const multiBranchRect = multiBranchButton.getBoundingClientRect();
+
+        expect(Math.abs(singleLocalRect.top - multiLocalRect.top)).toBeLessThanOrEqual(2);
+        expect(Math.abs(singleLocalRect.height - multiLocalRect.height)).toBeLessThanOrEqual(2);
+        expect(Math.abs(singleBranchRect.top - multiBranchRect.top)).toBeLessThanOrEqual(2);
+        expect(Math.abs(singleBranchRect.height - multiBranchRect.height)).toBeLessThanOrEqual(2);
+        expect(Math.abs(multiRepoRect.top - multiBranchRect.top)).toBeLessThanOrEqual(2);
+      } finally {
+        await multiRepoMounted.cleanup();
+      }
+    } catch (error) {
+      await singleRepoMounted.cleanup().catch(() => undefined);
+      throw error;
+    }
+  });
+
+  it("does not push the composer upward for multi-repo drafts", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo/project",
+          branch: [null],
+          worktreePath: [null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const singleRepoMounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      const singleComposerEditor = await waitForComposerEditor();
+      const singleSendButton = await waitForSendButton();
+      const singleComposerRect = singleComposerEditor.getBoundingClientRect();
+      const singleSendRect = singleSendButton.getBoundingClientRect();
+
+      await singleRepoMounted.cleanup();
+
+      useComposerDraftStore.setState({
+        draftThreadsByThreadId: {
+          [THREAD_ID]: {
+            projectId: PROJECT_ID,
+            createdAt: NOW_ISO,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            projectPath: "/repo/project",
+            branch: [null, null],
+            worktreePath: [null, null],
+            envMode: "local",
+          },
+        },
+        projectDraftThreadIdByProjectId: {
+          [PROJECT_ID]: THREAD_ID,
+        },
+      });
+
+      const multiRepoMounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: createMultiRepoDraftOnlySnapshot(),
+      });
+
+      try {
+        const multiComposerEditor = await waitForComposerEditor();
+        const multiSendButton = await waitForSendButton();
+        const multiComposerRect = multiComposerEditor.getBoundingClientRect();
+        const multiSendRect = multiSendButton.getBoundingClientRect();
+
+        expect(Math.abs(singleComposerRect.top - multiComposerRect.top)).toBeLessThanOrEqual(2);
+        expect(Math.abs(singleComposerRect.height - multiComposerRect.height)).toBeLessThanOrEqual(
+          2,
+        );
+        expect(Math.abs(singleSendRect.top - multiSendRect.top)).toBeLessThanOrEqual(2);
+      } finally {
+        await multiRepoMounted.cleanup();
+      }
+    } catch (error) {
+      await singleRepoMounted.cleanup().catch(() => undefined);
+      throw error;
+    }
+  });
+
   it("prepares a worktree when a remote draft is in worktree mode", async () => {
     const baseSnapshot = createDraftOnlySnapshot();
     const snapshot: OrchestrationReadModel = {
@@ -1270,8 +1535,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: "main",
-          worktreePath: null,
+          projectPath: "/repo",
+          branch: ["main"],
+          worktreePath: [null],
           envMode: "worktree",
         },
       },
@@ -1354,8 +1620,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
         command: {
           type: "thread.create",
-          branch: createdWorktreeBranch,
-          worktreePath: `/repo/.t3/worktrees/${createdWorktreeBranch.replaceAll("/", "-")}`,
+          projectPath: `/repo/.t3/worktrees/${createdWorktreeBranch.replaceAll("/", "-")}`,
+          branch: [createdWorktreeBranch],
+          worktreePath: [`/repo/.t3/worktrees/${createdWorktreeBranch.replaceAll("/", "-")}`],
         },
       });
     } finally {
@@ -1371,8 +1638,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          projectPath: "/repo",
+          branch: [null],
+          worktreePath: [null],
           envMode: "local",
         },
       },
@@ -1447,8 +1715,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: "feature/draft",
-          worktreePath: "/repo/worktrees/feature-draft",
+          projectPath: "/repo/worktrees/feature-draft",
+          branch: ["feature/draft"],
+          worktreePath: ["/repo/worktrees/feature-draft"],
           envMode: "worktree",
         },
       },
