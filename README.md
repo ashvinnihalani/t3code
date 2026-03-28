@@ -2,58 +2,60 @@
 
 This repository is a fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
 
-The fork keeps the upstream T3 Code base, but the work in this branch is focused on SSH-backed remote project support, remote Codex session management, and the related UX needed to make remote development flows behave like local ones.
+The fork keeps the upstream T3 Code base, but the work in this branch is focused on SSH-backed remote project support, remote Codex session management, multi-provider integration, and the related UX needed to make remote development flows behave like local ones.
 
-## What This Fork Adds
+## Features
 
-- Remote SSH project creation from the sidebar, including SSH host discovery from local SSH config files.
-- Remote project validation before creation, including path checks, hostname resolution, Git availability, repository detection, and Codex CLI detection.
-- Host-scoped Codex binary path and `CODEX_HOME` overrides so different SSH hosts can launch different Codex installations.
-- Remote Codex session lifecycle support, including reconnect metadata, session health messaging, and recovery-oriented status banners.
-- Remote Git, diff, terminal, workspace-entry, and open-in-editor flows routed through SSH-aware server logic.
-- Project-aware path resolution so markdown links, terminal paths, diffs, plans, and Git file actions open relative to the active project instead of assuming a local raw cwd.
-- Remote worktree support for SSH-backed projects, including remote worktree creation from draft thread env mode and PR thread preparation.
-- Startup and state cleanup fixes, including pre-welcome thread hydration and stale local Codex error clearing after settings changes.
-- Kiro CLI listed in the provider picker as a coming-soon provider.
+- **Remote SSH project lifecycle** — create, validate, and manage projects on remote hosts discovered from `~/.ssh/config` (including `Include` directives), with pre-creation checks for path existence, hostname resolution, Git availability, and Codex CLI detection.
+- **Host-scoped provider overrides** — per-host Codex binary path and `CODEX_HOME` configuration so different SSH targets can use independent Codex installations.
+- **Remote session management** — launch, reconnect, and monitor Codex sessions against remote projects, with persisted reconnect metadata, session health banners, and recovery-oriented lifecycle states (`fresh-start`, `adopt-existing`, `resume-thread`, `resume-unavailable`, `resume-failed`).
+- **Remote Git, diff, terminal, and workspace flows** — all Git operations, checkpoint diffs, terminal interactions, and workspace-entry searches route through SSH-aware server logic scoped to the active project.
+- **Project-aware path resolution** — markdown links, terminal paths, diffs, plans, and Git file actions resolve relative to the active project root instead of assuming a local cwd; remote projects route through `ssh://` URI targets for editor opens.
+- **Remote worktree support** — create remote worktrees from draft thread env mode and PR thread preparation, with branch and worktree state tracked per-repo.
+- **Multi-repo git discovery** — detect and track multiple Git repositories under a single project workspace, with per-repo branch and worktree arrays.
+- **Multi-provider model selection** — unified `ModelSelection` discriminated union across Codex, Claude, and Kiro providers, with per-provider model options, capabilities, and reasoning effort levels.
+- **Kiro provider integration** — ACP-based session lifecycle, streaming, permission handling, and context snapshot telemetry for the Kiro CLI provider.
+- **Claude Code adapter** — Claude agent provider with thinking/effort controls, fast mode, and prompt stream interrupt handling.
+- **Git action progress streaming** — real-time progress events for stacked git actions (commit, push, PR) pushed to the client over a dedicated WebSocket channel.
+- **Context window telemetry** — structured `ThreadTokenUsageSnapshot` with per-turn and cumulative token breakdowns surfaced in the UI.
+- **Startup and state cleanup** — pre-welcome thread hydration, stale local Codex error clearing after settings changes, and silent shutdown recovery.
 
-## Remote SSH Scope In This Branch
+## Data / Contract Changes
 
-The implementation in this fork currently targets Codex-first remote workflows:
+All shared schemas live in `packages/contracts`. The following summarizes the structural changes relative to upstream.
 
-- add remote projects by SSH host alias and remote workspace path
-- launch Codex sessions against remote projects
-- run remote Git and diff operations through the server
-- open project-relative paths from chat content, plans, diffs, and terminal output
-- surface reconnect and health information for remote sessions
+### New schemas
 
-This is still early-stage software. Expect rough edges and incomplete provider coverage.
+- **`remote.ts`** — `ProjectRemoteTarget` (SSH host alias), `SshHostSummary`, `SshHostListResult`, `RemoteProjectValidationInput`, and `RemoteProjectValidationResult` for SSH host discovery and pre-creation validation.
+- **`project.ts`** — `ProjectEditorTarget`, `ProjectOpenInEditorInput`, and `ProjectOpenPathInEditorInput` for project-aware editor routing. `ProjectSearchEntriesInput` and `ProjectWriteFileInput` now key off `projectId` instead of a raw `cwd`.
 
-## Getting Started
+### Model selection
 
-> [!WARNING]
-> You need [Codex CLI](https://github.com/openai/codex) installed and authorized on the machine running T3 Code. For remote projects, the target SSH host also needs a working `codex` install if you want to launch remote Codex sessions there.
+- **`model.ts`** — replaced the flat `model` string + `ProviderModelOptions` bag with a discriminated `ModelSelection` union (`CodexModelSelection | ClaudeModelSelection | KiroModelSelection`). Each variant carries a `provider` literal, a `model` slug, and provider-specific `options`. Added `ClaudeModelOptions` (thinking, effort, fastMode), `KiroModelOptions`, and per-model `ModelCapabilities` (reasoning effort levels, fast mode, thinking toggle).
 
-```bash
-npx t3
-```
+### Orchestration
 
-If you are looking for the official project and release artifacts, use the upstream repository:
+- **`orchestration.ts`**:
+  - `ProviderKind` expanded from `"codex"` to `"codex" | "claudeAgent" | "kiro"`.
+  - `ProviderStartOptions` expanded with `ClaudeProviderStartOptions` and `KiroProviderStartOptions` alongside the existing `CodexProviderStartOptions`; Codex and Kiro options now carry an optional `remote: ProjectRemoteTarget`.
+  - `OrchestrationProject` gained `remote`, `defaultModelSelection` (replacing `defaultModel`), `gitMode` (`"none" | "single" | "multi"`), and `gitRepos` (array of `ProjectGitRepo`).
+  - `OrchestrationThread` replaced scalar `model`/`branch`/`worktreePath` with `modelSelection: ModelSelection`, `projectPath`, and arrays `branch: Array<NullOr<string>>` / `worktreePath: Array<NullOr<string>>` to support multi-repo state.
+  - `OrchestrationSession` gained `providerThreadId`, `resumeAvailable`, `reconnectState`, `reconnectSummary`, and `reconnectUpdatedAt`. Added `"disconnected"` to `OrchestrationSessionStatus` and a new `OrchestrationSessionReconnectState` enum.
+  - `OrchestrationProposedPlan` gained `implementedAt` and `implementationThreadId`. Turn start commands carry an optional `sourceProposedPlan` reference.
+  - New `ThreadTurnCompleteCommand` / `ThreadTurnCompletedPayload` and `"thread.turn-completed"` event type.
+  - `ThreadTurnDiffCompleteCommand` gained an optional `diff` field for inline diff text.
+  - `ProviderSessionRuntimeStatus` gained `"ready"`.
+  - All turn-start commands/payloads replaced `provider` + `model` + `modelOptions` with `modelSelection` and added `gitSettings`.
 
-- Upstream repo: [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
-- Upstream releases: [pingdotgg/t3code releases](https://github.com/pingdotgg/t3code/releases)
+### Git
 
-## Manual QA
+- **`git.ts`** — added `GitRequestSettings` (GitHub binary path, commit prompt, text generation model selection). Added `GitActionProgressPhase`, `GitActionProgressKind`, `GitActionProgressStream`, and `GitActionProgressEvent` for streaming stacked action progress. All git input schemas gained optional `projectId`, `repoPath`, and `settings` fields. `GitRunStackedActionInput` gained `actionId` and `modelSelection`.
 
-Use [MANUAL_QA.md](./MANUAL_QA.md) for the detailed checklist covering the remote SSH functionality implemented in this fork.
+### Provider runtime
 
-## Notes
+- **`providerRuntime.ts`** — `RuntimeEventRawSource` changed from a closed literal union to an open `TrimmedNonEmptyString` to accommodate non-Codex providers. `ThreadStartedPayload` gained `message`. `ThreadTokenUsageUpdatedPayload.usage` replaced `Schema.Unknown` with a structured `ThreadTokenUsageSnapshot` (per-turn and cumulative token counts, reasoning tokens, tool uses, duration, compaction flag). `TaskProgressPayload` gained `summary`.
 
-- This fork is based on a very early upstream project.
-- The branch is intentionally opinionated toward remote SSH support and Codex-first flows.
-- Not all providers shown in the UI are implemented yet.
+### IPC / WebSocket
 
-## Contributing
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+- **`ipc.ts`** — added `server.listSshHosts()`, `server.validateRemoteProject()`, `projects.openInEditor()`, `projects.openPathInEditor()`, `git.onActionProgress()`, and `DesktopAppCloseBehavior`. `shell.openInEditor` now accepts a resolved target string instead of a raw `cwd`.
+- **`ws.ts`** — added WS methods `projects.openInEditor`, `projects.openPathInEditor`, `server.listSshHosts`, `server.validateRemoteProject`. Added push channel `git.actionProgress` with `GitActionProgressEvent` payloads.
