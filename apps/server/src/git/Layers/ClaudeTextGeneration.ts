@@ -205,6 +205,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       stagedSummary: input.stagedSummary,
       stagedPatch: input.stagedPatch,
       includeBranch: input.includeBranch === true,
+      systemPrompt: input.systemPrompt,
     });
 
     if (input.modelSelection.provider !== "claudeAgent") {

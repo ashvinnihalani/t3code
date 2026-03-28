@@ -20,6 +20,7 @@ export interface CommitMessagePromptInput {
   stagedSummary: string;
   stagedPatch: string;
   includeBranch: boolean;
+  systemPrompt?: string | null | undefined;
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
@@ -37,6 +38,9 @@ export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
       ? ["- branch must be a short semantic git branch fragment for this change"]
       : []),
     "- capture the primary user-visible or developer-visible change",
+    ...(input.systemPrompt?.trim()
+      ? ["", "Additional user instructions:", input.systemPrompt.trim()]
+      : []),
     "",
     `Branch: ${input.branch ?? "(detached)"}`,
     "",
