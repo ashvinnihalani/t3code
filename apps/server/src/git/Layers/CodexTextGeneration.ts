@@ -261,6 +261,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       stagedSummary: input.stagedSummary,
       stagedPatch: input.stagedPatch,
       includeBranch: input.includeBranch === true,
+      systemPrompt: input.systemPrompt,
     });
 
     if (input.modelSelection.provider !== "codex") {
