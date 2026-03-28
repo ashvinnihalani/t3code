@@ -19,7 +19,7 @@ type TestSession = {
     respond: ReturnType<typeof vi.fn>;
     notify: ReturnType<typeof vi.fn>;
   };
-  runtimeMode: "full-access";
+  runtimeMode: "full-access" | "approval-required";
   cwd: undefined;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +45,7 @@ type TestSession = {
   >;
   suppressReplay: boolean;
   toolCallKinds: Map<string, string>;
+  toolPermissionBoundary: "unknown" | "approval-required" | "full-access";
 };
 
 function createTestSession(): TestSession {
@@ -75,6 +76,7 @@ function createTestSession(): TestSession {
     pendingPermissionRequests: new Map(),
     suppressReplay: false,
     toolCallKinds: new Map(),
+    toolPermissionBoundary: "unknown",
   };
 }
 
@@ -240,7 +242,42 @@ describe("KiroAcpManager", () => {
     expect(events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   });
 
-  it("maps full-access default turns onto the code mode before prompting", async () => {
+  it("returns from sendTurn before session/prompt resolves", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    let resolvePrompt: ((value: unknown) => void) | undefined;
+    session.rpc.request = vi.fn((method: string, params?: unknown) => {
+      if (method !== "session/prompt") {
+        return Promise.resolve(null);
+      }
+      const payload = params as { content?: unknown; prompt?: unknown } | undefined;
+      expect(payload?.prompt).toBeDefined();
+      expect(payload?.content).toBeUndefined();
+      return new Promise((resolve) => {
+        resolvePrompt = resolve;
+      });
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    const sendPromise = manager.sendTurn({
+      threadId: session.threadId,
+      input: "hello",
+    });
+
+    const result = await sendPromise;
+    expect(String(result.turnId)).toMatch(/^kiro:/);
+    expect(resolvePrompt).toBeTypeOf("function");
+
+    resolvePrompt?.({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it("configures trust-all for full-access turns before prompting", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
     session.modeState = {
@@ -264,47 +301,71 @@ describe("KiroAcpManager", () => {
       }
     ).sessions.set(session.threadId, session);
 
-    await manager.sendTurn({
+    await manager.prepareSessionForTurn({
       threadId: session.threadId,
-      input: "hello",
     });
-
-    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "session/set_mode", {
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "_kiro.dev/commands/execute", {
+      sessionId: "session-1",
+      command: {
+        type: "command",
+        command: "tools",
+        args: ["trust-all"],
+      },
+    });
+    expect(session.rpc.request).toHaveBeenNthCalledWith(2, "session/set_mode", {
       sessionId: "session-1",
       modeId: "code",
     });
-    expect(session.rpc.request).toHaveBeenNthCalledWith(
-      2,
-      "session/prompt",
-      expect.objectContaining({
-        sessionId: "session-1",
-        prompt: expect.any(Array),
-      }),
-    );
-    expect(session.modeState.currentModeId).toBe("code");
   });
 
-  it("prefers kiro_default over custom current agents for default turns", async () => {
+  it("only configures trust-all once per full-access session", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
     session.modeState = {
-      currentModeId: "amzn-builder",
-      defaultModeId: "amzn-builder",
+      currentModeId: "ask",
+      defaultModeId: "ask",
       availableModes: [
-        {
-          id: "amzn-builder",
-          name: "amzn-builder",
-          description: "Managed custom builder agent",
-        },
+        { id: "ask", name: "Ask", description: "Request permission before making any changes" },
+        { id: "code", name: "Code", description: "Write and modify code with full tool access" },
+      ],
+    };
+    session.rpc.request = vi.fn(async () => null);
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.prepareSessionForTurn({ threadId: session.threadId });
+    await manager.prepareSessionForTurn({ threadId: session.threadId });
+
+    expect(
+      session.rpc.request.mock.calls.filter((call) => call[0] === "_kiro.dev/commands/execute"),
+    ).toHaveLength(1);
+  });
+
+  it("resets tool trust for approval-required turns before prompting", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.runtimeMode = "approval-required";
+    session.modeState = {
+      currentModeId: "kiro_default",
+      defaultModeId: "kiro_default",
+      availableModes: [
         {
           id: "kiro_default",
           name: "kiro_default",
           description: "The default agent for Kiro CLI",
         },
         {
-          id: "kiro_planner",
-          name: "kiro_planner",
-          description: "Specialized planning agent",
+          id: "code",
+          name: "Code",
+          description: "Write and modify code with full tool access",
+        },
+        {
+          id: "ask",
+          name: "Ask",
+          description: "Request permission before making any changes",
         },
       ],
     };
@@ -320,24 +381,112 @@ describe("KiroAcpManager", () => {
       }
     ).sessions.set(session.threadId, session);
 
-    await manager.sendTurn({
+    await manager.prepareSessionForTurn({
       threadId: session.threadId,
-      input: "hello",
     });
 
-    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "session/set_mode", {
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "_kiro.dev/commands/execute", {
       sessionId: "session-1",
-      modeId: "kiro_default",
+      command: {
+        type: "command",
+        command: "tools",
+        args: ["reset"],
+      },
     });
-    expect(session.rpc.request).toHaveBeenNthCalledWith(
-      2,
-      "session/prompt",
-      expect.objectContaining({
-        sessionId: "session-1",
-        prompt: expect.any(Array),
-      }),
-    );
-    expect(session.modeState.currentModeId).toBe("kiro_default");
+    expect(session.rpc.request).toHaveBeenNthCalledWith(2, "session/set_mode", {
+      sessionId: "session-1",
+      modeId: "ask",
+    });
+    expect(session.modeState.currentModeId).toBe("ask");
+    expect(session.toolPermissionBoundary).toBe("approval-required");
+  });
+
+  it("maps supervised turns onto approval-required modes before prompting", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.runtimeMode = "approval-required";
+    session.modeState = {
+      currentModeId: "code",
+      defaultModeId: "kiro_default",
+      availableModes: [
+        {
+          id: "kiro_default",
+          name: "kiro_default",
+          description: "The default agent for Kiro CLI",
+        },
+        {
+          id: "code",
+          name: "Code",
+          description: "Write and modify code with full tool access",
+        },
+        {
+          id: "ask",
+          name: "Ask",
+          description: "Request permission before making any changes",
+        },
+      ],
+    };
+    session.rpc.request = vi.fn(async (method: string) => {
+      if (method === "session/prompt") {
+        return {};
+      }
+      return null;
+    });
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.prepareSessionForTurn({ threadId: session.threadId });
+
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "_kiro.dev/commands/execute", {
+      sessionId: "session-1",
+      command: {
+        type: "command",
+        command: "tools",
+        args: ["reset"],
+      },
+    });
+    expect(session.rpc.request).toHaveBeenNthCalledWith(2, "session/set_mode", {
+      sessionId: "session-1",
+      modeId: "ask",
+    });
+    expect(session.modeState.currentModeId).toBe("ask");
+  });
+
+  it("only resets tool trust once per approval-required session", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.runtimeMode = "approval-required";
+    session.modeState = {
+      currentModeId: "ask",
+      defaultModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask", description: "Request permission before changes" },
+      ],
+    };
+    session.rpc.request = vi.fn(async () => null);
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.prepareSessionForTurn({ threadId: session.threadId });
+    await manager.prepareSessionForTurn({ threadId: session.threadId });
+
+    expect(
+      session.rpc.request.mock.calls.filter((call) => call[0] === "_kiro.dev/commands/execute"),
+    ).toHaveLength(1);
+    expect(session.rpc.request).toHaveBeenNthCalledWith(1, "_kiro.dev/commands/execute", {
+      sessionId: "session-1",
+      command: {
+        type: "command",
+        command: "tools",
+        args: ["reset"],
+      },
+    });
   });
 
   it("uses tracked tool kinds when Kiro omits the permission request kind", async () => {

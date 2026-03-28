@@ -244,10 +244,6 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
-  it("parses standalone /help command", () => {
-    expect(parseStandaloneComposerSlashCommand(" /help ")).toBe("help");
-  });
-
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
   });

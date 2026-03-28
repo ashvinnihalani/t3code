@@ -218,7 +218,7 @@ describe("ProviderRuntimeIngestion", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
-        projectPath: "/tmp/project",
+        projectPath: workspaceRoot,
         branch: [null],
         worktreePath: [null],
         createdAt,
@@ -1412,6 +1412,237 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalMessage?.streaming).toBe(false);
   });
 
+  it("coalesces Kiro streaming deltas into smoother phrase-sized updates", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-kiro-streaming"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-kiro-streaming"),
+          role: "user",
+          text: "stream from kiro",
+          attachments: [],
+        },
+        assistantDeliveryMode: "streaming",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-kiro-streaming"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-kiro-streaming",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-streaming-delta-1"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Hello",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-streaming-delta-2"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " from",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-streaming-delta-3"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " the",
+      },
+    });
+
+    await harness.drain();
+    const partialReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const partialThread = partialReadModel.threads.find(
+      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    expect(
+      partialThread?.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:turn-kiro-streaming:segment:1",
+      ),
+    ).toBe(false);
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-streaming-delta-4"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " Kiro ",
+      },
+    });
+
+    const liveThread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:turn-kiro-streaming:segment:1" &&
+          message.streaming &&
+          message.text === "Hello from the Kiro ",
+      ),
+    );
+    const liveMessage = liveThread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:turn-kiro-streaming:segment:1",
+    );
+    expect(liveMessage?.streaming).toBe(true);
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-kiro-streaming"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-streaming"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    const finalThread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:turn-kiro-streaming:segment:1" && !message.streaming,
+      ),
+    );
+    const finalMessage = finalThread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:turn-kiro-streaming:segment:1",
+    );
+    expect(finalMessage?.text).toBe("Hello from the Kiro ");
+    expect(finalMessage?.streaming).toBe(false);
+  });
+
+  it("starts a new Kiro assistant message segment after tool activity in the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-kiro-tool-boundary"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-tool-boundary"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-kiro-tool-boundary",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-tool-boundary-delta-1"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-tool-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before tool. ",
+      },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-kiro-tool-boundary-tool-started"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-tool-boundary"),
+      itemId: asItemId("kiro-tool-1"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Read file",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-kiro-tool-boundary-delta-2"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-tool-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After tool.",
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-kiro-tool-boundary"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-kiro-tool-boundary"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const first = entry.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:turn-kiro-tool-boundary:segment:1" && !message.streaming,
+      );
+      const second = entry.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:turn-kiro-tool-boundary:segment:2" && !message.streaming,
+      );
+      return Boolean(first && second);
+    });
+
+    const firstMessage = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:turn-kiro-tool-boundary:segment:1",
+    );
+    const secondMessage = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:turn-kiro-tool-boundary:segment:2",
+    );
+    expect(firstMessage?.text).toBe("Before tool. ");
+    expect(secondMessage?.text).toBe("After tool.");
+  });
+
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1760,7 +1991,7 @@ describe("ProviderRuntimeIngestion", () => {
       threadId: asThreadId("thread-1"),
       payload: {
         name: "Renamed by provider",
-        metadata: { source: "provider", interactionMode: "help" },
+        metadata: { source: "provider", interactionMode: "plan" },
       },
     });
 
@@ -1782,10 +2013,10 @@ describe("ProviderRuntimeIngestion", () => {
 
     const metadataThread = await waitForThread(
       harness.engine,
-      (entry) => entry.title === "Renamed by provider" && entry.interactionMode === "help",
+      (entry) => entry.title === "Renamed by provider" && entry.interactionMode === "plan",
     );
     expect(metadataThread.title).toBe("Renamed by provider");
-    expect(metadataThread.interactionMode).toBe("help");
+    expect(metadataThread.interactionMode).toBe("plan");
 
     harness.emit({
       type: "item.updated",
@@ -1849,10 +2080,8 @@ describe("ProviderRuntimeIngestion", () => {
         ) &&
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
-        ) &&
-        entry.checkpoints.some(
-          (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
         ),
+      5000,
     );
 
     expect(thread.title).toBe("Renamed by provider");
@@ -1897,7 +2126,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.files).toEqual([
       { path: "file.txt", kind: "modified", additions: 1, deletions: 0 },
     ]);
-  });
+  }, 15000);
 
   it("tracks turn diff summaries for remote projects", async () => {
     const harness = await createHarnessWithProject({

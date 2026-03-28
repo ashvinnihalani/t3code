@@ -1162,13 +1162,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           description: "Switch this thread into plan mode",
         },
         {
-          id: "slash:help",
-          type: "slash-command",
-          command: "help",
-          label: "/help",
-          description: "Switch this thread into help mode",
-        },
-        {
           id: "slash:default",
           type: "slash-command",
           command: "default",
@@ -4189,18 +4182,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               title={
                                 interactionMode === "plan"
                                   ? "Plan mode — click to return to normal chat mode"
-                                  : interactionMode === "help"
-                                    ? `Help mode — click to switch to ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
-                                    : `Default mode — click to enter ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
+                                  : `Default mode — click to enter ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
                               }
                             >
                               <INTERACTION_MODE_ICON_BY_OPTION.default />
                               <span className="sr-only sm:not-sr-only">
-                                {interactionMode === "plan"
-                                  ? "Plan"
-                                  : interactionMode === "help"
-                                    ? "Help"
-                                    : "Chat"}
+                                {interactionMode === "plan" ? "Plan" : "Chat"}
                               </span>
                             </Button>
 

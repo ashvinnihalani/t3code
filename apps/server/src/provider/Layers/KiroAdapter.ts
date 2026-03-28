@@ -158,8 +158,14 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
         );
 
         return yield* Effect.tryPromise({
-          try: () =>
-            manager.sendTurn({
+          try: async () => {
+            await manager.prepareSessionForTurn({
+              threadId: input.threadId,
+              ...(input.interactionMode !== undefined
+                ? { interactionMode: input.interactionMode }
+                : {}),
+            });
+            return manager.sendTurn({
               threadId: input.threadId,
               ...(input.input !== undefined ? { input: input.input } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
@@ -169,7 +175,8 @@ const makeKiroAdapter = (options?: KiroAdapterLiveOptions) =>
               ...(input.interactionMode !== undefined
                 ? { interactionMode: input.interactionMode }
                 : {}),
-            }),
+            });
+          },
           catch: (cause) => toRequestError(input.threadId, "session/prompt", cause),
         });
       });

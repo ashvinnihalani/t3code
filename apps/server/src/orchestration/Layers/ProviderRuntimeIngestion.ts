@@ -35,11 +35,15 @@ const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId 
 const DEFAULT_ASSISTANT_DELIVERY_MODE: AssistantDeliveryMode = "buffered";
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
+const TURN_ASSISTANT_STREAM_STATE_CACHE_CAPACITY = 10_000;
+const TURN_ASSISTANT_STREAM_STATE_TTL = Duration.minutes(120);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
+const MAX_KIRO_STREAMING_COALESCE_CHARS = 48;
+const MIN_KIRO_STREAMING_COALESCE_CHARS = 20;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -103,11 +107,10 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function asProviderInteractionMode(value: unknown): "default" | "plan" | "help" | undefined {
+function asProviderInteractionMode(value: unknown): "default" | "plan" | undefined {
   switch (value) {
     case "default":
     case "plan":
-    case "help":
       return value;
     default:
       return undefined;
@@ -197,6 +200,34 @@ function requestKindFromCanonicalRequestType(
     default:
       return undefined;
   }
+}
+
+interface TurnAssistantStreamState {
+  readonly nextSegmentIndex: number;
+  readonly activeMessageId: MessageId | null;
+  readonly forceNewMessage: boolean;
+}
+
+function isToolLifecycleEvent(event: ProviderRuntimeEvent): boolean {
+  return (
+    (event.type === "item.started" ||
+      event.type === "item.updated" ||
+      event.type === "item.completed") &&
+    isToolLifecycleItemType(event.payload.itemType)
+  );
+}
+
+function shouldFlushKiroStreamingChunk(bufferedText: string): boolean {
+  if (bufferedText.length === 0) {
+    return false;
+  }
+  if (bufferedText.includes("\n") || bufferedText.length >= MAX_KIRO_STREAMING_COALESCE_CHARS) {
+    return true;
+  }
+  if (bufferedText.length < MIN_KIRO_STREAMING_COALESCE_CHARS) {
+    return false;
+  }
+  return /[\s)\].,!?;:]$/.test(bufferedText);
 }
 
 function runtimeEventToActivities(
@@ -560,6 +591,17 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(new Set<MessageId>()),
   });
 
+  const turnAssistantStreamStateByTurnKey = yield* Cache.make<string, TurnAssistantStreamState>({
+    capacity: TURN_ASSISTANT_STREAM_STATE_CACHE_CAPACITY,
+    timeToLive: TURN_ASSISTANT_STREAM_STATE_TTL,
+    lookup: () =>
+      Effect.succeed({
+        nextSegmentIndex: 1,
+        activeMessageId: null,
+        forceNewMessage: false,
+      }),
+  });
+
   const bufferedAssistantTextByMessageId = yield* Cache.make<MessageId, string>({
     capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
@@ -640,6 +682,73 @@ const make = Effect.gen(function* () {
   const clearAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
     Cache.invalidate(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId));
 
+  const updateTurnAssistantStreamState = (
+    threadId: ThreadId,
+    turnId: TurnId,
+    updater: (state: TurnAssistantStreamState) => TurnAssistantStreamState,
+  ) =>
+    Cache.getOption(turnAssistantStreamStateByTurnKey, providerTurnKey(threadId, turnId)).pipe(
+      Effect.flatMap((state) =>
+        Cache.set(
+          turnAssistantStreamStateByTurnKey,
+          providerTurnKey(threadId, turnId),
+          updater(
+            Option.getOrElse(state, () => ({
+              nextSegmentIndex: 1,
+              activeMessageId: null,
+              forceNewMessage: false,
+            })),
+          ),
+        ),
+      ),
+    );
+
+  const resolveAssistantMessageIdForEvent = (event: ProviderRuntimeEvent) =>
+    Effect.gen(function* () {
+      if (event.itemId) {
+        return MessageId.makeUnsafe(`assistant:${event.itemId}`);
+      }
+      const turnId = toTurnId(event.turnId);
+      if (event.provider !== "kiro" || !turnId) {
+        return MessageId.makeUnsafe(`assistant:${event.turnId ?? event.eventId}`);
+      }
+
+      const turnKey = providerTurnKey(event.threadId, turnId);
+      const stateOption = yield* Cache.getOption(turnAssistantStreamStateByTurnKey, turnKey);
+      const state = Option.getOrElse(stateOption, () => ({
+        nextSegmentIndex: 1,
+        activeMessageId: null,
+        forceNewMessage: false,
+      }));
+      if (state.activeMessageId && !state.forceNewMessage) {
+        return state.activeMessageId;
+      }
+
+      const messageId = MessageId.makeUnsafe(
+        `assistant:${turnId}:segment:${String(state.nextSegmentIndex)}`,
+      );
+      yield* Cache.set(turnAssistantStreamStateByTurnKey, turnKey, {
+        nextSegmentIndex: state.nextSegmentIndex + 1,
+        activeMessageId: messageId,
+        forceNewMessage: false,
+      });
+      return messageId;
+    });
+
+  const noteToolBoundaryForAssistantSegmentation = (event: ProviderRuntimeEvent) => {
+    const turnId = toTurnId(event.turnId);
+    if (event.provider !== "kiro" || !turnId || !isToolLifecycleEvent(event)) {
+      return Effect.void;
+    }
+    return updateTurnAssistantStreamState(event.threadId, turnId, (state) => ({
+      ...state,
+      forceNewMessage: state.activeMessageId !== null,
+    }));
+  };
+
+  const clearTurnAssistantStreamState = (threadId: ThreadId, turnId: TurnId) =>
+    Cache.invalidate(turnAssistantStreamStateByTurnKey, providerTurnKey(threadId, turnId));
+
   const appendBufferedAssistantText = (messageId: MessageId, delta: string) =>
     Cache.getOption(bufferedAssistantTextByMessageId, messageId).pipe(
       Effect.flatMap((existingText) =>
@@ -671,6 +780,29 @@ const make = Effect.gen(function* () {
 
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
+
+  const appendStreamingAssistantText = (
+    provider: ProviderRuntimeEvent["provider"],
+    messageId: MessageId,
+    delta: string,
+  ) => {
+    if (provider !== "kiro") {
+      return Effect.succeed(delta);
+    }
+    return Cache.getOption(bufferedAssistantTextByMessageId, messageId).pipe(
+      Effect.flatMap((existingText) =>
+        Effect.gen(function* () {
+          const nextText = `${Option.getOrElse(existingText, () => "")}${delta}`;
+          if (!shouldFlushKiroStreamingChunk(nextText)) {
+            yield* Cache.set(bufferedAssistantTextByMessageId, messageId, nextText);
+            return "";
+          }
+          yield* Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
+          return nextText;
+        }),
+      ),
+    );
+  };
 
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
@@ -824,6 +956,7 @@ const make = Effect.gen(function* () {
       const prefix = `${threadId}:`;
       const proposedPlanPrefix = `plan:${threadId}:`;
       const turnKeys = Array.from(yield* Cache.keys(turnMessageIdsByTurnKey));
+      const streamStateKeys = Array.from(yield* Cache.keys(turnAssistantStreamStateByTurnKey));
       const proposedPlanKeys = Array.from(yield* Cache.keys(bufferedProposedPlanById));
       yield* Effect.forEach(
         turnKeys,
@@ -842,6 +975,14 @@ const make = Effect.gen(function* () {
 
             yield* Cache.invalidate(turnMessageIdsByTurnKey, key);
           }),
+        { concurrency: 1 },
+      ).pipe(Effect.asVoid);
+      yield* Effect.forEach(
+        streamStateKeys,
+        (key) =>
+          key.startsWith(prefix)
+            ? Cache.invalidate(turnAssistantStreamStateByTurnKey, key)
+            : Effect.void,
         { concurrency: 1 },
       ).pipe(Effect.asVoid);
       yield* Effect.forEach(
@@ -936,6 +1077,7 @@ const make = Effect.gen(function* () {
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
       const activeTurnId = thread.session?.activeTurnId ?? null;
+      yield* noteToolBoundaryForAssistantSegmentation(event);
 
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -1076,9 +1218,7 @@ const make = Effect.gen(function* () {
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
       if (assistantDelta && assistantDelta.length > 0) {
-        const assistantMessageId = MessageId.makeUnsafe(
-          `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-        );
+        const assistantMessageId = yield* resolveAssistantMessageIdForEvent(event);
         const turnId = toTurnId(event.turnId);
         if (turnId) {
           yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
@@ -1099,15 +1239,22 @@ const make = Effect.gen(function* () {
             });
           }
         } else {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.message.assistant.delta",
-            commandId: providerCommandId(event, "assistant-delta"),
-            threadId: thread.id,
-            messageId: assistantMessageId,
-            delta: assistantDelta,
-            ...(turnId ? { turnId } : {}),
-            createdAt: now,
-          });
+          const liveChunk = yield* appendStreamingAssistantText(
+            event.provider,
+            assistantMessageId,
+            assistantDelta,
+          );
+          if (liveChunk.length > 0) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.message.assistant.delta",
+              commandId: providerCommandId(event, "assistant-delta"),
+              threadId: thread.id,
+              messageId: assistantMessageId,
+              delta: liveChunk,
+              ...(turnId ? { turnId } : {}),
+              createdAt: now,
+            });
+          }
         }
       }
 
@@ -1161,6 +1308,7 @@ const make = Effect.gen(function* () {
 
         if (turnId) {
           yield* forgetAssistantMessageId(thread.id, turnId, assistantMessageId);
+          yield* clearTurnAssistantStreamState(thread.id, turnId);
         }
       }
 
@@ -1195,6 +1343,7 @@ const make = Effect.gen(function* () {
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
           yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* clearTurnAssistantStreamState(thread.id, turnId);
 
           yield* finalizeBufferedProposedPlan({
             event,

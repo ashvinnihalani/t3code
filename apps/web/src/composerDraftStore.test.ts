@@ -572,14 +572,14 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
-  it("preserves help interaction mode in project draft thread metadata", () => {
+  it("preserves plan interaction mode in project draft thread metadata", () => {
     const store = useComposerDraftStore.getState();
 
     store.setProjectDraftThreadId(projectId, threadId, {
-      interactionMode: "help",
+      interactionMode: "plan",
     });
 
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)?.interactionMode).toBe("help");
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)?.interactionMode).toBe("plan");
   });
 
   it("preserves existing branch and worktree when setProjectDraftThreadId receives undefined", () => {
@@ -1037,13 +1037,13 @@ describe("composerDraftStore runtime and interaction settings", () => {
     );
   });
 
-  it("stores help interaction mode overrides in the composer draft", () => {
+  it("stores default interaction mode overrides in the composer draft", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setInteractionMode(threadId, "help");
+    store.setInteractionMode(threadId, "default");
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.interactionMode).toBe(
-      "help",
+      "default",
     );
   });
 
