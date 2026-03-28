@@ -444,7 +444,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly providerOptions?: ProviderStartOptions;
-    readonly interactionMode?: "default" | "plan" | "help";
+    readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -494,6 +494,50 @@ const make = Effect.gen(function* () {
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+    });
+  });
+
+  const surfaceTurnStartFailure = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly detail: string;
+    readonly createdAt: string;
+  }) {
+    const thread = yield* resolveThread(input.threadId);
+    yield* appendProviderFailureActivity({
+      threadId: input.threadId,
+      kind: "provider.turn.start.failed",
+      summary: "Provider turn start failed",
+      detail: input.detail,
+      turnId: null,
+      createdAt: input.createdAt,
+    });
+    yield* setThreadSession({
+      threadId: input.threadId,
+      session: {
+        threadId: input.threadId,
+        status: thread?.session?.status ?? "error",
+        providerName: thread?.session?.providerName ?? thread?.modelSelection.provider ?? null,
+        runtimeMode: thread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+        activeTurnId: thread?.session?.activeTurnId ?? null,
+        lastError: input.detail,
+        ...(thread?.session?.providerThreadId !== undefined
+          ? { providerThreadId: thread.session.providerThreadId }
+          : {}),
+        ...(thread?.session?.resumeAvailable !== undefined
+          ? { resumeAvailable: thread.session.resumeAvailable }
+          : {}),
+        ...(thread?.session?.reconnectState !== undefined
+          ? { reconnectState: thread.session.reconnectState }
+          : {}),
+        ...(thread?.session?.reconnectSummary !== undefined
+          ? { reconnectSummary: thread.session.reconnectSummary }
+          : {}),
+        ...(thread?.session?.reconnectUpdatedAt !== undefined
+          ? { reconnectUpdatedAt: thread.session.reconnectUpdatedAt }
+          : {}),
+        updatedAt: input.createdAt,
+      },
+      createdAt: input.createdAt,
     });
   });
 
@@ -640,7 +684,15 @@ const make = Effect.gen(function* () {
         : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
-    });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        surfaceTurnStartFailure({
+          threadId: event.payload.threadId,
+          detail: Cause.pretty(cause),
+          createdAt: event.payload.createdAt,
+        }),
+      ),
+    );
   });
 
   const processTurnInterruptRequested = Effect.fnUntraced(function* (

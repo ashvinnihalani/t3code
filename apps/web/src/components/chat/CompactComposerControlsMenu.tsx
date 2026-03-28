@@ -53,7 +53,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           value={props.interactionMode}
           onValueChange={(value) => {
             if (!value || value === props.interactionMode) return;
-            if (value !== "default" && value !== "plan" && value !== "help") return;
+            if (value !== "default" && value !== "plan") return;
             if (props.onInteractionModeSelect) {
               props.onInteractionModeSelect(value);
               return;

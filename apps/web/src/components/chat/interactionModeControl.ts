@@ -1,16 +1,14 @@
 import { type ProviderInteractionMode } from "@t3tools/contracts";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, type LucideIcon } from "lucide-react";
+import { BotIcon, ListTodoIcon, type LucideIcon } from "lucide-react";
 
 export const INTERACTION_MODE_LABEL_BY_OPTION = {
   default: "Chat",
   plan: "Plan",
-  help: "Help",
 } as const satisfies Record<ProviderInteractionMode, string>;
 
 export const INTERACTION_MODE_ICON_BY_OPTION = {
   default: BotIcon,
   plan: ListTodoIcon,
-  help: CircleAlertIcon,
 } as const satisfies Record<ProviderInteractionMode, LucideIcon>;
 
 export function getNextInteractionMode(

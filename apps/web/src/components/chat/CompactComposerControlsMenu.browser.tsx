@@ -190,15 +190,15 @@ describe("CompactComposerControlsMenu", () => {
   it("lets compact mode select all supported interaction modes", async () => {
     const onInteractionModeSelect = vi.fn();
     const mounted = await mountMenu({
-      supportedInteractionModes: ["default", "plan", "help"],
+      supportedInteractionModes: ["default", "plan"],
       onInteractionModeSelect,
     });
 
     try {
       await page.getByLabelText("More composer controls").click();
-      await page.getByText("Help").click();
+      await page.getByText("Plan").click();
 
-      expect(onInteractionModeSelect).toHaveBeenCalledWith("help");
+      expect(onInteractionModeSelect).toHaveBeenCalledWith("plan");
     } finally {
       await mounted.cleanup();
     }

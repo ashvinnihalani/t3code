@@ -20,7 +20,6 @@ import { createLogger } from "./logger.ts";
 const PROVIDER = "kiro" as const;
 const DEFAULT_BINARY_PATH = "kiro-cli";
 const logger = createLogger("kiro-acp");
-const KIRO_PROMPT_TIMEOUT_MS = 30_000;
 interface KiroModeDescriptor {
   readonly id: string;
   readonly name?: string;
@@ -56,7 +55,7 @@ interface KiroSessionState {
   readonly threadId: ThreadId;
   readonly process: ChildProcessWithoutNullStreams;
   readonly rpc: JsonRpcConnection;
-  readonly runtimeMode: ProviderSession["runtimeMode"];
+  runtimeMode: ProviderSession["runtimeMode"];
   readonly cwd: string | undefined;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +69,7 @@ interface KiroSessionState {
   suppressReplay: boolean;
   /** Tracks the ACP `kind` for each tool call so updates/completions can reuse it. */
   toolCallKinds: Map<string, string>;
+  toolPermissionBoundary: "unknown" | "approval-required" | "full-access";
 }
 
 interface JsonRpcRequestMessage {
@@ -97,13 +97,6 @@ interface JsonRpcResponseMessage {
 }
 
 type JsonRpcMessage = JsonRpcRequestMessage | JsonRpcNotificationMessage | JsonRpcResponseMessage;
-
-class KiroPromptTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "KiroPromptTimeoutError";
-  }
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -145,30 +138,9 @@ function isTracedRpcMethod(method: string): boolean {
     method === "session/prompt" ||
     method === "session/set_model" ||
     method === "session/set_mode" ||
-    method === "session/cancel"
+    method === "session/cancel" ||
+    method === "_kiro.dev/commands/execute"
   );
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  onTimeout: () => Error,
-): Promise<T> {
-  return await new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(onTimeout());
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }
 
 export function readKiroTextChunk(value: unknown): string | undefined {
@@ -319,7 +291,6 @@ function modeTokens(mode: KiroModeDescriptor): string {
 
 function interactionModeFromModeDescriptor(mode: KiroModeDescriptor): ProviderInteractionMode {
   const tokens = modeTokens(mode);
-  if (tokens.includes("help")) return "help";
   if (tokens.includes("plan") || tokens.includes("architect") || tokens.includes("planner")) {
     return "plan";
   }
@@ -339,10 +310,6 @@ function defaultModeId(modeState: KiroModeState): string | undefined {
   return modeState.availableModes.find(
     (mode) => interactionModeFromModeDescriptor(mode) === "default",
   )?.id;
-}
-
-function hasExplicitKiroDefaultMode(modeState: KiroModeState): boolean {
-  return modeState.availableModes.some((mode) => mode.id === "kiro_default");
 }
 
 function runtimeModeFromModeDescriptor(
@@ -404,13 +371,6 @@ function resolveModeIdForSessionState(input: {
   readonly interactionMode: ProviderInteractionMode;
 }): string | undefined {
   if (input.interactionMode === "default") {
-    if (input.runtimeMode === "full-access" && hasExplicitKiroDefaultMode(input.modeState)) {
-      return (
-        defaultModeId(input.modeState) ??
-        resolveModeIdForRuntimeMode(input.modeState, input.runtimeMode) ??
-        input.modeState.currentModeId
-      );
-    }
     return (
       resolveModeIdForRuntimeMode(input.modeState, input.runtimeMode) ??
       defaultModeId(input.modeState) ??
@@ -760,6 +720,15 @@ export class KiroAcpManager extends EventEmitter {
     return this.sessions.has(threadId);
   }
 
+  async prepareSessionForTurn(input: {
+    readonly threadId: ThreadId;
+    readonly interactionMode?: ProviderInteractionMode;
+  }): Promise<void> {
+    const session = this.requireSession(input.threadId);
+    await this.applyRuntimeBoundary(session);
+    await this.setSessionMode(session, input.interactionMode ?? "default");
+  }
+
   async startSession(input: KiroAcpStartSessionInput): Promise<ProviderSession> {
     this.stopSession(input.threadId);
     const { process, command } = this.spawnProcess({
@@ -837,6 +806,7 @@ export class KiroAcpManager extends EventEmitter {
       pendingPermissionRequests: new Map(),
       suppressReplay: false,
       toolCallKinds: new Map(),
+      toolPermissionBoundary: "unknown",
     };
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
@@ -965,7 +935,6 @@ export class KiroAcpManager extends EventEmitter {
     if (modelId && modelId !== session.model) {
       await this.setModel(session, modelId);
     }
-    await this.setSessionMode(session, input.interactionMode ?? "default");
 
     const turnId = TurnId.makeUnsafe(`kiro:${crypto.randomUUID()}`);
     session.activeTurnId = turnId;
@@ -995,17 +964,12 @@ export class KiroAcpManager extends EventEmitter {
       currentModeId: session.modeState.currentModeId ?? null,
       prompt,
     });
-    await withTimeout(
-      session.rpc.request("session/prompt", {
+    void session.rpc
+      .request("session/prompt", {
         sessionId: session.sessionId,
         prompt,
-      }),
-      KIRO_PROMPT_TIMEOUT_MS,
-      () =>
-        new KiroPromptTimeoutError(
-          `Kiro session/prompt timed out after ${KIRO_PROMPT_TIMEOUT_MS}ms for session ${session.sessionId}.`,
-        ),
-    ).then(
+      })
+      .then(
         (result) => {
           const payload = asRecord(result);
           const stopReason = normalizeNonEmpty(asString(payload?.stopReason));
@@ -1021,26 +985,6 @@ export class KiroAcpManager extends EventEmitter {
           });
         },
         async (error) => {
-          if (error instanceof KiroPromptTimeoutError) {
-            logger.error("kiro prompt timed out; attempting cancel", {
-              threadId: session.threadId,
-              sessionId: session.sessionId,
-              turnId,
-              timeoutMs: KIRO_PROMPT_TIMEOUT_MS,
-            });
-            try {
-              await session.rpc.request("session/cancel", {
-                sessionId: session.sessionId,
-              });
-            } catch (cancelError) {
-              logger.error("kiro prompt cancel after timeout failed", {
-                threadId: session.threadId,
-                sessionId: session.sessionId,
-                turnId,
-                error: toErrorMessage(cancelError),
-              });
-            }
-          }
           logger.error("kiro prompt failed", {
             threadId: session.threadId,
             sessionId: session.sessionId,
@@ -1054,7 +998,6 @@ export class KiroAcpManager extends EventEmitter {
             state: "failed",
             errorMessage: error instanceof Error ? error.message : String(error),
           });
-          throw error;
         },
       );
 
@@ -1083,6 +1026,13 @@ export class KiroAcpManager extends EventEmitter {
       throw new Error(`Unknown pending permission request: ${requestId}`);
     }
     session.pendingPermissionRequests.delete(requestId);
+    logger.info("kiro approval responding", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      requestId,
+      decision,
+      requestType: pending.requestType,
+    });
     session.rpc.respond(
       pending.rpcRequestId,
       permissionDecisionForOptionKinds(pending.options, decision),
@@ -1200,6 +1150,66 @@ export class KiroAcpManager extends EventEmitter {
       }),
     );
     return true;
+  }
+
+  private async applyRuntimeBoundary(session: KiroSessionState): Promise<void> {
+    if (session.runtimeMode === "approval-required") {
+      if (session.toolPermissionBoundary === "approval-required") {
+        logger.info("kiro tool permissions already reset", {
+          threadId: session.threadId,
+          sessionId: session.sessionId,
+          runtimeMode: session.runtimeMode,
+        });
+        return;
+      }
+      logger.info("kiro tool permissions resetting", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        runtimeMode: session.runtimeMode,
+      });
+      await session.rpc.request("_kiro.dev/commands/execute", {
+        sessionId: session.sessionId,
+        command: {
+          type: "command",
+          command: "tools",
+          args: ["reset"],
+        },
+      });
+      session.toolPermissionBoundary = "approval-required";
+      logger.info("kiro tool permissions reset", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        runtimeMode: session.runtimeMode,
+      });
+      return;
+    }
+    if (session.toolPermissionBoundary === "full-access") {
+      logger.info("kiro tool permissions already trusted", {
+        threadId: session.threadId,
+        sessionId: session.sessionId,
+        runtimeMode: session.runtimeMode,
+      });
+      return;
+    }
+    logger.info("kiro tool permissions trusting all", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      runtimeMode: session.runtimeMode,
+    });
+    await session.rpc.request("_kiro.dev/commands/execute", {
+      sessionId: session.sessionId,
+      command: {
+        type: "command",
+        command: "tools",
+        args: ["trust-all"],
+      },
+    });
+    session.toolPermissionBoundary = "full-access";
+    logger.info("kiro tool permissions trusted", {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      runtimeMode: session.runtimeMode,
+    });
   }
 
   private turnCompletionFromUpdate(update: Record<string, unknown>): {

@@ -74,6 +74,9 @@ describe("ProviderCommandReactor", () => {
       input: unknown,
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession>;
+    readonly sendTurnImplementation?: (
+      input: unknown,
+    ) => Effect.Effect<{ threadId: ThreadId; turnId: TurnId }, ProviderAdapterRequestError | Error>;
   };
 
   let runtime: ManagedRuntime.ManagedRuntime<
@@ -119,6 +122,13 @@ describe("ProviderCommandReactor", () => {
     const startSessionImplementation: NonNullable<HarnessOptions["startSessionImplementation"]> =
       input?.startSessionImplementation ??
       ((_: unknown, session: ProviderSession) => Effect.succeed(session));
+    const sendTurnImplementation: NonNullable<HarnessOptions["sendTurnImplementation"]> =
+      input?.sendTurnImplementation ??
+      ((_: unknown) =>
+        Effect.succeed({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: asTurnId("turn-1"),
+        }));
     const startSession = vi.fn((_: unknown, startInput: unknown) => {
       const sessionIndex = nextSessionIndex++;
       const resumeCursor =
@@ -157,12 +167,7 @@ describe("ProviderCommandReactor", () => {
         ),
       );
     });
-    const sendTurn = vi.fn((_: unknown) =>
-      Effect.succeed({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: asTurnId("turn-1"),
-      }),
-    );
+    const sendTurn = vi.fn((turnInput: unknown) => sendTurnImplementation(turnInput));
     const interruptTurn = vi.fn((_: unknown) => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
@@ -312,7 +317,7 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.makeUnsafe("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      cwd: "/tmp/provider-project",
+      cwd: "/tmp/project",
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -324,6 +329,75 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("surfaces turn-start failures as thread session errors and does not retry the prompt", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "kiro",
+        model: "kiro-default",
+      },
+      sendTurnImplementation: () =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "kiro",
+            method: "session/prompt",
+            detail:
+              "Kiro CLI ACP does not support configuring full-access tool permissions for this session. The turn was not sent.",
+          }),
+        ),
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.makeUnsafe("cmd-runtime-mode-set-full-access-kiro"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-kiro-full-access-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-kiro-full-access-failure"),
+          role: "user",
+          text: "run pwd",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.session?.lastError?.includes(
+          "Kiro CLI ACP does not support configuring full-access tool permissions",
+        ) ?? false
+      );
+    });
+
+    expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session?.lastError).toContain(
+      "Kiro CLI ACP does not support configuring full-access tool permissions for this session. The turn was not sent.",
+    );
+    expect(
+      thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+    ).toBe(true);
   });
 
   it("does not let one hung thread start block another thread", async () => {
@@ -705,7 +779,7 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      cwd: "/home/ashvinn/SFAILib",
+      cwd: "/tmp/project",
       runtimeMode: "approval-required",
       providerOptions: {
         codex: {
@@ -1013,10 +1087,12 @@ describe("ProviderCommandReactor", () => {
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
-    expect(thread?.session).toBeNull();
+    expect(thread?.session?.lastError).toContain(
+      "Thread 'thread-1' is bound to provider 'codex' and cannot switch to 'claudeAgent'.",
+    );
     expect(
       thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("preserves the active session model when in-session model switching is unsupported", async () => {
@@ -1373,9 +1449,12 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.providerName).toBe("codex");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+    expect(thread?.session?.lastError).toContain(
+      "Thread 'thread-1' is bound to provider 'codex' and cannot switch to 'claudeAgent'.",
+    );
     expect(
       thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toBe(false);
+    ).toBe(true);
   });
   it("does not stop the active session when restart fails before rebind", async () => {
     const harness = await createHarness();

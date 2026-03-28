@@ -320,7 +320,7 @@ export const DEFAULT_REASONING_EFFORT_BY_PROVIDER = {
 export const SUPPORTED_INTERACTION_MODES_BY_PROVIDER = {
   codex: ["default", "plan"],
   claudeAgent: ["default", "plan"],
-  kiro: ["default", "plan", "help"],
+  kiro: ["default", "plan"],
 } as const satisfies Record<ProviderKind, readonly ProviderInteractionMode[]>;
 
 export const ROLLBACK_SUPPORTED_BY_PROVIDER = {
