@@ -35,6 +35,11 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
+const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
+const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
+const RANGE_COMMIT_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
+const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
+const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
@@ -57,6 +62,8 @@ interface ExecuteGitOptions {
   timeoutMs?: number | undefined;
   allowNonZeroExit?: boolean | undefined;
   fallbackErrorMessage?: string | undefined;
+  maxOutputBytes?: number | undefined;
+  truncateOutputAtMaxBytes?: boolean | undefined;
   progress?: ExecuteGitProgress | undefined;
 }
 
@@ -443,12 +450,14 @@ const collectOutput = Effect.fn(function* <E>(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   stream: Stream.Stream<Uint8Array, E>,
   maxOutputBytes: number,
+  truncateOutputAtMaxBytes: boolean,
   onLine: ((line: string) => Effect.Effect<void, never>) | undefined,
 ): Effect.fn.Return<string, GitCommandError> {
   const decoder = new TextDecoder();
   let bytes = 0;
   let text = "";
   let lineBuffer = "";
+  let truncated = false;
 
   const emitCompleteLines = (flush: boolean) =>
     Effect.gen(function* () {
@@ -473,8 +482,11 @@ const collectOutput = Effect.fn(function* <E>(
 
   yield* Stream.runForEach(stream, (chunk) =>
     Effect.gen(function* () {
-      bytes += chunk.byteLength;
-      if (bytes > maxOutputBytes) {
+      if (truncateOutputAtMaxBytes && truncated) {
+        return;
+      }
+      const nextBytes = bytes + chunk.byteLength;
+      if (!truncateOutputAtMaxBytes && nextBytes > maxOutputBytes) {
         return yield* new GitCommandError({
           operation: input.operation,
           command: quoteGitCommand(input.args),
@@ -482,18 +494,26 @@ const collectOutput = Effect.fn(function* <E>(
           detail: `${quoteGitCommand(input.args)} output exceeded ${maxOutputBytes} bytes and was truncated.`,
         });
       }
-      const decoded = decoder.decode(chunk, { stream: true });
+
+      const chunkToDecode =
+        truncateOutputAtMaxBytes && nextBytes > maxOutputBytes
+          ? chunk.subarray(0, Math.max(0, maxOutputBytes - bytes))
+          : chunk;
+      bytes += chunkToDecode.byteLength;
+      truncated = truncateOutputAtMaxBytes && nextBytes > maxOutputBytes;
+
+      const decoded = decoder.decode(chunkToDecode, { stream: !truncated });
       text += decoded;
       lineBuffer += decoded;
       yield* emitCompleteLines(false);
     }),
   ).pipe(Effect.mapError(toGitCommandError(input, "output stream failed.")));
 
-  const remainder = decoder.decode();
+  const remainder = truncated ? "" : decoder.decode();
   text += remainder;
   lineBuffer += remainder;
   yield* emitCompleteLines(true);
-  return text;
+  return truncated ? `${text}${OUTPUT_TRUNCATED_MARKER}` : text;
 });
 
 type ExecuteGitWithRemoteInput = ExecuteGitInput & {
@@ -524,6 +544,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
         const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
         const remote = input.remote;
+        const truncateOutputAtMaxBytes = input.truncateOutputAtMaxBytes ?? false;
         const normalizedEnv = input.env
           ? Object.fromEntries(
               Object.entries(input.env).filter(
@@ -550,14 +571,19 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                   timeoutMs,
                   allowNonZeroExit: input.allowNonZeroExit,
                   maxBufferBytes: maxOutputBytes,
+                  outputMode: truncateOutputAtMaxBytes ? "truncate" : "error",
                 },
               ),
             catch: toGitCommandError(commandInput, "failed to spawn."),
           });
           return {
             code: result.code ?? 1,
-            stdout: result.stdout,
-            stderr: result.stderr,
+            stdout: result.stdoutTruncated
+              ? `${result.stdout}${OUTPUT_TRUNCATED_MARKER}`
+              : result.stdout,
+            stderr: result.stderrTruncated
+              ? `${result.stderr}${OUTPUT_TRUNCATED_MARKER}`
+              : result.stderr,
           } satisfies ExecuteGitResult;
         }
 
@@ -586,12 +612,14 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 commandInput,
                 child.stdout,
                 maxOutputBytes,
+                truncateOutputAtMaxBytes,
                 input.progress?.onStdoutLine,
               ),
               collectOutput(
                 commandInput,
                 child.stderr,
                 maxOutputBytes,
+                truncateOutputAtMaxBytes,
                 input.progress?.onStderrLine,
               ),
               child.exitCode.pipe(
@@ -654,6 +682,10 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         allowNonZeroExit: true,
         ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
         ...(remote ? { remote } : {}),
+        ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+        ...(options.truncateOutputAtMaxBytes !== undefined
+          ? { truncateOutputAtMaxBytes: options.truncateOutputAtMaxBytes }
+          : {}),
         ...(options.progress ? { progress: options.progress } : {}),
       }).pipe(
         Effect.flatMap((result) => {
@@ -699,6 +731,15 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       executeGit(operation, cwd, args, { allowNonZeroExit }, remote).pipe(
         Effect.map((result) => result.stdout),
       );
+
+    const runGitStdoutWithOptions = (
+      operation: string,
+      cwd: string,
+      args: readonly string[],
+      options: ExecuteGitOptions = {},
+      remote?: GitExecutionContext["remote"],
+    ): Effect.Effect<string, GitCommandError> =>
+      executeGit(operation, cwd, args, options, remote).pipe(Effect.map((result) => result.stdout));
 
     const branchExists = (
       cwd: string,
@@ -1286,11 +1327,14 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           return null;
         }
 
-        const stagedPatch = yield* runGitStdout(
+        const stagedPatch = yield* runGitStdoutWithOptions(
           "GitCore.prepareCommitContext.stagedPatch",
           cwd,
           ["diff", "--cached", "--patch", "--minimal"],
-          false,
+          {
+            maxOutputBytes: PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES,
+            truncateOutputAtMaxBytes: true,
+          },
           remote,
         );
 
@@ -1512,25 +1556,34 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         const range = `${baseBranch}..HEAD`;
         const [commitSummary, diffSummary, diffPatch] = yield* Effect.all(
           [
-            runGitStdout(
+            runGitStdoutWithOptions(
               "GitCore.readRangeContext.log",
               cwd,
               ["log", "--oneline", range],
-              false,
+              {
+                maxOutputBytes: RANGE_COMMIT_SUMMARY_MAX_OUTPUT_BYTES,
+                truncateOutputAtMaxBytes: true,
+              },
               remote,
             ),
-            runGitStdout(
+            runGitStdoutWithOptions(
               "GitCore.readRangeContext.diffStat",
               cwd,
               ["diff", "--stat", range],
-              false,
+              {
+                maxOutputBytes: RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES,
+                truncateOutputAtMaxBytes: true,
+              },
               remote,
             ),
-            runGitStdout(
+            runGitStdoutWithOptions(
               "GitCore.readRangeContext.diffPatch",
               cwd,
               ["diff", "--patch", "--minimal", range],
-              false,
+              {
+                maxOutputBytes: RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES,
+                truncateOutputAtMaxBytes: true,
+              },
               remote,
             ),
           ],
