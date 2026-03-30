@@ -4,6 +4,14 @@ This repository is a fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3c
 
 The fork keeps the upstream T3 Code base, but the work in this branch is focused on SSH-backed remote project support, remote Codex session management, multi-provider integration, and the related UX needed to make remote development flows behave like local ones.
 
+> [!WARNING]
+> This fork currently supports Codex, Claude, and Kiro.
+> Install and authenticate at least one provider before use:
+>
+> - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
+> - Claude: install Claude Code and run `claude auth login`
+> - Kiro: install Kiro CLI and run `kiro-cli login`
+
 ## Features
 
 - **Remote SSH project lifecycle** — create, validate, and manage projects on remote hosts discovered from `~/.ssh/config` (including `Include` directives), with pre-creation checks for path existence, hostname resolution, Git availability, and Codex CLI detection.
