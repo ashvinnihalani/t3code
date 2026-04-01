@@ -3,6 +3,7 @@ import { TrimmedNonEmptyString } from "./baseSchemas";
 
 export const EDITORS = [
   { id: "cursor", label: "Cursor", command: "cursor" },
+  { id: "trae", label: "Trae", command: "trae" },
   { id: "vscode", label: "VS Code", command: "code" },
   { id: "vscode-insiders", label: "VS Code Insiders", command: "code-insiders" },
   { id: "vscodium", label: "VSCodium", command: "codium" },

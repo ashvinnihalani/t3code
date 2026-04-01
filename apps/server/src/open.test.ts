@@ -31,6 +31,15 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
         args: ["/tmp/workspace"],
       });
 
+      const traeLaunch = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace", editor: "trae" },
+        "darwin",
+      );
+      assert.deepEqual(traeLaunch, {
+        command: "trae",
+        args: ["/tmp/workspace"],
+      });
+
       const vscodeLaunch = yield* resolveEditorLaunch(
         { target: "/tmp/workspace", editor: "vscode" },
         "darwin",
@@ -68,6 +77,15 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       );
       assert.deepEqual(lineAndColumn, {
         command: "cursor",
+        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
+      });
+
+      const traeLineAndColumn = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "trae" },
+        "darwin",
+      );
+      assert.deepEqual(traeLineAndColumn, {
+        command: "trae",
         args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
       });
 
@@ -329,12 +347,15 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-editors-" });
 
       yield* fs.writeFileString(path.join(dir, "cursor.CMD"), "@echo off\r\n");
+      yield* fs.writeFileString(path.join(dir, "trae.CMD"), "@echo off\r\n");
+      yield* fs.writeFileString(path.join(dir, "code-insiders.CMD"), "@echo off\r\n");
+      yield* fs.writeFileString(path.join(dir, "codium.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "explorer.CMD"), "MZ");
       const editors = resolveAvailableEditors("win32", {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
-      assert.deepEqual(editors, ["cursor", "file-manager"]);
+      assert.deepEqual(editors, ["cursor", "trae", "vscode-insiders", "vscodium", "file-manager"]);
     }),
   );
 });

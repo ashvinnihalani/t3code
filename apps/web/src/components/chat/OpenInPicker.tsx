@@ -16,6 +16,7 @@ import {
   AntigravityIcon,
   CursorIcon,
   Icon,
+  TraeIcon,
   VisualStudioCode,
   VisualStudioCodeInsiders,
   VSCodium,
@@ -35,6 +36,11 @@ const resolveOptions = (
       label: "Cursor",
       Icon: CursorIcon,
       value: "cursor",
+    },
+    {
+      label: "Trae",
+      Icon: TraeIcon,
+      value: "trae",
     },
     {
       label: "VS Code",
