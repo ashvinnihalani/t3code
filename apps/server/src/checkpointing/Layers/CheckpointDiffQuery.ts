@@ -25,8 +25,8 @@ const make = Effect.gen(function* () {
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const checkpointStore = yield* CheckpointStore;
 
-  const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = (input) =>
-    Effect.gen(function* () {
+  const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = Effect.fn("getTurnDiff")(
+    function* (input) {
       const operation = "CheckpointDiffQuery.getTurnDiff";
 
       if (input.fromTurnCount === input.toTurnCount) {
@@ -209,7 +209,8 @@ const make = Effect.gen(function* () {
       }
 
       return turnDiff;
-    });
+    },
+  );
 
   const getFullThreadDiff: CheckpointDiffQueryShape["getFullThreadDiff"] = (
     input: OrchestrationGetFullThreadDiffInput,
