@@ -57,8 +57,49 @@ export const gitMutationKeys = {
     ["git", "mutation", "prepare-pull-request-thread", target.projectId, target.repoPath] as const,
 };
 
-export function invalidateGitQueries(queryClient: QueryClient) {
+function toInvalidateTarget(input?: {
+  target?: GitQueryTarget | null;
+  cwd?: string | null;
+}): GitQueryTarget | null {
+  if (input?.target) {
+    return input.target;
+  }
+  if (input?.cwd) {
+    return { repoPath: input.cwd, projectId: null };
+  }
+  return null;
+}
+
+function gitStatusInvalidationKey(target: GitQueryTarget) {
+  return ["git", "status", target.projectId, target.repoPath] as const;
+}
+
+export function invalidateGitQueries(
+  queryClient: QueryClient,
+  input?: { target?: GitQueryTarget | null; cwd?: string | null },
+) {
+  const target = toInvalidateTarget(input);
+  if (target?.repoPath !== null) {
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: gitStatusInvalidationKey(target) }),
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(target) }),
+    ]);
+  }
+
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
+}
+
+export function invalidateGitStatusQuery(
+  queryClient: QueryClient,
+  target: GitQueryTarget | string | null,
+) {
+  const normalizedTarget =
+    typeof target === "string" ? { repoPath: target, projectId: null } : target;
+  if (!normalizedTarget?.repoPath) {
+    return Promise.resolve();
+  }
+
+  return queryClient.invalidateQueries({ queryKey: gitStatusInvalidationKey(normalizedTarget) });
 }
 
 export function gitStatusQueryOptions(target: GitQueryTarget, settings?: GitRequestSettings) {
