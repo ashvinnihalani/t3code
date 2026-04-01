@@ -3482,6 +3482,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
               : "buffered",
           runtimeMode,
           interactionMode: "default",
+          sourceProposedPlan: {
+            threadId: activeThread.id,
+            planId: activeProposedPlan.id,
+          },
           createdAt,
         });
       })
