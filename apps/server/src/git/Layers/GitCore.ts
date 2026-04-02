@@ -1360,7 +1360,6 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             "Cannot push from detached HEAD.",
           );
         }
-
         const hasNoLocalDelta = details.aheadCount === 0 && details.behindCount === 0;
         if (hasNoLocalDelta) {
           if (details.hasUpstream) {
@@ -1415,7 +1414,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           yield* runGit(
             "GitCore.pushCurrentBranch.pushWithUpstream",
             cwd,
-            ["push", "-u", publishRemoteName, branch],
+            ["push", "-u", publishRemoteName, `HEAD:refs/heads/${branch}`],
             false,
             remote,
           );
