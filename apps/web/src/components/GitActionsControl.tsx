@@ -39,7 +39,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { openResolvedEditorTargetInPreferredEditor } from "~/editorPreferences";
 import {
   type GitQueryTarget,
@@ -77,6 +77,7 @@ type GitActionToastId = ReturnType<typeof toastManager.add>;
 
 interface ActiveGitActionProgress {
   toastId: GitActionToastId;
+  toastData: ThreadToastData | undefined;
   actionId: string;
   title: string;
   phaseStartedAtMs: number | null;
@@ -236,6 +237,7 @@ export default function GitActionsControl({
     [gitRequestSettings.textGenerationModelSelection, settings],
   );
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
+  let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
   const updateActiveProgressToast = useCallback(() => {
     const progress = activeGitActionProgressRef.current;
@@ -247,9 +249,9 @@ export default function GitActionsControl({
       title: progress.title,
       description: resolveProgressDescription(progress),
       timeout: 0,
-      data: threadToastData,
+      data: progress.toastData,
     });
-  }, [threadToastData]);
+  }, []);
 
   const { data: gitStatus = null, error: gitStatusError } = useQuery(
     gitStatusQueryOptions(gitTarget, gitRequestSettings),
@@ -453,7 +455,7 @@ export default function GitActionsControl({
     });
   }, [gitStatusForActions, threadToastData]);
 
-  const runGitActionWithToast = useEffectEvent(
+  runGitActionWithToast = useEffectEvent(
     async ({
       action,
       commitMessage,
@@ -508,6 +510,7 @@ export default function GitActionsControl({
         forcePushOnly: forcePushOnlyProgress,
         featureBranch,
       });
+      const scopedToastData = threadToastData ? { ...threadToastData } : undefined;
       const actionId = randomUUID();
       const resolvedProgressToastId =
         progressToastId ??
@@ -516,11 +519,12 @@ export default function GitActionsControl({
           title: progressStages[0] ?? "Running git action...",
           description: "Waiting for Git...",
           timeout: 0,
-          data: threadToastData,
+          data: scopedToastData,
         });
 
       activeGitActionProgressRef.current = {
         toastId: resolvedProgressToastId,
+        toastData: scopedToastData,
         actionId,
         title: progressStages[0] ?? "Running git action...",
         phaseStartedAtMs: null,
@@ -536,7 +540,7 @@ export default function GitActionsControl({
           title: progressStages[0] ?? "Running git action...",
           description: "Waiting for Git...",
           timeout: 0,
-          data: threadToastData,
+          data: scopedToastData,
         });
       }
 
@@ -571,14 +575,13 @@ export default function GitActionsControl({
         const closeResultToast = () => {
           toastManager.close(resolvedProgressToastId);
         };
-
         toastManager.update(resolvedProgressToastId, {
           type: "success",
           title: resultToast.title,
           description: resultToast.description,
           timeout: 0,
           data: {
-            ...threadToastData,
+            ...scopedToastData,
             dismissAfterVisibleMs: 10_000,
           },
           ...(shouldOfferPushCta
@@ -631,13 +634,13 @@ export default function GitActionsControl({
           type: "error",
           title: "Action failed",
           description: err instanceof Error ? err.message : "An error occurred.",
-          data: threadToastData,
+          data: scopedToastData,
         });
       }
     },
   );
 
-  const continuePendingDefaultBranchAction = useCallback(() => {
+  const continuePendingDefaultBranchAction = () => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, forcePushOnlyProgress, onConfirmed, filePaths } =
       pendingDefaultBranchAction;
@@ -650,9 +653,9 @@ export default function GitActionsControl({
       ...(filePaths ? { filePaths } : {}),
       skipDefaultBranchPrompt: true,
     });
-  }, [pendingDefaultBranchAction]);
+  };
 
-  const checkoutFeatureBranchAndContinuePendingAction = useCallback(() => {
+  const checkoutFeatureBranchAndContinuePendingAction = () => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, forcePushOnlyProgress, onConfirmed, filePaths } =
       pendingDefaultBranchAction;
@@ -666,9 +669,9 @@ export default function GitActionsControl({
       featureBranch: true,
       skipDefaultBranchPrompt: true,
     });
-  }, [pendingDefaultBranchAction]);
+  };
 
-  const runDialogActionOnNewBranch = useCallback(() => {
+  const runDialogActionOnNewBranch = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
 
@@ -684,9 +687,9 @@ export default function GitActionsControl({
       featureBranch: true,
       skipDefaultBranchPrompt: true,
     });
-  }, [allSelected, isCommitDialogOpen, dialogCommitMessage, selectedFiles]);
+  };
 
-  const runQuickAction = useCallback(() => {
+  const runQuickAction = () => {
     if (quickAction.kind === "open_pr") {
       void openExistingPr();
       return;
@@ -724,31 +727,28 @@ export default function GitActionsControl({
     if (quickAction.action) {
       void runGitActionWithToast({ action: quickAction.action });
     }
-  }, [openExistingPr, pullMutation, quickAction, threadToastData]);
+  };
 
-  const openDialogForMenuItem = useCallback(
-    (item: GitActionMenuItem) => {
-      if (item.disabled) return;
-      if (item.kind === "open_pr") {
-        void openExistingPr();
-        return;
-      }
-      if (item.dialogAction === "push") {
-        void runGitActionWithToast({ action: "commit_push", forcePushOnlyProgress: true });
-        return;
-      }
-      if (item.dialogAction === "create_pr") {
-        void runGitActionWithToast({ action: "commit_push_pr" });
-        return;
-      }
-      setExcludedFiles(new Set());
-      setIsEditingFiles(false);
-      setIsCommitDialogOpen(true);
-    },
-    [openExistingPr, setIsCommitDialogOpen],
-  );
+  const openDialogForMenuItem = (item: GitActionMenuItem) => {
+    if (item.disabled) return;
+    if (item.kind === "open_pr") {
+      void openExistingPr();
+      return;
+    }
+    if (item.dialogAction === "push") {
+      void runGitActionWithToast({ action: "commit_push", forcePushOnlyProgress: true });
+      return;
+    }
+    if (item.dialogAction === "create_pr") {
+      void runGitActionWithToast({ action: "commit_push_pr" });
+      return;
+    }
+    setExcludedFiles(new Set());
+    setIsEditingFiles(false);
+    setIsCommitDialogOpen(true);
+  };
 
-  const runDialogAction = useCallback(() => {
+  const runDialogAction = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
     setIsCommitDialogOpen(false);
@@ -760,14 +760,7 @@ export default function GitActionsControl({
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
-  }, [
-    allSelected,
-    dialogCommitMessage,
-    isCommitDialogOpen,
-    selectedFiles,
-    setDialogCommitMessage,
-    setIsCommitDialogOpen,
-  ]);
+  };
 
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
