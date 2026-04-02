@@ -37,6 +37,7 @@ const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
+type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
 
 interface OpenPrInfo {
   number: number;
@@ -949,6 +950,7 @@ export const makeGitManager = Effect.gen(function* () {
     modelSelection: ModelSelection,
     cwd: string,
     fallbackBranch: string | null,
+    emit: GitActionProgressEmitter,
     remote?: GitRemoteTarget,
     settings?: GitOperationSettings,
   ) =>
@@ -997,6 +999,11 @@ export const makeGitManager = Effect.gen(function* () {
         remote,
         settings,
       );
+      yield* emit({
+        kind: "phase_started",
+        phase: "pr",
+        label: "Generating PR content...",
+      });
       const rangeContext = yield* gitCore.readRangeContext(cwd, baseBranch, remote);
 
       const generated = yield* textGeneration.generatePrContent({
@@ -1007,11 +1014,15 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-        ...toTextGenerationOptions(settings),
         modelSelection,
         ...toTextGenerationOptions(settings),
       });
 
+      yield* emit({
+        kind: "phase_started",
+        phase: "pr",
+        label: "Creating GitHub pull request...",
+      });
       yield* gitHubCli
         .createPullRequest({
           cwd,
@@ -1389,7 +1400,7 @@ export const makeGitManager = Effect.gen(function* () {
               .emit({
                 kind: "phase_started",
                 phase: "pr",
-                label: "Creating PR...",
+                label: "Preparing PR...",
               })
               .pipe(
                 Effect.flatMap(() =>
@@ -1399,6 +1410,7 @@ export const makeGitManager = Effect.gen(function* () {
                       input.modelSelection,
                       input.cwd,
                       currentBranch,
+                      progress.emit,
                       input.remote,
                       input.settings,
                     );

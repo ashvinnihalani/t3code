@@ -2316,4 +2316,80 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       );
     }),
   );
+
+  it.effect("commit_push_pr emits granular PR phases", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-only-follow-up"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "pr-only.txt"), "pr only\n");
+      yield* runGit(repoDir, ["add", "pr-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "PR only branch"]);
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            JSON.stringify([]),
+            JSON.stringify([
+              {
+                number: 201,
+                title: "PR only branch",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/201",
+                baseRefName: "main",
+                headRefName: "feature/pr-only-follow-up",
+                state: "OPEN",
+                isCrossRepository: false,
+              },
+            ]),
+          ],
+        },
+      });
+      const events: GitActionProgressEvent[] = [];
+
+      const result = yield* runStackedAction(
+        manager,
+        {
+          cwd: repoDir,
+          action: "commit_push_pr",
+        },
+        {
+          actionId: "action-pr-only",
+          progressReporter: {
+            publish: (event) =>
+              Effect.sync(() => {
+                events.push(event);
+              }),
+          },
+        },
+      );
+
+      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("created");
+      expect(
+        events.filter(
+          (event): event is Extract<GitActionProgressEvent, { kind: "phase_started" }> =>
+            event.kind === "phase_started" && event.phase === "pr",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          kind: "phase_started",
+          phase: "pr",
+          label: "Preparing PR...",
+        }),
+        expect.objectContaining({
+          kind: "phase_started",
+          phase: "pr",
+          label: "Generating PR content...",
+        }),
+        expect.objectContaining({
+          kind: "phase_started",
+          phase: "pr",
+          label: "Creating GitHub pull request...",
+        }),
+      ]);
+    }),
+  );
 });

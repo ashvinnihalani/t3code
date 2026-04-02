@@ -60,6 +60,11 @@ export function buildGitActionProgressStages(input: {
   featureBranch?: boolean;
 }): string[] {
   const branchStages = input.featureBranch ? ["Preparing feature branch..."] : [];
+  const prStages = [
+    "Preparing PR...",
+    "Generating PR content...",
+    "Creating GitHub pull request...",
+  ];
   const shouldIncludeCommitStages =
     !input.forcePushOnly && (input.action === "commit" || input.hasWorkingTreeChanges);
   const commitStages = !shouldIncludeCommitStages
@@ -74,7 +79,7 @@ export function buildGitActionProgressStages(input: {
   if (input.action === "commit_push") {
     return [...branchStages, ...commitStages, pushStage];
   }
-  return [...branchStages, ...commitStages, pushStage, "Creating PR..."];
+  return [...branchStages, ...commitStages, pushStage, ...prStages];
 }
 
 const withDescription = (title: string, description: string | undefined) =>
