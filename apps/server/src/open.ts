@@ -47,17 +47,45 @@ interface CommandAvailabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-const LINE_COLUMN_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
+const TARGET_WITH_POSITION_PATTERN = /^(.*?):(\d+)(?::(\d+))?$/;
 
-function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
-  return (
-    (editorId === "cursor" ||
-      editorId === "trae" ||
-      editorId === "vscode" ||
-      editorId === "vscode-insiders" ||
-      editorId === "vscodium") &&
-    LINE_COLUMN_SUFFIX_PATTERN.test(target)
-  );
+function parseTargetPathAndPosition(target: string): {
+  path: string;
+  line: string | undefined;
+  column: string | undefined;
+} | null {
+  const match = TARGET_WITH_POSITION_PATTERN.exec(target);
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+
+  return {
+    path: match[1],
+    line: match[2],
+    column: match[3],
+  };
+}
+
+function resolveCommandEditorArgs(
+  editor: (typeof EDITORS)[number],
+  target: string,
+): ReadonlyArray<string> {
+  const parsedTarget = parseTargetPathAndPosition(target);
+
+  switch (editor.launchStyle) {
+    case "direct-path":
+      return [target];
+    case "goto":
+      return parsedTarget ? ["--goto", target] : [target];
+    case "line-column": {
+      if (!parsedTarget) {
+        return [target];
+      }
+
+      const { path, line, column } = parsedTarget;
+      return [...(line ? ["--line", line] : []), ...(column ? ["--column", column] : []), path];
+    }
+  }
 }
 
 function isRemoteUriTarget(target: string): boolean {
@@ -289,9 +317,10 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
     if (isRemoteSshEditorTarget(input.target)) {
       return yield* resolveRemoteSshLaunch(input.target, editorDef.id, editorDef.command);
     }
-    return shouldUseGotoFlag(editorDef.id, input.target)
-      ? { command: editorDef.command, args: ["--goto", input.target] }
-      : { command: editorDef.command, args: [input.target] };
+    return {
+      command: editorDef.command,
+      args: resolveCommandEditorArgs(editorDef, input.target),
+    };
   }
 
   if (editorDef.id !== "file-manager") {

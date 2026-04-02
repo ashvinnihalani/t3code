@@ -16,6 +16,7 @@ import {
   AntigravityIcon,
   CursorIcon,
   Icon,
+  IntelliJIdeaIcon,
   TraeIcon,
   VisualStudioCode,
   VisualStudioCodeInsiders,
@@ -66,6 +67,11 @@ const resolveOptions = (
       label: "Antigravity",
       Icon: AntigravityIcon,
       value: "antigravity",
+    },
+    {
+      label: "IntelliJ IDEA",
+      Icon: IntelliJIdeaIcon,
+      value: "idea",
     },
     {
       label: isMacPlatform(platform)

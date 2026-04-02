@@ -1796,6 +1796,71 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("opens IntelliJ IDEA from the picker menu", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo",
+          branch: [null],
+          worktreePath: [null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          availableEditors: ["idea"],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const menuButton = await waitForElement(
+        () => document.querySelector('button[aria-label="Copy options"]'),
+        "Unable to find Open picker button.",
+      );
+      (menuButton as HTMLButtonElement).click();
+
+      const ideaItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll('[data-slot="menu-item"]')).find((item) =>
+            item.textContent?.includes("IntelliJ IDEA"),
+          ) ?? null,
+        "Unable to find IntelliJ IDEA menu item.",
+      );
+      (ideaItem as HTMLElement).click();
+
+      await vi.waitFor(
+        () => {
+          const openRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.projectsOpenInEditor,
+          );
+          expect(openRequest).toMatchObject({
+            _tag: WS_METHODS.projectsOpenInEditor,
+            projectId: PROJECT_ID,
+            editor: "idea",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("preserves absolute local repo paths for multi-repo header git actions", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {

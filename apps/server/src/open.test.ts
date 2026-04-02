@@ -49,6 +49,24 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
         args: ["/tmp/workspace"],
       });
 
+      const vscodeInsidersLaunch = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace", editor: "vscode-insiders" },
+        "darwin",
+      );
+      assert.deepEqual(vscodeInsidersLaunch, {
+        command: "code-insiders",
+        args: ["/tmp/workspace"],
+      });
+
+      const vscodiumLaunch = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace", editor: "vscodium" },
+        "darwin",
+      );
+      assert.deepEqual(vscodiumLaunch, {
+        command: "codium",
+        args: ["/tmp/workspace"],
+      });
+
       const zedLaunch = yield* resolveEditorLaunch(
         { target: "/tmp/workspace", editor: "zed" },
         "darwin",
@@ -57,10 +75,19 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
         command: "zed",
         args: ["/tmp/workspace"],
       });
+
+      const ideaLaunch = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace", editor: "idea" },
+        "darwin",
+      );
+      assert.deepEqual(ideaLaunch, {
+        command: "idea",
+        args: ["/tmp/workspace"],
+      });
     }),
   );
 
-  it.effect("uses --goto when editor supports line/column suffixes", () =>
+  it.effect("applies launch-style-specific navigation arguments", () =>
     Effect.gen(function* () {
       const lineOnly = yield* resolveEditorLaunch(
         { target: "/tmp/workspace/AGENTS.md:48", editor: "cursor" },
@@ -98,6 +125,33 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
         args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
       });
 
+      const vscodeInsidersLineAndColumn = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "vscode-insiders" },
+        "darwin",
+      );
+      assert.deepEqual(vscodeInsidersLineAndColumn, {
+        command: "code-insiders",
+        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
+      });
+
+      const vscodiumLineAndColumn = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "vscodium" },
+        "darwin",
+      );
+      assert.deepEqual(vscodiumLineAndColumn, {
+        command: "codium",
+        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
+      });
+
+      const antigravityLineAndColumn = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "antigravity" },
+        "darwin",
+      );
+      assert.deepEqual(antigravityLineAndColumn, {
+        command: "agy",
+        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
+      });
+
       const zedLineAndColumn = yield* resolveEditorLaunch(
         { target: "/tmp/workspace/src/open.ts:71:5", editor: "zed" },
         "darwin",
@@ -105,6 +159,33 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       assert.deepEqual(zedLineAndColumn, {
         command: "zed",
         args: ["/tmp/workspace/src/open.ts:71:5"],
+      });
+
+      const zedLineOnly = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/AGENTS.md:48", editor: "zed" },
+        "darwin",
+      );
+      assert.deepEqual(zedLineOnly, {
+        command: "zed",
+        args: ["/tmp/workspace/AGENTS.md:48"],
+      });
+
+      const ideaLineOnly = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/AGENTS.md:48", editor: "idea" },
+        "darwin",
+      );
+      assert.deepEqual(ideaLineOnly, {
+        command: "idea",
+        args: ["--line", "48", "/tmp/workspace/AGENTS.md"],
+      });
+
+      const ideaLineAndColumn = yield* resolveEditorLaunch(
+        { target: "/tmp/workspace/src/open.ts:71:5", editor: "idea" },
+        "darwin",
+      );
+      assert.deepEqual(ideaLineAndColumn, {
+        command: "idea",
+        args: ["--line", "71", "--column", "5", "/tmp/workspace/src/open.ts"],
       });
     }),
   );
@@ -350,12 +431,20 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       yield* fs.writeFileString(path.join(dir, "trae.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "code-insiders.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "codium.CMD"), "@echo off\r\n");
+      yield* fs.writeFileString(path.join(dir, "idea.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "explorer.CMD"), "MZ");
       const editors = resolveAvailableEditors("win32", {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
-      assert.deepEqual(editors, ["cursor", "trae", "vscode-insiders", "vscodium", "file-manager"]);
+      assert.deepEqual(editors, [
+        "cursor",
+        "trae",
+        "vscode-insiders",
+        "vscodium",
+        "idea",
+        "file-manager",
+      ]);
     }),
   );
 });
