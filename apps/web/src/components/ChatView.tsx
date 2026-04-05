@@ -622,6 +622,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
     resolvedSelectedMultiRepoIndex,
     selectedMultiRepoRelativePath,
   ]);
+  const multiRepoGitTargets = useMemo(() => {
+    if (activeProject?.gitMode !== "multi") {
+      return undefined;
+    }
+    return activeProjectGitRepos.map((repo, index) => ({
+      displayPath: repo.displayName,
+      repoPath: activeThread?.worktreePath[index] ?? joinRepoPath(activeProject.cwd, repo.repoPath),
+    }));
+  }, [
+    activeProject?.cwd,
+    activeProject?.gitMode,
+    activeProjectGitRepos,
+    activeThread?.worktreePath,
+  ]);
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -3888,6 +3902,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitTarget={gitTarget}
+          multiRepoTargets={multiRepoGitTargets}
           diffOpen={diffOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);

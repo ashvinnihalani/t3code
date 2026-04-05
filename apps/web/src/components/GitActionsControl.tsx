@@ -5,7 +5,13 @@ import type {
   ProjectRemoteTarget,
   ThreadId,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useIsMutating,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { buildGitRequestSettings, useAppSettings } from "../appSettings";
@@ -39,6 +45,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
+import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { toastManager } from "~/components/ui/toast";
 import { openResolvedEditorTargetInPreferredEditor } from "~/editorPreferences";
 import {
@@ -60,6 +67,12 @@ interface GitActionsControlProps {
   activeThreadId: ThreadId | null;
   projectRemote: ProjectRemoteTarget | null;
   disableGitActions?: boolean;
+  multiRepoTargets?: ReadonlyArray<MultiRepoGitActionTarget> | undefined;
+}
+
+export interface MultiRepoGitActionTarget {
+  displayPath: string;
+  repoPath: string;
 }
 
 interface PendingDefaultBranchAction {
@@ -70,6 +83,19 @@ interface PendingDefaultBranchAction {
   forcePushOnlyProgress: boolean;
   onConfirmed?: () => void;
   filePaths?: string[];
+}
+
+interface MultiRepoExecutionState {
+  status: "idle" | "running" | "success" | "error";
+  errorMessage: string | null;
+}
+
+interface MultiRepoSection {
+  displayPath: string;
+  repoPath: string;
+  status: GitStatusResult | null;
+  statusErrorMessage: string | null;
+  isDefaultBranch: boolean;
 }
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -189,6 +215,8 @@ function getMenuActionDisabledReason({
 const COMMIT_DIALOG_TITLE = "Commit changes";
 const COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
+const MULTI_REPO_COMMIT_DIALOG_DESCRIPTION =
+  "Review and confirm your commits. Messages will be auto-generated.";
 
 function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
   if (icon === "commit") return <GitCommitIcon />;
@@ -214,9 +242,11 @@ export default function GitActionsControl({
   activeThreadId,
   projectRemote,
   disableGitActions = false,
+  multiRepoTargets,
 }: GitActionsControlProps) {
   const { settings } = useAppSettings();
   const gitRepoPath = gitTarget.repoPath;
+  const isMultiRepoDialog = (multiRepoTargets?.length ?? 0) > 1;
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -225,7 +255,12 @@ export default function GitActionsControl({
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
+  const [excludedFilesByRepo, setExcludedFilesByRepo] = useState<Record<string, string[]>>({});
   const [isEditingFiles, setIsEditingFiles] = useState(false);
+  const [editingRepos, setEditingRepos] = useState<Record<string, boolean>>({});
+  const [multiRepoExecutionState, setMultiRepoExecutionState] = useState<
+    Record<string, MultiRepoExecutionState>
+  >({});
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
@@ -255,6 +290,19 @@ export default function GitActionsControl({
   );
 
   const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitTarget));
+  const multiRepoStatuses = useQueries({
+    queries: (multiRepoTargets ?? []).map((target) =>
+      gitStatusQueryOptions(
+        { repoPath: target.repoPath, projectId: gitTarget.projectId },
+        gitRequestSettings,
+      ),
+    ),
+  });
+  const multiRepoBranchLists = useQueries({
+    queries: (multiRepoTargets ?? []).map((target) =>
+      gitBranchesQueryOptions({ repoPath: target.repoPath, projectId: gitTarget.projectId }),
+    ),
+  });
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const hasOriginRemote = branchList?.hasOriginRemote ?? false;
@@ -273,6 +321,67 @@ export default function GitActionsControl({
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
+  const multiRepoSections = useMemo<MultiRepoSection[]>(() => {
+    if (!isMultiRepoDialog || !multiRepoTargets) {
+      return [];
+    }
+    return multiRepoTargets.map((target, index) => {
+      const statusResult = multiRepoStatuses[index];
+      const branchListResult = multiRepoBranchLists[index];
+      const status =
+        statusResult && statusResult.status === "success" ? (statusResult.data ?? null) : null;
+      const branchName = status?.branch ?? null;
+      const matchingBranch = branchListResult?.data?.branches.find(
+        (branch) => branch.name === branchName,
+      );
+      const isDefault =
+        branchName === null
+          ? false
+          : (matchingBranch?.isDefault ?? false) ||
+            branchName === "main" ||
+            branchName === "master";
+      return {
+        displayPath: target.displayPath,
+        repoPath: target.repoPath,
+        status,
+        statusErrorMessage:
+          statusResult && statusResult.status === "error"
+            ? statusResult.error instanceof Error
+              ? statusResult.error.message
+              : "Failed to load git status."
+            : null,
+        isDefaultBranch: isDefault,
+      };
+    });
+  }, [isMultiRepoDialog, multiRepoBranchLists, multiRepoStatuses, multiRepoTargets]);
+  const multiRepoSelectionSummary = useMemo(() => {
+    return multiRepoSections.map((section) => {
+      const files = section.status?.workingTree.files ?? [];
+      const excluded = new Set(excludedFilesByRepo[section.repoPath] ?? []);
+      const selected = files.filter((file) => !excluded.has(file.path));
+      return {
+        ...section,
+        files,
+        excluded,
+        selected,
+        allSelected: excluded.size === 0,
+        noneSelected: selected.length === 0,
+      };
+    });
+  }, [excludedFilesByRepo, multiRepoSections]);
+  const multiRepoHasAnySelectedFiles = multiRepoSelectionSummary.some(
+    (section) => section.selected.length > 0,
+  );
+  const multiRepoHasFailures = multiRepoSelectionSummary.some(
+    (section) => multiRepoExecutionState[section.repoPath]?.status === "error",
+  );
+  const multiRepoHasRunningRepo = multiRepoSelectionSummary.some(
+    (section) => multiRepoExecutionState[section.repoPath]?.status === "running",
+  );
+  const multiRepoRetryLabel = multiRepoHasFailures ? "Retry commit" : "Commit";
+  const multiRepoRetryNewBranchLabel = multiRepoHasFailures
+    ? "Retry on new branch"
+    : "Commit on new branch";
 
   const initMutation = useMutation(gitInitMutationOptions({ target: gitTarget, queryClient }));
 
@@ -341,6 +450,14 @@ export default function GitActionsControl({
         includesCommit: pendingDefaultBranchAction.includesCommit,
       })
     : null;
+  const resetCommitDialogState = useCallback(() => {
+    setDialogCommitMessage("");
+    setExcludedFiles(new Set());
+    setExcludedFilesByRepo({});
+    setIsEditingFiles(false);
+    setEditingRepos({});
+    setMultiRepoExecutionState({});
+  }, []);
 
   useEffect(() => {
     const api = readNativeApi();
@@ -667,14 +784,135 @@ export default function GitActionsControl({
     });
   }, [pendingDefaultBranchAction]);
 
+  const runMultiRepoDialogAction = useCallback(
+    async (featureBranch: boolean) => {
+      if (!isCommitDialogOpen || !isMultiRepoDialog) return;
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Git actions are unavailable.",
+          data: threadToastData,
+        });
+        return;
+      }
+
+      const reposToRun = multiRepoSelectionSummary.filter((section) => {
+        if (section.selected.length === 0) {
+          return false;
+        }
+        const previousState = multiRepoExecutionState[section.repoPath];
+        return previousState?.status !== "success";
+      });
+      if (reposToRun.length === 0) {
+        return;
+      }
+
+      const progressToastId = toastManager.add({
+        type: "loading",
+        title: featureBranch ? "Committing on new branches..." : "Committing...",
+        description: `Running ${reposToRun[0]?.displayPath ?? "git"}...`,
+        timeout: 0,
+        data: threadToastData,
+      });
+
+      try {
+        for (const section of reposToRun) {
+          toastManager.update(progressToastId, {
+            type: "loading",
+            title: featureBranch ? "Committing on new branches..." : "Committing...",
+            description: `Running ${section.displayPath}...`,
+            timeout: 0,
+            data: threadToastData,
+          });
+          setMultiRepoExecutionState((prev) => ({
+            ...prev,
+            [section.repoPath]: {
+              status: "running",
+              errorMessage: null,
+            },
+          }));
+          try {
+            await api.git.runStackedAction({
+              repoPath: section.repoPath,
+              ...(gitTarget.projectId ? { projectId: gitTarget.projectId } : {}),
+              actionId: randomUUID(),
+              modelSelection: gitActionModelSelection,
+              action: "commit",
+              ...(featureBranch ? { featureBranch: true } : {}),
+              ...(!section.allSelected
+                ? { filePaths: section.selected.map((file) => file.path) }
+                : {}),
+              ...(gitRequestSettings ? { settings: gitRequestSettings } : {}),
+            });
+            setMultiRepoExecutionState((prev) => ({
+              ...prev,
+              [section.repoPath]: {
+                status: "success",
+                errorMessage: null,
+              },
+            }));
+          } catch (error) {
+            const errorMessage =
+              error instanceof Error ? error.message : "Failed to commit this repo.";
+            setMultiRepoExecutionState((prev) => ({
+              ...prev,
+              [section.repoPath]: {
+                status: "error",
+                errorMessage,
+              },
+            }));
+            toastManager.update(progressToastId, {
+              type: "error",
+              title: "Commit failed",
+              description: `${section.displayPath}: ${errorMessage}`,
+              data: threadToastData,
+            });
+            await invalidateGitQueries(queryClient).catch(() => undefined);
+            return;
+          }
+        }
+
+        toastManager.update(progressToastId, {
+          type: "success",
+          title: featureBranch ? "Committed on new branches" : "Committed",
+          description: `Updated ${reposToRun.length} ${reposToRun.length === 1 ? "repo" : "repos"}.`,
+          data: {
+            ...threadToastData,
+            dismissAfterVisibleMs: 10_000,
+          },
+        });
+        await invalidateGitQueries(queryClient).catch(() => undefined);
+        setIsCommitDialogOpen(false);
+        resetCommitDialogState();
+      } finally {
+        await invalidateGitQueries(queryClient).catch(() => undefined);
+      }
+    },
+    [
+      gitActionModelSelection,
+      gitRequestSettings,
+      gitTarget.projectId,
+      isCommitDialogOpen,
+      isMultiRepoDialog,
+      multiRepoExecutionState,
+      multiRepoSelectionSummary,
+      queryClient,
+      resetCommitDialogState,
+      threadToastData,
+    ],
+  );
+
   const runDialogActionOnNewBranch = useCallback(() => {
     if (!isCommitDialogOpen) return;
+    if (isMultiRepoDialog) {
+      void runMultiRepoDialogAction(true);
+      return;
+    }
     const commitMessage = dialogCommitMessage.trim();
 
     setIsCommitDialogOpen(false);
-    setDialogCommitMessage("");
-    setExcludedFiles(new Set());
-    setIsEditingFiles(false);
+    resetCommitDialogState();
 
     void runGitActionWithToast({
       action: "commit",
@@ -683,7 +921,15 @@ export default function GitActionsControl({
       featureBranch: true,
       skipDefaultBranchPrompt: true,
     });
-  }, [allSelected, isCommitDialogOpen, dialogCommitMessage, selectedFiles]);
+  }, [
+    allSelected,
+    dialogCommitMessage,
+    isCommitDialogOpen,
+    isMultiRepoDialog,
+    resetCommitDialogState,
+    runMultiRepoDialogAction,
+    selectedFiles,
+  ]);
 
   const runQuickAction = useCallback(() => {
     if (quickAction.kind === "open_pr") {
@@ -740,20 +986,21 @@ export default function GitActionsControl({
         void runGitActionWithToast({ action: "commit_push_pr" });
         return;
       }
-      setExcludedFiles(new Set());
-      setIsEditingFiles(false);
+      resetCommitDialogState();
       setIsCommitDialogOpen(true);
     },
-    [openExistingPr, setIsCommitDialogOpen],
+    [openExistingPr, resetCommitDialogState, setIsCommitDialogOpen],
   );
 
   const runDialogAction = useCallback(() => {
     if (!isCommitDialogOpen) return;
+    if (isMultiRepoDialog) {
+      void runMultiRepoDialogAction(false);
+      return;
+    }
     const commitMessage = dialogCommitMessage.trim();
     setIsCommitDialogOpen(false);
-    setDialogCommitMessage("");
-    setExcludedFiles(new Set());
-    setIsEditingFiles(false);
+    resetCommitDialogState();
     void runGitActionWithToast({
       action: "commit",
       ...(commitMessage ? { commitMessage } : {}),
@@ -763,15 +1010,16 @@ export default function GitActionsControl({
     allSelected,
     dialogCommitMessage,
     isCommitDialogOpen,
+    isMultiRepoDialog,
+    resetCommitDialogState,
+    runMultiRepoDialogAction,
     selectedFiles,
-    setDialogCommitMessage,
-    setIsCommitDialogOpen,
   ]);
 
   const openChangedFileInEditor = useCallback(
-    (filePath: string) => {
+    (filePath: string, referenceRoot: string) => {
       const api = readNativeApi();
-      if (!api || !gitTarget.repoPath) {
+      if (!api) {
         toastManager.add({
           type: "error",
           title: "Editor opening is unavailable.",
@@ -782,7 +1030,7 @@ export default function GitActionsControl({
       const target = resolveProjectEditorTargetFromRawPath(filePath, {
         projectId: gitTarget.projectId ?? undefined,
         threadId: activeThreadId ?? undefined,
-        referenceRoot: gitTarget.repoPath,
+        referenceRoot,
         remote: projectRemote,
       });
       if (!target) {
@@ -802,7 +1050,7 @@ export default function GitActionsControl({
         });
       });
     },
-    [activeThreadId, gitTarget.projectId, gitTarget.repoPath, projectRemote, threadToastData],
+    [activeThreadId, gitTarget.projectId, projectRemote, threadToastData],
   );
 
   if (!gitTarget.repoPath) return null;
@@ -940,149 +1188,327 @@ export default function GitActionsControl({
         onOpenChange={(open) => {
           if (!open) {
             setIsCommitDialogOpen(false);
-            setDialogCommitMessage("");
-            setExcludedFiles(new Set());
-            setIsEditingFiles(false);
+            resetCommitDialogState();
           }
         }}
       >
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
+            <DialogDescription>
+              {isMultiRepoDialog ? MULTI_REPO_COMMIT_DIALOG_DESCRIPTION : COMMIT_DIALOG_DESCRIPTION}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
-            <div className="space-y-3 rounded-lg border border-input bg-muted/40 p-3 text-xs">
-              <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
-                <span className="text-muted-foreground">Branch</span>
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">
-                    {gitStatusForActions?.branch ?? "(detached HEAD)"}
-                  </span>
-                  {isDefaultBranch && (
-                    <span className="text-right text-warning text-xs">Warning: default branch</span>
-                  )}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {isEditingFiles && allFiles.length > 0 && (
-                      <Checkbox
-                        checked={allSelected}
-                        indeterminate={!allSelected && !noneSelected}
-                        onCheckedChange={() => {
-                          setExcludedFiles(
-                            allSelected ? new Set(allFiles.map((f) => f.path)) : new Set(),
-                          );
-                        }}
-                      />
-                    )}
-                    <span className="text-muted-foreground">Files</span>
-                    {!allSelected && !isEditingFiles && (
-                      <span className="text-muted-foreground">
-                        ({selectedFiles.length} of {allFiles.length})
-                      </span>
-                    )}
-                  </div>
-                  {allFiles.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setIsEditingFiles((prev) => !prev)}
+            {isMultiRepoDialog ? (
+              <div className="space-y-3">
+                {multiRepoSelectionSummary.map((section) => {
+                  const executionState = multiRepoExecutionState[section.repoPath];
+                  const isEditingRepo = editingRepos[section.repoPath] ?? false;
+                  return (
+                    <div
+                      key={section.repoPath}
+                      className="space-y-3 rounded-lg border border-input bg-muted/40 p-3 text-xs"
                     >
-                      {isEditingFiles ? "Done" : "Edit"}
-                    </Button>
-                  )}
-                </div>
-                {!gitStatusForActions || allFiles.length === 0 ? (
-                  <p className="font-medium">none</p>
-                ) : (
-                  <div className="space-y-2">
-                    <ScrollArea className="h-44 rounded-md border border-input bg-background">
-                      <div className="space-y-1 p-1">
-                        {allFiles.map((file) => {
-                          const isExcluded = excludedFiles.has(file.path);
-                          return (
-                            <div
-                              key={file.path}
-                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent/50"
-                            >
-                              {isEditingFiles && (
-                                <Checkbox
-                                  checked={!excludedFiles.has(file.path)}
-                                  onCheckedChange={() => {
-                                    setExcludedFiles((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(file.path)) {
-                                        next.delete(file.path);
-                                      } else {
-                                        next.add(file.path);
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                />
-                              )}
-                              <button
-                                type="button"
-                                className="flex flex-1 items-center justify-between gap-3 text-left truncate"
-                                onClick={() => openChangedFileInEditor(file.path)}
-                              >
-                                <span
-                                  className={`truncate${isExcluded ? " text-muted-foreground" : ""}`}
-                                >
-                                  {file.path}
-                                </span>
-                                <span className="shrink-0">
-                                  {isExcluded ? (
-                                    <span className="text-muted-foreground">Excluded</span>
-                                  ) : (
-                                    <>
-                                      <span className="text-success">+{file.insertions}</span>
-                                      <span className="text-muted-foreground"> / </span>
-                                      <span className="text-destructive">-{file.deletions}</span>
-                                    </>
-                                  )}
-                                </span>
-                              </button>
-                            </div>
-                          );
-                        })}
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-sm">{section.displayPath}</p>
+                        {executionState?.status === "running" ? (
+                          <span className="text-muted-foreground">Committing...</span>
+                        ) : executionState?.status === "success" ? (
+                          <span className="text-success">Committed</span>
+                        ) : executionState?.status === "error" ? (
+                          <span className="text-destructive">Retry required</span>
+                        ) : null}
                       </div>
-                    </ScrollArea>
-                    <div className="flex justify-end font-mono">
-                      <span className="text-success">
-                        +{selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
-                      </span>
-                      <span className="text-muted-foreground"> / </span>
-                      <span className="text-destructive">
-                        -{selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
-                      </span>
+                      <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
+                        <span className="text-muted-foreground">Branch</span>
+                        <span className="font-medium">
+                          {section.status?.branch ?? "(detached HEAD)"}
+                        </span>
+                      </div>
+                      {section.isDefaultBranch && (
+                        <Alert variant="warning">
+                          <InfoIcon />
+                          <AlertTitle>Default branch</AlertTitle>
+                          <AlertDescription>
+                            Commit on new branch to avoid committing directly to the default branch.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      {section.statusErrorMessage && (
+                        <Alert variant="error">
+                          <InfoIcon />
+                          <AlertTitle>Git status unavailable</AlertTitle>
+                          <AlertDescription>{section.statusErrorMessage}</AlertDescription>
+                        </Alert>
+                      )}
+                      {executionState?.status === "error" && executionState.errorMessage && (
+                        <Alert variant="error">
+                          <InfoIcon />
+                          <AlertTitle>Commit failed</AlertTitle>
+                          <AlertDescription>{executionState.errorMessage}</AlertDescription>
+                        </Alert>
+                      )}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {isEditingRepo && section.files.length > 0 && (
+                              <Checkbox
+                                checked={section.allSelected}
+                                indeterminate={!section.allSelected && !section.noneSelected}
+                                onCheckedChange={() => {
+                                  setExcludedFilesByRepo((prev) => ({
+                                    ...prev,
+                                    [section.repoPath]: section.allSelected
+                                      ? section.files.map((file) => file.path)
+                                      : [],
+                                  }));
+                                }}
+                              />
+                            )}
+                            <span className="text-muted-foreground">Files</span>
+                            {!section.allSelected && !isEditingRepo && (
+                              <span className="text-muted-foreground">
+                                ({section.selected.length} of {section.files.length})
+                              </span>
+                            )}
+                          </div>
+                          {section.files.length > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() =>
+                                setEditingRepos((prev) => ({
+                                  ...prev,
+                                  [section.repoPath]: !isEditingRepo,
+                                }))
+                              }
+                            >
+                              {isEditingRepo ? "Done" : "Edit"}
+                            </Button>
+                          )}
+                        </div>
+                        {section.files.length === 0 ? (
+                          <p className="font-medium">none</p>
+                        ) : (
+                          <div className="space-y-2">
+                            <ScrollArea className="h-44 rounded-md border border-input bg-background">
+                              <div className="space-y-1 p-1">
+                                {section.files.map((file) => {
+                                  const isExcluded = section.excluded.has(file.path);
+                                  return (
+                                    <div
+                                      key={`${section.repoPath}:${file.path}`}
+                                      className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent/50"
+                                    >
+                                      {isEditingRepo && (
+                                        <Checkbox
+                                          checked={!isExcluded}
+                                          onCheckedChange={() => {
+                                            setExcludedFilesByRepo((prev) => {
+                                              const current = new Set(prev[section.repoPath] ?? []);
+                                              if (current.has(file.path)) {
+                                                current.delete(file.path);
+                                              } else {
+                                                current.add(file.path);
+                                              }
+                                              return {
+                                                ...prev,
+                                                [section.repoPath]: [...current],
+                                              };
+                                            });
+                                          }}
+                                        />
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="flex flex-1 items-center justify-between gap-3 text-left truncate"
+                                        onClick={() =>
+                                          openChangedFileInEditor(file.path, section.repoPath)
+                                        }
+                                      >
+                                        <span
+                                          className={`truncate${isExcluded ? " text-muted-foreground" : ""}`}
+                                        >
+                                          {file.path}
+                                        </span>
+                                        <span className="shrink-0">
+                                          {isExcluded ? (
+                                            <span className="text-muted-foreground">Excluded</span>
+                                          ) : (
+                                            <>
+                                              <span className="text-success">
+                                                +{file.insertions}
+                                              </span>
+                                              <span className="text-muted-foreground"> / </span>
+                                              <span className="text-destructive">
+                                                -{file.deletions}
+                                              </span>
+                                            </>
+                                          )}
+                                        </span>
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </ScrollArea>
+                            <div className="flex justify-end font-mono">
+                              <span className="text-success">
+                                +{section.selected.reduce((sum, file) => sum + file.insertions, 0)}
+                              </span>
+                              <span className="text-muted-foreground"> / </span>
+                              <span className="text-destructive">
+                                -{section.selected.reduce((sum, file) => sum + file.deletions, 0)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium">Commit message (optional)</p>
-              <Textarea
-                value={dialogCommitMessage}
-                onChange={(event) => setDialogCommitMessage(event.target.value)}
-                placeholder="Leave empty to auto-generate"
-                size="sm"
-              />
-            </div>
+            ) : (
+              <>
+                <div className="space-y-3 rounded-lg border border-input bg-muted/40 p-3 text-xs">
+                  <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
+                    <span className="text-muted-foreground">Branch</span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium">
+                        {gitStatusForActions?.branch ?? "(detached HEAD)"}
+                      </span>
+                      {isDefaultBranch && (
+                        <span className="text-right text-warning text-xs">
+                          Warning: default branch
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isEditingFiles && allFiles.length > 0 && (
+                          <Checkbox
+                            checked={allSelected}
+                            indeterminate={!allSelected && !noneSelected}
+                            onCheckedChange={() => {
+                              setExcludedFiles(
+                                allSelected ? new Set(allFiles.map((f) => f.path)) : new Set(),
+                              );
+                            }}
+                          />
+                        )}
+                        <span className="text-muted-foreground">Files</span>
+                        {!allSelected && !isEditingFiles && (
+                          <span className="text-muted-foreground">
+                            ({selectedFiles.length} of {allFiles.length})
+                          </span>
+                        )}
+                      </div>
+                      {allFiles.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => setIsEditingFiles((prev) => !prev)}
+                        >
+                          {isEditingFiles ? "Done" : "Edit"}
+                        </Button>
+                      )}
+                    </div>
+                    {!gitStatusForActions || allFiles.length === 0 ? (
+                      <p className="font-medium">none</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <ScrollArea className="h-44 rounded-md border border-input bg-background">
+                          <div className="space-y-1 p-1">
+                            {allFiles.map((file) => {
+                              const isExcluded = excludedFiles.has(file.path);
+                              return (
+                                <div
+                                  key={file.path}
+                                  className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent/50"
+                                >
+                                  {isEditingFiles && (
+                                    <Checkbox
+                                      checked={!excludedFiles.has(file.path)}
+                                      onCheckedChange={() => {
+                                        setExcludedFiles((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(file.path)) {
+                                            next.delete(file.path);
+                                          } else {
+                                            next.add(file.path);
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="flex flex-1 items-center justify-between gap-3 text-left truncate"
+                                    onClick={() =>
+                                      openChangedFileInEditor(file.path, gitTarget.repoPath!)
+                                    }
+                                  >
+                                    <span
+                                      className={`truncate${isExcluded ? " text-muted-foreground" : ""}`}
+                                    >
+                                      {file.path}
+                                    </span>
+                                    <span className="shrink-0">
+                                      {isExcluded ? (
+                                        <span className="text-muted-foreground">Excluded</span>
+                                      ) : (
+                                        <>
+                                          <span className="text-success">+{file.insertions}</span>
+                                          <span className="text-muted-foreground"> / </span>
+                                          <span className="text-destructive">
+                                            -{file.deletions}
+                                          </span>
+                                        </>
+                                      )}
+                                    </span>
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </ScrollArea>
+                        <div className="flex justify-end font-mono">
+                          <span className="text-success">
+                            +{selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
+                          </span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className="text-destructive">
+                            -{selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">Commit message (optional)</p>
+                  <Textarea
+                    value={dialogCommitMessage}
+                    onChange={(event) => setDialogCommitMessage(event.target.value)}
+                    placeholder="Leave empty to auto-generate"
+                    size="sm"
+                  />
+                </div>
+              </>
+            )}
           </DialogPanel>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
+              disabled={multiRepoHasRunningRepo}
               onClick={() => {
                 setIsCommitDialogOpen(false);
-                setDialogCommitMessage("");
-                setExcludedFiles(new Set());
-                setIsEditingFiles(false);
+                resetCommitDialogState();
               }}
             >
               Cancel
@@ -1090,13 +1516,25 @@ export default function GitActionsControl({
             <Button
               variant="outline"
               size="sm"
-              disabled={noneSelected}
+              disabled={
+                isMultiRepoDialog
+                  ? !multiRepoHasAnySelectedFiles || multiRepoHasRunningRepo
+                  : noneSelected
+              }
               onClick={runDialogActionOnNewBranch}
             >
-              Commit on new branch
+              {isMultiRepoDialog ? multiRepoRetryNewBranchLabel : "Commit on new branch"}
             </Button>
-            <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
-              Commit
+            <Button
+              size="sm"
+              disabled={
+                isMultiRepoDialog
+                  ? !multiRepoHasAnySelectedFiles || multiRepoHasRunningRepo
+                  : noneSelected
+              }
+              onClick={runDialogAction}
+            >
+              {isMultiRepoDialog ? multiRepoRetryLabel : "Commit"}
             </Button>
           </DialogFooter>
         </DialogPopup>
