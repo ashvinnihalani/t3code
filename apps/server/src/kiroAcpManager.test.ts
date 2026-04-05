@@ -277,6 +277,24 @@ describe("KiroAcpManager", () => {
     await Promise.resolve();
   });
 
+  it("sends session/cancel as a notification", async () => {
+    const manager = new KiroAcpManager();
+    const session = createTestSession();
+    session.rpc.notify = vi.fn();
+    (
+      manager as unknown as {
+        sessions: Map<string, ReturnType<typeof createTestSession>>;
+      }
+    ).sessions.set(session.threadId, session);
+
+    await manager.interruptTurn(session.threadId);
+
+    expect(session.rpc.notify).toHaveBeenCalledWith("session/cancel", {
+      sessionId: "session-1",
+    });
+    expect(session.rpc.request).not.toHaveBeenCalled();
+  });
+
   it("configures trust-all for full-access turns before prompting", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();
