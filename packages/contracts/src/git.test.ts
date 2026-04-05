@@ -18,7 +18,7 @@ const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRe
 describe("GitCreateWorktreeInput", () => {
   it("accepts omitted newBranch for existing-branch worktrees", () => {
     const parsed = decodeCreateWorktreeInput({
-      cwd: "/repo",
+      repoPath: "/repo",
       branch: "feature/existing",
       path: "/tmp/worktree",
     });
@@ -31,7 +31,7 @@ describe("GitCreateWorktreeInput", () => {
 describe("GitPreparePullRequestThreadInput", () => {
   it("accepts pull request references and mode", () => {
     const parsed = decodePreparePullRequestThreadInput({
-      cwd: "/repo",
+      repoPath: "/repo",
       reference: "#42",
       mode: "worktree",
     });
@@ -63,7 +63,7 @@ describe("GitRunStackedActionInput", () => {
   it("requires a client-provided actionId for progress correlation", () => {
     const parsed = decodeRunStackedActionInput({
       actionId: "action-1",
-      cwd: "/repo",
+      repoPath: "/repo",
       action: "commit",
       modelSelection: {
         provider: "codex",
@@ -78,7 +78,7 @@ describe("GitRunStackedActionInput", () => {
   it("accepts git text generation as a modelSelection", () => {
     const parsed = decodeRunStackedActionInput({
       actionId: "action-1",
-      cwd: "/repo",
+      repoPath: "/repo",
       action: "commit_push_pr",
       modelSelection: {
         provider: "claudeAgent",

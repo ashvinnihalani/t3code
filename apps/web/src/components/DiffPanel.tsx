@@ -193,7 +193,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     ? (getSingleRepoWorktreePath(activeThread) ?? activeProject?.cwd ?? null)
     : (activeProject?.cwd ?? null);
   const gitTarget = useMemo(
-    () => ({ cwd: activeCwd, projectId: activeProject?.id ?? null }),
+    () => ({ repoPath: activeCwd, projectId: activeProject?.id ?? null }),
     [activeCwd, activeProject?.id],
   );
   const gitBranchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));

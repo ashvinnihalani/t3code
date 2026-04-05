@@ -1,7 +1,7 @@
 import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
 import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { FolderIcon, GitForkIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -48,6 +48,8 @@ interface BranchToolbarProps {
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
   projectRemote: ProjectRemoteTarget | null;
+  selectedRepoPath: string | null;
+  onSelectedRepoPathChange: (repoPath: string | null) => void;
   providerThreadId?: string | null;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -58,6 +60,8 @@ export default function BranchToolbar({
   onEnvModeChange,
   envLocked,
   projectRemote,
+  selectedRepoPath,
+  onSelectedRepoPathChange,
   providerThreadId,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -75,9 +79,6 @@ export default function BranchToolbar({
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const isMultiRepo = activeProject?.gitMode === "multi";
   const gitRepos = useMemo(() => activeProject?.gitRepos ?? [], [activeProject?.gitRepos]);
-  const [selectedRepoPath, setSelectedRepoPath] = useState<string | null>(
-    gitRepos[0]?.repoPath ?? null,
-  );
   const selectedRepoIndex = useMemo(
     () =>
       selectedRepoPath ? gitRepos.findIndex((repo) => repo.repoPath === selectedRepoPath) : -1,
@@ -291,7 +292,7 @@ export default function BranchToolbar({
         {isMultiRepo && gitRepos.length > 0 ? (
           <Select
             value={selectedRepoPath ?? gitRepos[0]?.repoPath}
-            onValueChange={setSelectedRepoPath}
+            onValueChange={onSelectedRepoPathChange}
             items={gitRepos.map((repo) => ({ value: repo.repoPath, label: repo.displayName }))}
           >
             <SelectTrigger variant="ghost" size="xs" className="font-medium">
@@ -313,7 +314,6 @@ export default function BranchToolbar({
           activeThreadBranch={activeThreadBranch}
           activeWorktreePath={activeWorktreePath}
           branchCwd={branchCwd}
-          repoPath={isMultiRepo ? (selectedRepoPath ?? gitRepos[0]?.repoPath ?? null) : null}
           effectiveEnvMode={effectiveEnvMode}
           envLocked={envLocked}
           onSetThreadBranch={setThreadBranch}

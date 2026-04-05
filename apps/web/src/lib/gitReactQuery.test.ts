@@ -9,20 +9,20 @@ import {
 } from "./gitReactQuery";
 
 describe("gitMutationKeys", () => {
-  const repoATarget: GitQueryTarget = { cwd: "/repo/a", projectId: null };
-  const repoBTarget: GitQueryTarget = { cwd: "/repo/b", projectId: null };
+  const repoATarget: GitQueryTarget = { repoPath: "/repo/a", projectId: null };
+  const repoBTarget: GitQueryTarget = { repoPath: "/repo/b", projectId: null };
 
-  it("scopes stacked action keys by cwd", () => {
+  it("scopes stacked action keys by repoPath", () => {
     expect(gitMutationKeys.runStackedAction(repoATarget)).not.toEqual(
       gitMutationKeys.runStackedAction(repoBTarget),
     );
   });
 
-  it("scopes pull keys by cwd", () => {
+  it("scopes pull keys by repoPath", () => {
     expect(gitMutationKeys.pull(repoATarget)).not.toEqual(gitMutationKeys.pull(repoBTarget));
   });
 
-  it("scopes pull request thread preparation keys by cwd", () => {
+  it("scopes pull request thread preparation keys by repoPath", () => {
     expect(gitMutationKeys.preparePullRequestThread(repoATarget)).not.toEqual(
       gitMutationKeys.preparePullRequestThread(repoBTarget),
     );
@@ -31,9 +31,9 @@ describe("gitMutationKeys", () => {
 
 describe("git mutation options", () => {
   const queryClient = new QueryClient();
-  const target: GitQueryTarget = { cwd: "/repo/a", projectId: null };
+  const target: GitQueryTarget = { repoPath: "/repo/a", projectId: null };
 
-  it("attaches cwd-scoped mutation key for runStackedAction", () => {
+  it("attaches repoPath-scoped mutation key for runStackedAction", () => {
     const options = gitRunStackedActionMutationOptions({
       target,
       queryClient,
@@ -45,12 +45,12 @@ describe("git mutation options", () => {
     expect(options.mutationKey).toEqual(gitMutationKeys.runStackedAction(target));
   });
 
-  it("attaches cwd-scoped mutation key for pull", () => {
+  it("attaches repoPath-scoped mutation key for pull", () => {
     const options = gitPullMutationOptions({ target, queryClient });
     expect(options.mutationKey).toEqual(gitMutationKeys.pull(target));
   });
 
-  it("attaches cwd-scoped mutation key for preparePullRequestThread", () => {
+  it("attaches repoPath-scoped mutation key for preparePullRequestThread", () => {
     const options = gitPreparePullRequestThreadMutationOptions({
       target,
       queryClient,

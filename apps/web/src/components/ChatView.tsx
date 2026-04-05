@@ -10,6 +10,7 @@ import {
   type ModelSelection,
   type ProjectId,
   type ProjectEntry,
+  type ProjectGitRepo,
   type ProjectScript,
   type ModelSlug,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -200,6 +201,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
+const EMPTY_GIT_REPOS: ProjectGitRepo[] = [];
 const EMPTY_AVAILABLE_EDITORS: EditorId[] = [];
 const EMPTY_PROVIDER_STATUSES: ServerProviderStatus[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -564,6 +566,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = projects.find((p) => p.id === activeThread?.projectId);
+  const activeProjectGitRepos = activeProject?.gitRepos ?? EMPTY_GIT_REPOS;
+  const [selectedMultiRepoPath, setSelectedMultiRepoPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (activeProject?.gitMode !== "multi") {
+      setSelectedMultiRepoPath(null);
+      return;
+    }
+    if (
+      selectedMultiRepoPath &&
+      activeProjectGitRepos.some((repo) => repo.repoPath === selectedMultiRepoPath)
+    ) {
+      return;
+    }
+    setSelectedMultiRepoPath(activeProjectGitRepos[0]?.repoPath ?? null);
+  }, [activeProject?.gitMode, activeProjectGitRepos, selectedMultiRepoPath]);
+  const selectedMultiRepoIndex = useMemo(
+    () =>
+      selectedMultiRepoPath
+        ? activeProjectGitRepos.findIndex((repo) => repo.repoPath === selectedMultiRepoPath)
+        : -1,
+    [activeProjectGitRepos, selectedMultiRepoPath],
+  );
+  const resolvedSelectedMultiRepoIndex = selectedMultiRepoIndex >= 0 ? selectedMultiRepoIndex : 0;
+  const selectedMultiRepoRelativePath =
+    activeProject?.gitMode === "multi"
+      ? (selectedMultiRepoPath ?? activeProjectGitRepos[0]?.repoPath ?? null)
+      : null;
+  const selectedMultiRepoExecutionPath = useMemo(() => {
+    if (activeProject?.gitMode !== "multi" || !selectedMultiRepoRelativePath) {
+      return null;
+    }
+    return (
+      activeThread?.worktreePath[resolvedSelectedMultiRepoIndex] ??
+      joinRepoPath(activeProject.cwd, selectedMultiRepoRelativePath)
+    );
+  }, [
+    activeProject?.cwd,
+    activeProject?.gitMode,
+    activeThread?.worktreePath,
+    resolvedSelectedMultiRepoIndex,
+    selectedMultiRepoRelativePath,
+  ]);
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -1108,9 +1152,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const gitTarget = useMemo(
     () =>
       activeProject?.gitMode === "multi"
-        ? { cwd: null, projectId: activeProject.id }
-        : { cwd: gitCwd, projectId: activeProject?.id ?? null },
-    [activeProject?.gitMode, activeProject?.id, gitCwd],
+        ? { repoPath: selectedMultiRepoExecutionPath, projectId: activeProject.id }
+        : { repoPath: gitCwd, projectId: activeProject?.id ?? null },
+    [activeProject?.gitMode, activeProject?.id, gitCwd, selectedMultiRepoExecutionPath],
   );
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
@@ -2698,9 +2742,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 return selectedBranch;
               }
               const status = await api.git.status({
-                cwd: activeProject.cwd,
+                repoPath: joinRepoPath(activeProject.cwd, repo.repoPath),
                 projectId: activeProject.id,
-                repoPath: repo.repoPath,
               });
               if (!status.branch) {
                 throw new Error(`Could not determine the current branch for ${repo.displayName}.`);
@@ -2725,9 +2768,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               duplicateDisplayNames,
             });
             const result = await createWorktreeMutation.mutateAsync({
-              cwd: activeProject.cwd,
+              repoPath: joinRepoPath(activeProject.cwd, repo.repoPath),
               projectId: activeProject.id,
-              repoPath: repo.repoPath,
               branch: baseBranch,
               newBranch,
               path: joinRepoPath(syntheticRoot, repo.repoPath),
@@ -2794,7 +2836,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           const newBranch = buildTemporaryWorktreeBranchName();
           const result = await createWorktreeMutation.mutateAsync({
-            cwd: activeProject.cwd,
+            repoPath: activeProject.cwd,
             projectId: activeProject.id,
             branch: baseBranchForWorktree,
             newBranch,
@@ -2964,7 +3006,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         await Promise.allSettled(
           createdWorktreePathsForCleanup.map((worktreePath) =>
             api.git.removeWorktree({
-              cwd: worktreePath,
+              repoPath: worktreePath,
               path: worktreePath,
               force: true,
             }),
@@ -3816,7 +3858,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectName={activeProject?.name}
           activeProjectGitMode={activeProject?.gitMode ?? null}
           activeProjectRemote={activeProject?.remote ?? null}
-          disableGitActions={activeProject?.gitMode === "multi"}
+          disableGitActions={false}
           isRemoteProject={Boolean(activeProject?.remote)}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
@@ -4435,6 +4477,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               onEnvModeChange={onEnvModeChange}
               envLocked={envLocked}
               projectRemote={activeProject?.remote ?? null}
+              selectedRepoPath={selectedMultiRepoRelativePath}
+              onSelectedRepoPathChange={setSelectedMultiRepoPath}
               providerThreadId={showComposerThreadId ? visibleProviderThreadId : null}
               onComposerFocusRequest={scheduleComposerFocus}
               {...(canCheckoutPullRequestIntoThread
@@ -4446,7 +4490,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             <PullRequestThreadDialog
               key={pullRequestDialogState.key}
               open
-              cwd={activeProject?.cwd ?? null}
+              repoPath={gitTarget.repoPath}
               projectId={activeProject?.id ?? null}
               isRemoteProject={Boolean(activeProject?.remote)}
               initialReference={pullRequestDialogState.initialReference}

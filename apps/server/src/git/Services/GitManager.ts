@@ -22,11 +22,15 @@ import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 import type { GitManagerServiceError } from "../Errors.ts";
 
-export interface GitStatusExecutionInput extends GitStatusInput {
+export interface GitStatusExecutionInput extends Omit<GitStatusInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitPullRequestRefExecutionInput extends GitPullRequestRefInput {
+export interface GitPullRequestRefExecutionInput extends Omit<GitPullRequestRefInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
@@ -34,11 +38,21 @@ export interface GitActionProgressReporter {
   readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
 }
 
-export interface GitPreparePullRequestThreadExecutionInput extends GitPreparePullRequestThreadInput {
+export interface GitPreparePullRequestThreadExecutionInput extends Omit<
+  GitPreparePullRequestThreadInput,
+  "repoPath"
+> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitRunStackedActionExecutionInput extends GitRunStackedActionInput {
+export interface GitRunStackedActionExecutionInput extends Omit<
+  GitRunStackedActionInput,
+  "repoPath"
+> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 

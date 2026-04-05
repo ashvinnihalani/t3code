@@ -64,7 +64,7 @@ it.effect("accepts git.preparePullRequestThread requests", () =>
       id: "req-pr-1",
       body: {
         _tag: WS_METHODS.gitPreparePullRequestThread,
-        cwd: "/repo",
+        repoPath: "/repo",
         reference: "#42",
         mode: "worktree",
       },

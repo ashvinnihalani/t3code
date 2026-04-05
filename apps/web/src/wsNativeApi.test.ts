@@ -420,7 +420,7 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
     await api.git.runStackedAction({
       actionId: "action-1",
-      cwd: "/repo",
+      repoPath: "/repo",
       action: "commit",
       modelSelection: {
         provider: "codex",
@@ -432,7 +432,7 @@ describe("wsNativeApi", () => {
       WS_METHODS.gitRunStackedAction,
       {
         actionId: "action-1",
-        cwd: "/repo",
+        repoPath: "/repo",
         action: "commit",
         modelSelection: {
           provider: "codex",

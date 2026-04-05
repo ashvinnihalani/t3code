@@ -618,6 +618,7 @@ describe("WebSocket Server", () => {
           | "listBranches"
           | "initRepo"
           | "pullCurrentBranch"
+          | "removeWorktree"
           | "checkoutBranch"
           | "createWorktree"
           | "createBranch"
@@ -2039,16 +2040,18 @@ describe("WebSocket Server", () => {
     const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
 
-    const listResponse = await sendRequest(ws, WS_METHODS.gitListBranches, { cwd: "/repo/path" });
+    const listResponse = await sendRequest(ws, WS_METHODS.gitListBranches, {
+      repoPath: "/repo/path",
+    });
     expect(listResponse.error).toBeUndefined();
     expect(listResponse.result).toEqual({ branches: [], isRepo: false, hasOriginRemote: false });
-    expect(listBranches).toHaveBeenCalledWith({ cwd: "/repo/path" });
+    expect(listBranches).toHaveBeenCalledWith({ repoPath: "/repo/path", cwd: "/repo/path" });
 
-    const initResponse = await sendRequest(ws, WS_METHODS.gitInit, { cwd: "/repo/path" });
+    const initResponse = await sendRequest(ws, WS_METHODS.gitInit, { repoPath: "/repo/path" });
     expect(initResponse.error).toBeUndefined();
-    expect(initRepo).toHaveBeenCalledWith({ cwd: "/repo/path" });
+    expect(initRepo).toHaveBeenCalledWith({ repoPath: "/repo/path", cwd: "/repo/path" });
 
-    const pullResponse = await sendRequest(ws, WS_METHODS.gitPull, { cwd: "/repo/path" });
+    const pullResponse = await sendRequest(ws, WS_METHODS.gitPull, { repoPath: "/repo/path" });
     expect(pullResponse.result).toBeUndefined();
     expect(pullResponse.error?.message).toContain("No upstream configured");
     expect(pullCurrentBranch).toHaveBeenCalledWith("/repo/path", null);
@@ -2088,11 +2091,11 @@ describe("WebSocket Server", () => {
     connections.push(ws);
 
     const response = await sendRequest(ws, WS_METHODS.gitStatus, {
-      cwd: "/test",
+      repoPath: "/test",
     });
     expect(response.error).toBeUndefined();
     expect(response.result).toEqual(statusResult);
-    expect(status).toHaveBeenCalledWith({ cwd: "/test" });
+    expect(status).toHaveBeenCalledWith({ repoPath: "/test", cwd: "/test" });
   });
 
   it("routes multi-repo local checkout to the selected repo root", async () => {
@@ -2159,9 +2162,8 @@ describe("WebSocket Server", () => {
     });
 
     const response = await sendRequest(ws, WS_METHODS.gitCheckout, {
-      cwd: workspaceRoot,
+      repoPath: path.join(workspaceRoot, "src", "NeMo"),
       projectId,
-      repoPath: "src/NeMo",
       branch: "origin/zoezeng_dev_ift",
     });
     expect(response.error).toBeUndefined();
@@ -2170,7 +2172,7 @@ describe("WebSocket Server", () => {
         cwd: path.join(workspaceRoot, "src", "NeMo"),
         branch: "origin/zoezeng_dev_ift",
         projectId,
-        repoPath: "src/NeMo",
+        repoPath: path.join(workspaceRoot, "src", "NeMo"),
       }),
     );
   });
@@ -2245,9 +2247,8 @@ describe("WebSocket Server", () => {
     });
 
     const response = await sendRequest(ws, WS_METHODS.gitCreateWorktree, {
-      cwd: workspaceRoot,
+      repoPath: path.join(workspaceRoot, "src", "NeMo"),
       projectId,
-      repoPath: "src/NeMo",
       branch: "nemo-2.4.0rc0_d0126ce",
       newBranch: "t3code/56f9d65c-src-NeMo",
       path: "/Users/ashvinn/.t3-dev/worktrees/sfailib/t3code-36707a57/src/NeMo",
@@ -2260,7 +2261,329 @@ describe("WebSocket Server", () => {
         newBranch: "t3code/56f9d65c-src-NeMo",
         path: "/Users/ashvinn/.t3-dev/worktrees/sfailib/t3code-36707a57/src/NeMo",
         projectId,
-        repoPath: "src/NeMo",
+        repoPath: path.join(workspaceRoot, "src", "NeMo"),
+      }),
+    );
+  });
+
+  it("routes multi-repo pull to the selected repo root", async () => {
+    const pullCurrentBranch = vi.fn(() =>
+      Effect.succeed({
+        status: "pulled" as const,
+        branch: "main",
+        upstreamBranch: "origin/main",
+      }),
+    );
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-pull-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    fs.mkdirSync(path.join(workspaceRoot, "src", "Other"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "Other") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch,
+        removeWorktree: vi.fn(() => Effect.void as any),
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree: vi.fn(() => Effect.void as any),
+        checkoutBranch: vi.fn(() => Effect.void as any),
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const projectId = ProjectId.makeUnsafe("project-multi-local-pull");
+    const createdAt = new Date().toISOString();
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+
+    const response = await sendRequest(ws, WS_METHODS.gitPull, {
+      repoPath: path.join(workspaceRoot, "src", "Other"),
+      projectId,
+    });
+    expect(response.error).toBeUndefined();
+    expect(pullCurrentBranch).toHaveBeenCalledWith(path.join(workspaceRoot, "src", "Other"), null);
+  });
+
+  it("routes multi-repo stacked git actions to the selected repo root", async () => {
+    const runStackedAction = vi.fn(() =>
+      Effect.succeed({
+        action: "commit" as const,
+        branch: { status: "skipped_not_requested" as const },
+        commit: { status: "created" as const, commitSha: "abc1234", subject: "Test commit" },
+        push: { status: "skipped_not_requested" as const },
+        pr: { status: "skipped_not_requested" as const },
+      }),
+    );
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-stacked-action-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitManager: {
+        status: vi.fn(() => Effect.void as any),
+        resolvePullRequest: vi.fn(() => Effect.void as any),
+        preparePullRequestThread: vi.fn(() => Effect.void as any),
+        runStackedAction,
+      },
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch: vi.fn(() => Effect.void as any),
+        removeWorktree: vi.fn(() => Effect.void as any),
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree: vi.fn(() => Effect.void as any),
+        checkoutBranch: vi.fn(() => Effect.void as any),
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const projectId = ProjectId.makeUnsafe("project-multi-local-stacked-action");
+    const createdAt = new Date().toISOString();
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+
+    const response = await sendRequest(ws, WS_METHODS.gitRunStackedAction, {
+      actionId: "multi-repo-action-1",
+      repoPath: path.join(workspaceRoot, "src", "NeMo"),
+      projectId,
+      action: "commit",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+    });
+    expect(response.error).toBeUndefined();
+    expect(runStackedAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: path.join(workspaceRoot, "src", "NeMo"),
+        cwd: path.join(workspaceRoot, "src", "NeMo"),
+        projectId,
+        action: "commit",
+      }),
+      expect.objectContaining({
+        actionId: "multi-repo-action-1",
+      }),
+    );
+  });
+
+  it("routes multi-repo pull request flows to the selected repo root", async () => {
+    const resolvePullRequest = vi.fn(() =>
+      Effect.succeed({
+        pullRequest: {
+          number: 42,
+          title: "PR thread flow",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+          baseBranch: "main",
+          headBranch: "feature/pr-threads",
+          state: "open" as const,
+        },
+      }),
+    );
+    const preparePullRequestThread = vi.fn(() =>
+      Effect.succeed({
+        pullRequest: {
+          number: 42,
+          title: "PR thread flow",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+          baseBranch: "main",
+          headBranch: "feature/pr-threads",
+          state: "open" as const,
+        },
+        branch: "feature/pr-threads",
+        worktreePath: "/tmp/pr-threads",
+      }),
+    );
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-pr-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitManager: {
+        status: vi.fn(() => Effect.void as any),
+        resolvePullRequest,
+        preparePullRequestThread,
+        runStackedAction: vi.fn(() => Effect.void as any),
+      },
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch: vi.fn(() => Effect.void as any),
+        removeWorktree: vi.fn(() => Effect.void as any),
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree: vi.fn(() => Effect.void as any),
+        checkoutBranch: vi.fn(() => Effect.void as any),
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const projectId = ProjectId.makeUnsafe("project-multi-local-pr");
+    const createdAt = new Date().toISOString();
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+
+    const repoPath = path.join(workspaceRoot, "src", "NeMo");
+    const resolveResponse = await sendRequest(ws, WS_METHODS.gitResolvePullRequest, {
+      repoPath,
+      projectId,
+      reference: "#42",
+    });
+    expect(resolveResponse.error).toBeUndefined();
+
+    const prepareResponse = await sendRequest(ws, WS_METHODS.gitPreparePullRequestThread, {
+      repoPath,
+      projectId,
+      reference: "42",
+      mode: "worktree",
+    });
+    expect(prepareResponse.error).toBeUndefined();
+    expect(resolvePullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath,
+        cwd: repoPath,
+        projectId,
+        reference: "#42",
+      }),
+    );
+    expect(preparePullRequestThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath,
+        cwd: repoPath,
+        projectId,
+        reference: "42",
+        mode: "worktree",
+      }),
+    );
+  });
+
+  it("routes multi-repo worktree removal to the selected repo root", async () => {
+    const removeWorktree = vi.fn(() => Effect.void as any);
+    const workspaceRoot = fs.realpathSync(makeTempDir("multi-repo-local-remove-worktree-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src", "NeMo"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: path.join(workspaceRoot, "src", "NeMo") });
+
+    server = await createTestServer({
+      cwd: "/test",
+      gitCore: {
+        listBranches: vi.fn(() =>
+          Effect.succeed({
+            branches: [],
+            isRepo: true,
+            hasOriginRemote: true,
+          }),
+        ),
+        initRepo: vi.fn(() => Effect.void),
+        pullCurrentBranch: vi.fn(() => Effect.void as any),
+        removeWorktree,
+        createBranch: vi.fn(() => Effect.void as any),
+        createWorktree: vi.fn(() => Effect.void as any),
+        checkoutBranch: vi.fn(() => Effect.void as any),
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const projectId = ProjectId.makeUnsafe("project-multi-local-remove-worktree");
+    const createdAt = new Date().toISOString();
+    const createProjectResponse = await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      projectId,
+      title: "Multi repo project",
+      workspaceRoot,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      createdAt,
+    });
+    expect(createProjectResponse.error).toBeUndefined();
+
+    const repoPath = path.join(workspaceRoot, "src", "NeMo");
+    const response = await sendRequest(ws, WS_METHODS.gitRemoveWorktree, {
+      repoPath,
+      projectId,
+      path: path.join(workspaceRoot, ".t3", "worktrees", "feature"),
+      force: true,
+    });
+    expect(response.error).toBeUndefined();
+    expect(removeWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath,
+        cwd: repoPath,
+        projectId,
+        path: path.join(workspaceRoot, ".t3", "worktrees", "feature"),
+        force: true,
       }),
     );
   });
@@ -2297,24 +2620,26 @@ describe("WebSocket Server", () => {
     connections.push(ws);
 
     const resolveResponse = await sendRequest(ws, WS_METHODS.gitResolvePullRequest, {
-      cwd: "/test",
+      repoPath: "/test",
       reference: "#42",
     });
     expect(resolveResponse.error).toBeUndefined();
     expect(resolveResponse.result).toEqual(resolvePullRequestResult);
 
     const prepareResponse = await sendRequest(ws, WS_METHODS.gitPreparePullRequestThread, {
-      cwd: "/test",
+      repoPath: "/test",
       reference: "42",
       mode: "worktree",
     });
     expect(prepareResponse.error).toBeUndefined();
     expect(prepareResponse.result).toEqual(preparePullRequestThreadResult);
     expect(gitManager.resolvePullRequest).toHaveBeenCalledWith({
+      repoPath: "/test",
       cwd: "/test",
       reference: "#42",
     });
     expect(gitManager.preparePullRequestThread).toHaveBeenCalledWith({
+      repoPath: "/test",
       cwd: "/test",
       reference: "42",
       mode: "worktree",
@@ -2346,7 +2671,7 @@ describe("WebSocket Server", () => {
 
     const response = await sendRequest(ws, WS_METHODS.gitRunStackedAction, {
       actionId: "client-action-1",
-      cwd: "/test",
+      repoPath: "/test",
       action: "commit_push",
       modelSelection: {
         provider: "codex",
@@ -2358,6 +2683,7 @@ describe("WebSocket Server", () => {
     expect(runStackedAction).toHaveBeenCalledWith(
       {
         actionId: "client-action-1",
+        repoPath: "/test",
         cwd: "/test",
         action: "commit_push",
         modelSelection: {
@@ -2417,7 +2743,7 @@ describe("WebSocket Server", () => {
 
     const responsePromise = sendRequest(initiatingWs, WS_METHODS.gitRunStackedAction, {
       actionId: "client-action-2",
-      cwd: "/test",
+      repoPath: "/test",
       action: "commit",
       modelSelection: {
         provider: "codex",

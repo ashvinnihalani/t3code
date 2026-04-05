@@ -25,7 +25,7 @@ import { Spinner } from "./ui/spinner";
 
 interface PullRequestThreadDialogProps {
   open: boolean;
-  cwd: string | null;
+  repoPath: string | null;
   projectId: ProjectId | null;
   isRemoteProject: boolean;
   initialReference: string | null;
@@ -35,7 +35,7 @@ interface PullRequestThreadDialogProps {
 
 export function PullRequestThreadDialog({
   open,
-  cwd,
+  repoPath,
   projectId,
   isRemoteProject,
   initialReference,
@@ -74,7 +74,7 @@ export function PullRequestThreadDialog({
 
   const parsedReference = parsePullRequestReference(reference);
   const parsedDebouncedReference = parsePullRequestReference(debouncedReference);
-  const gitTarget = useMemo(() => ({ cwd, projectId }), [cwd, projectId]);
+  const gitTarget = useMemo(() => ({ repoPath, projectId }), [projectId, repoPath]);
   const gitRequestSettings = useMemo(() => buildGitRequestSettings(settings), [settings]);
   const resolvePullRequestQuery = useQuery(
     gitResolvePullRequestQueryOptions({
@@ -84,19 +84,19 @@ export function PullRequestThreadDialog({
     }),
   );
   const cachedPullRequest = useMemo(() => {
-    if (!cwd || !parsedReference) {
+    if (!repoPath || !parsedReference) {
       return null;
     }
     const cached = queryClient.getQueryData<GitResolvePullRequestResult>([
       "git",
       "pull-request",
       projectId,
-      cwd,
+      repoPath,
       parsedReference,
       gitRequestSettings?.githubBinaryPath ?? null,
     ]);
     return cached?.pullRequest ?? null;
-  }, [cwd, gitRequestSettings?.githubBinaryPath, parsedReference, projectId, queryClient]);
+  }, [gitRequestSettings?.githubBinaryPath, parsedReference, projectId, queryClient, repoPath]);
   const preparePullRequestThreadMutation = useMutation(
     gitPreparePullRequestThreadMutationOptions({
       target: gitTarget,
@@ -137,7 +137,7 @@ export function PullRequestThreadDialog({
         setReferenceDirty(true);
         return;
       }
-      if (!parsedReference || !resolvedPullRequest || !cwd) {
+      if (!parsedReference || !resolvedPullRequest || !repoPath) {
         return;
       }
       setPreparingMode(mode);
@@ -156,12 +156,12 @@ export function PullRequestThreadDialog({
       }
     },
     [
-      cwd,
       onOpenChange,
       onPrepared,
       parsedReference,
       preparePullRequestThreadMutation,
       resolvedPullRequest,
+      repoPath,
     ],
   );
 
@@ -268,7 +268,7 @@ export function PullRequestThreadDialog({
               void handleConfirm("local");
             }}
             disabled={
-              !cwd ||
+              !repoPath ||
               !resolvedPullRequest ||
               isResolving ||
               preparePullRequestThreadMutation.isPending
@@ -283,7 +283,7 @@ export function PullRequestThreadDialog({
               void handleConfirm("worktree");
             }}
             disabled={
-              !cwd ||
+              !repoPath ||
               isRemoteProject ||
               !resolvedPullRequest ||
               isResolving ||
