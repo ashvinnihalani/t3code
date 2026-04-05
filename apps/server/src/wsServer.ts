@@ -986,7 +986,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const project = yield* resolveProject(input.projectId);
     return {
       cwd: repoPath,
-      // "remote" is the field name expected by git operation functions (ProjectRemoteTarget)
+      // git operation functions accept a `remote` field (ProjectExecutionTarget alias)
       remote: project.host ?? null,
     };
   });
@@ -1403,7 +1403,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           try: () =>
             searchWorkspaceEntries({
               cwd: project.workspaceRoot,
-              // "remote" is the field name expected by searchWorkspaceEntries (ProjectRemoteTarget)
+              // searchWorkspaceEntries accepts a `remote` field (ProjectExecutionTarget alias)
               remote: project.host ?? null,
               query: body.query,
               limit: body.limit,
