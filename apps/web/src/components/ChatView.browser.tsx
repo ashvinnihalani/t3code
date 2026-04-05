@@ -379,35 +379,39 @@ function createDraftOnlySnapshot(): OrchestrationReadModel {
   };
 }
 
-function createMultiRepoDraftOnlySnapshot(): OrchestrationReadModel {
-  const snapshot = createDraftOnlySnapshot();
+function updateProjectInSnapshot(
+  snapshot: OrchestrationReadModel,
+  updateProject: (
+    project: OrchestrationReadModel["projects"][number],
+  ) => OrchestrationReadModel["projects"][number],
+): OrchestrationReadModel {
   return {
     ...snapshot,
     projects: snapshot.projects.map((project) =>
-      project.id === PROJECT_ID
-        ? {
-            ...project,
-            gitMode: "multi" as const,
-            gitRepos: [
-              { repoPath: "apps/web", displayName: "web" },
-              { repoPath: "services/api", displayName: "api" },
-            ],
-          }
-        : project,
+      project.id === PROJECT_ID ? updateProject(project) : project,
     ),
   };
+}
+
+function createMultiRepoDraftOnlySnapshot(): OrchestrationReadModel {
+  return updateProjectInSnapshot(createDraftOnlySnapshot(), (project) =>
+    Object.assign({}, project, {
+      gitMode: "multi" as const,
+      gitRepos: [
+        { repoPath: "apps/web", displayName: "web" },
+        { repoPath: "services/api", displayName: "api" },
+      ],
+    }),
+  );
 }
 
 function withProjectScripts(
   snapshot: OrchestrationReadModel,
   scripts: OrchestrationReadModel["projects"][number]["scripts"],
 ): OrchestrationReadModel {
-  return {
-    ...snapshot,
-    projects: snapshot.projects.map((project) =>
-      project.id === PROJECT_ID ? { ...project, scripts: Array.from(scripts) } : project,
-    ),
-  };
+  return updateProjectInSnapshot(snapshot, (project) =>
+    Object.assign({}, project, { scripts: Array.from(scripts) }),
+  );
 }
 
 function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
@@ -1459,18 +1463,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: {
-        ...createMultiRepoDraftOnlySnapshot(),
-        projects: createMultiRepoDraftOnlySnapshot().projects.map((project) =>
-          project.id === PROJECT_ID
-            ? {
-                ...project,
-                workspaceRoot: "/Users/ashvinn/Documents/SFAILib",
-                cwd: "/Users/ashvinn/Documents/SFAILib",
-              }
-            : project,
-        ),
-      },
+      snapshot: updateProjectInSnapshot(createMultiRepoDraftOnlySnapshot(), (project) =>
+        Object.assign({}, project, {
+          workspaceRoot: "/Users/ashvinn/Documents/SFAILib",
+          cwd: "/Users/ashvinn/Documents/SFAILib",
+        }),
+      ),
     });
 
     try {
