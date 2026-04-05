@@ -49,6 +49,7 @@ import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { cn } from "../lib/utils";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
+import { GIT_PROVIDER_OPTIONS } from "../session-logic";
 import { useStore } from "../store";
 
 const THEME_OPTIONS = [
@@ -992,6 +993,7 @@ function SettingsRouteView() {
                       model={textGenModel}
                       lockedProvider={null}
                       modelOptionsByProvider={gitModelOptionsByProvider}
+                      providerOptions={GIT_PROVIDER_OPTIONS}
                       triggerVariant="outline"
                       triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
                       onProviderModelChange={(provider, model) => {
