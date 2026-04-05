@@ -331,52 +331,58 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
   });
 });
 
-const makeServerProgram = (input: CliInput) =>
+export const withCliPathFixed = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const cliConfig = yield* CliConfig;
-    const { start, stopSignal } = yield* Server;
-    const openDeps = yield* Open;
     yield* cliConfig.fixPath;
+    return yield* effect;
+  });
 
-    const config = yield* ServerConfig;
+const makeServerProgram = (input: CliInput) =>
+  withCliPathFixed(
+    Effect.gen(function* () {
+      const { start, stopSignal } = yield* Server;
+      const openDeps = yield* Open;
+      const config = yield* ServerConfig;
 
-    if (!config.devUrl && !config.staticDir) {
-      yield* Effect.logWarning(
-        "web bundle missing and no VITE_DEV_SERVER_URL; web UI unavailable",
-        {
-          hint: "Run `bun run --cwd apps/web build` or set VITE_DEV_SERVER_URL for dev mode.",
-        },
-      );
-    }
+      if (!config.devUrl && !config.staticDir) {
+        yield* Effect.logWarning(
+          "web bundle missing and no VITE_DEV_SERVER_URL; web UI unavailable",
+          {
+            hint: "Run `bun run --cwd apps/web build` or set VITE_DEV_SERVER_URL for dev mode.",
+          },
+        );
+      }
 
-    yield* start;
-    yield* Effect.forkChild(recordStartupHeartbeat);
+      yield* start;
+      yield* Effect.forkChild(recordStartupHeartbeat);
 
-    const localUrl = `http://localhost:${config.port}`;
-    const bindUrl =
-      config.host && !isWildcardHost(config.host)
-        ? `http://${formatHostForUrl(config.host)}:${config.port}`
-        : localUrl;
-    const { authToken, devUrl, ...safeConfig } = config;
-    yield* Effect.logInfo("T3 Code running", {
-      ...safeConfig,
-      devUrl: devUrl?.toString(),
-      authEnabled: Boolean(authToken),
-    });
+      const localUrl = `http://localhost:${config.port}`;
+      const bindUrl =
+        config.host && !isWildcardHost(config.host)
+          ? `http://${formatHostForUrl(config.host)}:${config.port}`
+          : localUrl;
+      const { authToken, devUrl, ...safeConfig } = config;
+      yield* Effect.logInfo("T3 Code running", {
+        ...safeConfig,
+        devUrl: devUrl?.toString(),
+        authEnabled: Boolean(authToken),
+      });
 
-    if (!config.noBrowser) {
-      const target = config.devUrl?.toString() ?? bindUrl;
-      yield* openDeps.openBrowser(target).pipe(
-        Effect.catch(() =>
-          Effect.logInfo("browser auto-open unavailable", {
-            hint: `Open ${target} in your browser.`,
-          }),
-        ),
-      );
-    }
+      if (!config.noBrowser) {
+        const target = config.devUrl?.toString() ?? bindUrl;
+        yield* openDeps.openBrowser(target).pipe(
+          Effect.catch(() =>
+            Effect.logInfo("browser auto-open unavailable", {
+              hint: `Open ${target} in your browser.`,
+            }),
+          ),
+        );
+      }
 
-    return yield* stopSignal;
-  }).pipe(Effect.provide(LayerLive(input)));
+      return yield* stopSignal;
+    }).pipe(Effect.provide(LayerLive(input))),
+  );
 
 /**
  * These flags mirrors the environment variables and the config shape.
