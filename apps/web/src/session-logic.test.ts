@@ -113,6 +113,32 @@ describe("derivePendingApprovals", () => {
     ]);
   });
 
+  it("keeps generic tool approvals actionable", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-tool",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Tool approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-tool",
+          requestType: "unknown",
+          detail: "Querying knowledge base",
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([
+      {
+        requestId: "req-tool",
+        requestKind: "tool",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        detail: "Querying knowledge base",
+      },
+    ]);
+  });
+
   it("clears stale pending approvals when provider reports unknown pending request", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
