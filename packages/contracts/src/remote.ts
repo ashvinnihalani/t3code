@@ -1,11 +1,53 @@
 import { Schema } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
+import { PositiveInt, RemoteId, TrimmedNonEmptyString } from "./baseSchemas";
 
-export const ProjectRemoteTarget = Schema.Struct({
+/**
+ * BackendKind - Discriminates local vs remote execution targets.
+ */
+export const BackendKind = Schema.Literals(["local", "remote"]);
+export type BackendKind = typeof BackendKind.Type;
+
+/**
+ * RemoteProfile - Identity and connection details for a remote host reachable
+ * via SSH.  One profile corresponds to one remote server process that
+ * multiplexes many projects, threads, terminals, and provider sessions.
+ */
+export const RemoteProfile = Schema.Struct({
+  id: RemoteId,
+  sshHost: TrimmedNonEmptyString,
+  sshUser: Schema.optional(TrimmedNonEmptyString),
+  sshPort: Schema.optional(PositiveInt),
+  displayName: TrimmedNonEmptyString,
+});
+export type RemoteProfile = typeof RemoteProfile.Type;
+
+/**
+ * BackendLocator - Identifies which backend (local or a specific remote) a
+ * resource such as a project, thread, terminal, or provider session belongs to.
+ */
+export const BackendLocator = Schema.Struct({
+  backend: BackendKind,
+  remoteId: Schema.optional(RemoteId),
+});
+export type BackendLocator = typeof BackendLocator.Type;
+
+/**
+ * ProjectExecutionTarget - The canonical type for describing where a project
+ * is executed.  Currently only SSH is supported as a remote transport.
+ */
+export const ProjectExecutionTarget = Schema.Struct({
   kind: Schema.Literal("ssh"),
   hostAlias: TrimmedNonEmptyString,
 });
-export type ProjectRemoteTarget = typeof ProjectRemoteTarget.Type;
+export type ProjectExecutionTarget = typeof ProjectExecutionTarget.Type;
+
+/**
+ * ProjectRemoteTarget - Compatibility alias for {@link ProjectExecutionTarget}.
+ *
+ * @deprecated Use `ProjectExecutionTarget` for new code.
+ */
+export const ProjectRemoteTarget = ProjectExecutionTarget;
+export type ProjectRemoteTarget = ProjectExecutionTarget;
 
 export const SshHostSummary = Schema.Struct({
   alias: TrimmedNonEmptyString,

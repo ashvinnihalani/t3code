@@ -2,7 +2,7 @@ import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
   DEFAULT_PROVIDER_KIND,
   type ProviderKind,
-  type ProjectRemoteTarget,
+  type ProjectExecutionTarget,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
@@ -47,9 +47,9 @@ const persistedProjectOrderKeys: string[] = [];
 
 function projectPersistenceKey(input: {
   cwd: string;
-  remote?: ProjectRemoteTarget | null;
+  host?: ProjectExecutionTarget | null;
 }): string {
-  return input.remote ? `ssh:${input.remote.hostAlias}:${input.cwd}` : `local:${input.cwd}`;
+  return input.host ? `ssh:${input.host.hostAlias}:${input.cwd}` : `local:${input.cwd}`;
 }
 
 // ── Persist helpers ──────────────────────────────────────────────────
@@ -148,7 +148,7 @@ function mapProjectsFromReadModel(
   const mappedProjects = incoming.map((project) => {
     const incomingProjectKey = projectPersistenceKey({
       cwd: project.workspaceRoot,
-      remote: project.remote ?? null,
+      host: project.host ?? null,
     });
     const existing = previousById.get(project.id) ?? previousByKey.get(incomingProjectKey);
     const nextProject = {
@@ -166,7 +166,7 @@ function mapProjectsFromReadModel(
               ),
             }
           : null),
-      remote: project.remote ?? null,
+      host: project.host ?? null,
       expanded: true,
       scripts: project.scripts.map((script) => ({ ...script })),
       gitMode: project.gitMode ?? "none",
@@ -460,7 +460,7 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
 
 export function dismissLocalCodexErrors(state: AppState, dismissedAt: string): AppState {
   const localProjectIds = new Set(
-    state.projects.filter((project) => !project.remote).map((project) => project.id),
+    state.projects.filter((project) => !project.host).map((project) => project.id),
   );
   let changed = state.localCodexErrorsDismissedAfter !== dismissedAt;
   const threads = state.threads.map((thread) => {

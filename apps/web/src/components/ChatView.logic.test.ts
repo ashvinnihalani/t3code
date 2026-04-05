@@ -49,7 +49,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           checkedAt: "2026-03-16T00:00:00.000Z",
           message: "Codex CLI v0.27.0 is too old for T3 Code.",
         },
-        projectRemote: null,
+        projectHost: null,
         session: null,
         localCodexErrorsDismissedAfter: null,
       }),
@@ -73,7 +73,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           checkedAt: "2026-03-16T00:00:00.000Z",
           message: "Codex CLI v0.27.0 is too old for T3 Code.",
         },
-        projectRemote: {
+        projectHost: {
           kind: "ssh",
           hostAlias: "g7e_axe",
         },
@@ -97,7 +97,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           authStatus: "authenticated",
           checkedAt: "2026-03-16T00:00:00.000Z",
         },
-        projectRemote: {
+        projectHost: {
           kind: "ssh",
           hostAlias: "g7e_axe",
         },
@@ -126,7 +126,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           checkedAt: "2026-03-16T00:00:00.000Z",
           message: "Codex CLI is missing.",
         },
-        projectRemote: null,
+        projectHost: null,
         session: null,
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
@@ -142,7 +142,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           checkedAt: "2026-03-16T00:00:01.000Z",
           message: "Codex CLI is still missing.",
         },
-        projectRemote: null,
+        projectHost: null,
         session: null,
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
@@ -164,7 +164,7 @@ describe("resolveVisibleProviderHealthStatus", () => {
           authStatus: "authenticated",
           checkedAt: "2026-03-16T00:00:00.000Z",
         },
-        projectRemote: {
+        projectHost: {
           kind: "ssh",
           hostAlias: "g7e_axe",
         },
@@ -231,7 +231,7 @@ describe("resolveVisibleThreadError", () => {
             updatedAt: "2026-03-16T00:00:00.000Z",
           },
         }),
-        projectRemote: null,
+        projectHost: null,
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
     ).toBeNull();
@@ -251,7 +251,7 @@ describe("resolveVisibleThreadError", () => {
             updatedAt: "2026-03-16T00:00:01.000Z",
           },
         }),
-        projectRemote: null,
+        projectHost: null,
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
     ).toBe("Codex CLI is not installed.");
@@ -271,7 +271,7 @@ describe("resolveVisibleThreadError", () => {
             updatedAt: "2026-03-16T00:00:00.000Z",
           },
         }),
-        projectRemote: {
+        projectHost: {
           kind: "ssh",
           hostAlias: "g7e_axe",
         },
@@ -293,7 +293,7 @@ describe("resolveVisibleThreadError", () => {
             updatedAt: "2026-03-16T00:00:00.000Z",
           },
         }),
-        projectRemote: {
+        projectHost: {
           kind: "ssh",
           hostAlias: "g7e_axe",
         },
@@ -316,7 +316,7 @@ describe("resolveVisibleThreadError", () => {
             updatedAt: "2026-03-16T00:00:00.000Z",
           },
         }),
-        projectRemote: null,
+        projectHost: null,
         localCodexErrorsDismissedAfter: "2026-03-16T00:00:00.000Z",
       }),
     ).toBe("You can attach up to 20 images per message.");

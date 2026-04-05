@@ -1,6 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
-import { type ProjectId, type ProjectRemoteTarget, type ThreadId } from "@t3tools/contracts";
+import { type ProjectId, type ProjectExecutionTarget, type ThreadId } from "@t3tools/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -183,7 +183,7 @@ interface TerminalViewportProps {
   terminalLabel: string;
   cwd: string;
   projectId: ProjectId | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectRemote: ProjectExecutionTarget | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -407,7 +407,7 @@ function TerminalViewport({
                 projectId: projectId ?? undefined,
                 threadId,
                 referenceRoot: cwd,
-                remote: projectRemote,
+                host: projectRemote,
               });
               if (!target) {
                 writeSystemMessage(latestTerminal, "Unable to resolve path for editor opening.");
@@ -658,7 +658,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   projectId: ProjectId | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectRemote: ProjectExecutionTarget | null;
   runtimeEnv?: Record<string, string>;
   height: number;
   terminalIds: string[];

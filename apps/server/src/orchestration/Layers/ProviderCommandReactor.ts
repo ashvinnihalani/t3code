@@ -6,7 +6,7 @@ import {
   type GitRequestSettings,
   type ModelSelection,
   type OrchestrationEvent,
-  type ProjectRemoteTarget,
+  type ProjectExecutionTarget,
   ProviderKind,
   type ProviderStartOptions,
   type OrchestrationSession,
@@ -135,7 +135,7 @@ function resolveGitTextGenerationModelSelection(gitSettings?: GitRequestSettings
 function resolveProjectScopedProviderOptions(input: {
   readonly providerOptions?: ProviderStartOptions;
   readonly provider?: ProviderKind;
-  readonly projectRemote?: ProjectRemoteTarget | null;
+  readonly projectRemote?: ProjectExecutionTarget | null;
 }): ProviderStartOptions | undefined {
   if (input.provider === "claudeAgent") {
     const claude = input.providerOptions?.claudeAgent;
@@ -269,7 +269,7 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return null;
     }
-    return readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+    return readModel.projects.find((project) => project.id === thread.projectId)?.host ?? null;
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -311,7 +311,7 @@ const make = Effect.gen(function* () {
       projects: readModel.projects,
     });
     const project = readModel.projects.find((entry) => entry.id === thread.projectId) ?? null;
-    const projectRemote = project?.remote ?? null;
+    const projectRemote = project?.host ?? null;
     const effectiveProviderOptions = resolveProjectScopedProviderOptions({
       ...(preferredProvider !== undefined ? { provider: preferredProvider } : {}),
       ...(options?.providerOptions !== undefined

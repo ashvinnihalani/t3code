@@ -613,7 +613,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                     return false;
                   }
                   const project = projectsById.get(thread.projectId);
-                  return project?.deletedAt === null && project.remote == null;
+                  return project?.deletedAt === null && project.host == null;
                 })
                 .map((thread) => thread.id);
 
@@ -670,7 +670,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
               }
               return {
                 workspaceRoot: project.workspaceRoot,
-                ...(project.remote !== undefined ? { remote: project.remote } : {}),
+                ...(project.host !== undefined ? { host: project.host } : {}),
               };
             },
           })
@@ -924,7 +924,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       ...(input.threadId ? { threadId: input.threadId } : {}),
     });
     const relativePath = input.relativePath ?? ".";
-    if (project.remote?.kind === "ssh") {
+    if (project.host?.kind === "ssh") {
       const resolvedTarget = yield* resolveRemoteWorkspaceRelativePath({
         workspaceRoot: baseRoot,
         relativePath,
@@ -933,7 +933,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       });
       return {
         kind: "remote-ssh" as const,
-        hostAlias: project.remote.hostAlias,
+        hostAlias: project.host.hostAlias,
         path: resolvedTarget.absolutePath,
         isDirectory: relativePath === ".",
         ...(typeof input.line === "number" ? { line: input.line } : {}),
@@ -961,7 +961,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       return null;
     }
     const project = yield* resolveProject(projectId);
-    return project.remote ?? null;
+    return project.host ?? null;
   });
 
   const resolveGitOperationTarget = Effect.fnUntraced(function* (input: {
@@ -986,7 +986,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const project = yield* resolveProject(input.projectId);
     return {
       cwd: repoPath,
-      remote: project.remote ?? null,
+      remote: project.host ?? null,
     };
   });
 
@@ -1001,7 +1001,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const normalizedRepoPath = input.repoPath.trim().replaceAll("\\", "/");
     for (const repo of project.gitRepos ?? []) {
       const absoluteRepoPath =
-        project.remote?.kind === "ssh"
+        project.host?.kind === "ssh"
           ? nodePath.posix.join(project.workspaceRoot, repo.repoPath)
           : path.join(project.workspaceRoot, repo.repoPath);
       if (absoluteRepoPath.replaceAll("\\", "/") === normalizedRepoPath) {
@@ -1178,10 +1178,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         .filter((name) => name.length > 0),
     );
 
-    if (project.remote?.kind === "ssh") {
+    if (project.host?.kind === "ssh") {
       const remoteHomeDir =
         readRemoteHomeDir({
-          hostAlias: project.remote.hostAlias,
+          hostAlias: project.host.hostAlias,
           localCwd: process.cwd(),
         }) ?? "/tmp";
       const absoluteWorktreePath = nodePath.posix.isAbsolute(input.requestedWorktreePath)
@@ -1195,7 +1195,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       yield* ensureRemoteSyntheticParentExtras({
         workspaceRoot: project.workspaceRoot,
         syntheticParentPath,
-        hostAlias: project.remote.hostAlias,
+        hostAlias: project.host.hostAlias,
         repoRootNames,
       });
       return;
@@ -1216,7 +1216,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     readonly operation: string;
   }) {
     const project = yield* resolveProject(input.projectId);
-    if (project.remote) {
+    if (project.host) {
       return yield* new RouteRequestError({
         message: `${input.operation} is unavailable for remote projects.`,
       });
@@ -1402,7 +1402,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           try: () =>
             searchWorkspaceEntries({
               cwd: project.workspaceRoot,
-              remote: project.remote ?? null,
+              remote: project.host ?? null,
               query: body.query,
               limit: body.limit,
             }),

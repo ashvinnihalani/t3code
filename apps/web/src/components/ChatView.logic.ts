@@ -1,7 +1,7 @@
 import {
   ProjectId,
   type ModelSelection,
-  type ProjectRemoteTarget,
+  type ProjectExecutionTarget,
   type ServerProviderStatus,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -230,11 +230,11 @@ function isOlderThanOrEqualToDismissedAt(
 }
 
 function buildRemoteProviderHealthStatus(input: {
-  projectRemote: ProjectRemoteTarget;
+  projectHost: ProjectExecutionTarget;
   session: ThreadSession | null;
   localProviderStatus: ServerProviderStatus | null;
 }): VisibleProviderHealthStatus {
-  const hostAlias = input.projectRemote.hostAlias;
+  const hostAlias = input.projectHost.hostAlias;
   const session = input.session;
 
   if (!session) {
@@ -276,13 +276,13 @@ function buildRemoteProviderHealthStatus(input: {
 
 export function resolveVisibleProviderHealthStatus(input: {
   status: ServerProviderStatus | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | null;
   session: ThreadSession | null;
   localCodexErrorsDismissedAfter?: string | null;
 }): VisibleProviderHealthStatus {
-  if (input.projectRemote) {
+  if (input.projectHost) {
     return buildRemoteProviderHealthStatus({
-      projectRemote: input.projectRemote,
+      projectHost: input.projectHost,
       session: input.session,
       localProviderStatus: input.status,
     });
@@ -301,7 +301,7 @@ export function resolveVisibleProviderHealthStatus(input: {
 
 export function resolveVisibleThreadError(input: {
   thread: Thread | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | null;
   localCodexErrorsDismissedAfter?: string | null;
 }): string | null {
   const error = input.thread?.error ?? null;
@@ -309,7 +309,7 @@ export function resolveVisibleThreadError(input: {
     return null;
   }
 
-  if (input.projectRemote) {
+  if (input.projectHost) {
     if (isSuppressedRemoteThreadManagementMessage(error)) {
       return null;
     }
