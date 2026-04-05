@@ -1333,6 +1333,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     settings.threadIdDisplayMode === "message" ? visibleProviderThreadId : null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread ? getSingleRepoWorktreePath(activeThread) : null;
+  const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const threadTerminalRuntimeEnv = useMemo(() => {
     if (!activeProjectCwd) return {};
     return projectScriptRuntimeEnv({
@@ -4014,7 +4015,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 linkContext={activeProjectLinkContext}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
-                workspaceRootDisplay={activeProject?.cwd ?? undefined}
+                workspaceRootDisplay={activeWorkspaceRoot}
                 providerThreadId={timelineProviderThreadId}
               />
             </div>
@@ -4589,7 +4590,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             activeProposedPlan={activeProposedPlan}
             projectId={activeProject?.id}
             linkContext={activeProjectLinkContext}
-            workspaceRoot={activeProject?.cwd ?? undefined}
+            workspaceRoot={activeWorkspaceRoot}
             timestampFormat={timestampFormat}
             onClose={() => {
               setPlanSidebarOpen(false);
