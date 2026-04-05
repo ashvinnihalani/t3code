@@ -1438,6 +1438,87 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("preserves absolute local repo paths for multi-repo header git actions", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/Users/ashvinn/Documents/SFAILib",
+          branch: [null, null],
+          worktreePath: [null, null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...createMultiRepoDraftOnlySnapshot(),
+        projects: createMultiRepoDraftOnlySnapshot().projects.map((project) =>
+          project.id === PROJECT_ID
+            ? {
+                ...project,
+                workspaceRoot: "/Users/ashvinn/Documents/SFAILib",
+                cwd: "/Users/ashvinn/Documents/SFAILib",
+              }
+            : project,
+        ),
+      },
+    });
+
+    try {
+      const repoButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "web",
+          ) as HTMLButtonElement | null,
+        "Unable to find multi-repo repo selector.",
+      );
+      repoButton.click();
+
+      const apiItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("[role='option']")).find(
+            (element) => element.textContent?.trim() === "api",
+          ) as HTMLElement | null,
+        "Unable to find api repo option.",
+      );
+      apiItem.click();
+
+      const commitButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find((button) =>
+            button.textContent?.includes("Commit"),
+          ) as HTMLButtonElement | null,
+        "Unable to find Commit action button.",
+      );
+      commitButton.click();
+
+      await vi.waitFor(
+        () => {
+          const actionRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.gitRunStackedAction,
+          );
+          expect(actionRequest).toMatchObject({
+            _tag: WS_METHODS.gitRunStackedAction,
+            repoPath: "/Users/ashvinn/Documents/SFAILib/services/api",
+            action: "commit",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("targets the selected repo for multi-repo pull request checkout", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
