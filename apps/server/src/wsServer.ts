@@ -1249,6 +1249,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   if (autoBootstrapProjectFromCwd) {
     yield* Effect.gen(function* () {
+      yield* Effect.logInfo("workspace bootstrap starting", {
+        cwd,
+      });
+
       const snapshot = yield* projectionReadModelQuery.getSnapshot();
       const existingProject = snapshot.projects.find(
         (project) => project.workspaceRoot === cwd && project.deletedAt === null,
@@ -1273,12 +1277,24 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           defaultModelSelection: bootstrapProjectDefaultModelSelection,
           createdAt,
         });
+        yield* Effect.logInfo("workspace bootstrap created project", {
+          cwd,
+          projectId: bootstrapProjectId,
+          projectTitle: bootstrapProjectTitle,
+          defaultModelSelection: bootstrapProjectDefaultModelSelection,
+        });
       } else {
         bootstrapProjectId = existingProject.id;
         bootstrapProjectDefaultModelSelection = existingProject.defaultModelSelection ?? {
           provider: "codex" as const,
           model: "gpt-5-codex",
         };
+        yield* Effect.logInfo("workspace bootstrap reusing existing project", {
+          cwd,
+          projectId: bootstrapProjectId,
+          projectTitle: existingProject.title,
+          defaultModelSelection: bootstrapProjectDefaultModelSelection,
+        });
       }
 
       const existingThread = snapshot.threads.find(
@@ -1301,9 +1317,21 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           worktreePath: [null],
           createdAt,
         });
+        yield* Effect.logInfo("workspace bootstrap created thread", {
+          cwd,
+          projectId: bootstrapProjectId,
+          threadId,
+          projectPath: existingProject?.workspaceRoot ?? cwd,
+        });
         welcomeBootstrapProjectId = bootstrapProjectId;
         welcomeBootstrapThreadId = threadId;
       } else {
+        yield* Effect.logInfo("workspace bootstrap reusing existing thread", {
+          cwd,
+          projectId: bootstrapProjectId,
+          threadId: existingThread.id,
+          projectPath: existingThread.projectPath,
+        });
         welcomeBootstrapProjectId = bootstrapProjectId;
         welcomeBootstrapThreadId = existingThread.id;
       }
@@ -1517,6 +1545,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           ...(body.projectId ? { projectId: body.projectId } : {}),
           operation: "Prepare pull request thread",
         });
+        yield* Effect.logInfo("git prepare pull request thread request", {
+          projectId: body.projectId,
+          repoPath: body.repoPath,
+          cwd,
+          reference: body.reference,
+          mode: body.mode,
+          remoteHostAlias: remote?.kind === "ssh" ? remote.hostAlias : null,
+        });
         return yield* gitManager.preparePullRequestThread({
           ...body,
           cwd,
@@ -1555,6 +1591,15 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           repoPath: body.repoPath,
           ...(body.projectId ? { projectId: body.projectId } : {}),
           operation: "Creating a worktree",
+        });
+        yield* Effect.logInfo("git create worktree request", {
+          projectId: body.projectId,
+          repoPath: body.repoPath,
+          cwd,
+          branch: body.branch,
+          newBranch: body.newBranch ?? null,
+          requestedPath: body.path ?? null,
+          remoteHostAlias: remote?.kind === "ssh" ? remote.hostAlias : null,
         });
         return yield* git.createWorktree({
           ...body,

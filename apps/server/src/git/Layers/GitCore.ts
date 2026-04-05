@@ -1773,6 +1773,16 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             ? nodePath.posix.join(defaultWorktreeRoot, repoName, sanitizedBranch)
             : path.join(defaultWorktreeRoot, repoName, sanitizedBranch);
         const remoteTarget = input.remote;
+        yield* Effect.logInfo("git core create worktree resolved target", {
+          cwd: input.cwd,
+          branch: input.branch,
+          targetBranch,
+          newBranch: input.newBranch ?? null,
+          requestedPath: input.path ?? null,
+          worktreePath,
+          worktreeRoot: defaultWorktreeRoot,
+          remoteHostAlias: remoteTarget?.kind === "ssh" ? remoteTarget.hostAlias : null,
+        });
         if (remoteTarget?.kind === "ssh") {
           const parentDirectory = nodePath.posix.dirname(worktreePath);
           yield* Effect.tryPromise(() =>
@@ -1801,6 +1811,12 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
               ),
             ),
           );
+          yield* Effect.logInfo("git core ensured remote worktree parent directory", {
+            cwd: input.cwd,
+            worktreePath,
+            parentDirectory,
+            remoteHostAlias: remoteTarget.hostAlias,
+          });
         } else {
           yield* fileSystem
             .makeDirectory(path.dirname(worktreePath), { recursive: true })
@@ -1815,10 +1831,21 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 ),
               ),
             );
+          yield* Effect.logInfo("git core ensured local worktree parent directory", {
+            cwd: input.cwd,
+            worktreePath,
+            parentDirectory: path.dirname(worktreePath),
+          });
         }
         const args = input.newBranch
           ? ["worktree", "add", "-b", input.newBranch, worktreePath, input.branch]
           : ["worktree", "add", worktreePath, input.branch];
+        yield* Effect.logInfo("git core running worktree add", {
+          cwd: input.cwd,
+          args,
+          worktreePath,
+          remoteHostAlias: remoteTarget?.kind === "ssh" ? remoteTarget.hostAlias : null,
+        });
 
         yield* executeGit(
           "GitCore.createWorktree",
@@ -1829,6 +1856,12 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           },
           input.remote,
         );
+        yield* Effect.logInfo("git core created worktree", {
+          cwd: input.cwd,
+          branch: targetBranch,
+          worktreePath,
+          remoteHostAlias: remoteTarget?.kind === "ssh" ? remoteTarget.hostAlias : null,
+        });
 
         return {
           worktree: {
