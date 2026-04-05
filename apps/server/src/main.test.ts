@@ -6,12 +6,19 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as ServiceMap from "effect/ServiceMap";
 import * as Command from "effect/unstable/cli/Command";
 import { FetchHttpClient } from "effect/unstable/http";
 import { beforeEach } from "vitest";
 import { NetService } from "@t3tools/shared/Net";
 
-import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";
+import {
+  CliConfig,
+  recordStartupHeartbeat,
+  t3Cli,
+  type CliConfigShape,
+  withCliPathFixed,
+} from "./main";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -30,6 +37,7 @@ const serverStart = Effect.acquireRelease(
   () => Effect.sync(() => stop()),
 );
 const findAvailablePort = vi.fn((preferred: number) => Effect.succeed(preferred));
+const PathProbe = ServiceMap.Service<{ readonly observedPath: string }>("t3/main.test/PathProbe");
 
 // Shared service layer used by this CLI test suite.
 const testLayer = Layer.mergeAll(
@@ -326,6 +334,57 @@ it.layer(testLayer)("server CLI command", (it) => {
       assert.equal(resolvedConfig?.logWebSocketEvents, false);
     }),
   );
+
+  it.effect("fixes PATH before constructing provided startup layers", () => {
+    const originalPath = process.env.PATH;
+    const events: string[] = [];
+
+    process.env.PATH = "/tmp/stale-path";
+
+    return withCliPathFixed(
+      Effect.gen(function* () {
+        const probe = yield* PathProbe;
+        return probe.observedPath;
+      }).pipe(
+        Effect.provide(
+          Layer.effect(
+            PathProbe,
+            Effect.sync(() => {
+              const observedPath = process.env.PATH ?? "";
+              events.push(`layer:${observedPath}`);
+              return { observedPath };
+            }),
+          ),
+        ),
+      ),
+    ).pipe(
+      Effect.provideService(CliConfig, {
+        cwd: "/tmp/t3-test-workspace",
+        fixPath: Effect.sync(() => {
+          process.env.PATH = "/tmp/fixed-path";
+          events.push(`fixPath:${process.env.PATH}`);
+        }),
+        resolveStaticDir: Effect.undefined,
+      } satisfies CliConfigShape),
+      Effect.tap((observedPath) =>
+        Effect.sync(() => assert.equal(observedPath, "/tmp/fixed-path")),
+      ),
+      Effect.tap(() =>
+        Effect.sync(() =>
+          assert.deepEqual(events, ["fixPath:/tmp/fixed-path", "layer:/tmp/fixed-path"]),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (originalPath === undefined) {
+            delete process.env.PATH;
+          } else {
+            process.env.PATH = originalPath;
+          }
+        }),
+      ),
+    );
+  });
 
   it.effect("records a startup heartbeat with thread/project counts", () =>
     Effect.gen(function* () {
