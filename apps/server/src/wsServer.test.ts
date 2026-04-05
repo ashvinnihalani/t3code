@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, Exit, Layer, PlatformError, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, Logger, PlatformError, PubSub, Scope, Stream } from "effect";
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { createServer } from "./wsServer";
 import WebSocket from "ws";
@@ -972,6 +972,30 @@ describe("WebSocket Server", () => {
         bootstrapThreadId: firstBootstrapThreadId,
       }),
     );
+  });
+
+  it.effect("logs workspace bootstrap creation details", () => {
+    const messages: string[] = [];
+    const logger = Logger.make(({ message }) => {
+      messages.push(String(message));
+    });
+
+    return Effect.gen(function* () {
+      server = yield* Effect.promise(() =>
+        createTestServer({
+          cwd: "/test/bootstrap-logging",
+          autoBootstrapProjectFromCwd: true,
+        }),
+      );
+
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          "workspace bootstrap starting",
+          "workspace bootstrap created project",
+          "workspace bootstrap created thread",
+        ]),
+      );
+    }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
   });
 
   it("logs outbound websocket push events in dev mode", async () => {

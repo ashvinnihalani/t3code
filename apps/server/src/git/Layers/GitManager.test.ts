@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { Effect, FileSystem, Layer, Logger, PlatformError, Scope } from "effect";
 import { expect, vi } from "vitest";
 import type {
   GitActionProgressEvent,
@@ -1613,6 +1613,61 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(worktreeBranch).toBe("feature/pr-worktree");
     }),
   );
+
+  it.effect("logs worktree preparation checkpoints for pull request threads", () => {
+    const messages: string[] = [];
+    const logger = Logger.make(({ message }) => {
+      messages.push(String(message));
+    });
+
+    return Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-worktree-logs"]);
+      fs.writeFileSync(path.join(repoDir, "worktree-logs.txt"), "worktree logs\n");
+      yield* runGit(repoDir, ["add", "worktree-logs.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "PR worktree logging branch"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-worktree-logs"]);
+      yield* runGit(repoDir, ["push", "origin", "HEAD:refs/pull/78/head"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 78,
+            title: "Worktree PR logs",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/78",
+            baseRefName: "main",
+            headRefName: "feature/pr-worktree-logs",
+            state: "open",
+          },
+        },
+      });
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "78",
+        mode: "worktree",
+      });
+
+      expect(result.worktreePath).not.toBeNull();
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          "git manager prepare pull request thread starting",
+          "git manager resolved pull request for thread",
+          "git manager materialized pull request head branch",
+          "git manager creating new worktree for pull request thread",
+          "git core create worktree resolved target",
+          "git core running worktree add",
+          "git core created worktree",
+          "git manager created new worktree for pull request thread",
+        ]),
+      );
+    }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   it.effect("prepares pull request worktree threads for remote SSH projects", () =>
     Effect.gen(function* () {

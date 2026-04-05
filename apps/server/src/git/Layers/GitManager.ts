@@ -1093,6 +1093,14 @@ export const makeGitManager = Effect.gen(function* () {
 
   const preparePullRequestThread: GitManagerShape["preparePullRequestThread"] = Effect.fnUntraced(
     function* (input) {
+      yield* Effect.logInfo("git manager prepare pull request thread starting", {
+        cwd: input.cwd,
+        repoPath: input.repoPath,
+        reference: input.reference,
+        mode: input.mode,
+        remoteHostAlias: input.remote?.kind === "ssh" ? input.remote.hostAlias : null,
+      });
+
       const normalizedReference = normalizePullRequestReference(input.reference);
       const pullRequestSummary = yield* gitHubCli.getPullRequest({
         cwd: input.cwd,
@@ -1105,8 +1113,21 @@ export const makeGitManager = Effect.gen(function* () {
         ...pullRequest,
         ...toPullRequestHeadRemoteInfo(pullRequestSummary),
       } as const;
+      yield* Effect.logInfo("git manager resolved pull request for thread", {
+        cwd: input.cwd,
+        reference: normalizedReference,
+        pullRequestNumber: pullRequest.number,
+        baseBranch: pullRequest.baseBranch,
+        headBranch: pullRequest.headBranch,
+        state: pullRequest.state,
+      });
 
       if (input.mode === "local") {
+        yield* Effect.logInfo("git manager preparing local pull request thread", {
+          cwd: input.cwd,
+          pullRequestNumber: pullRequest.number,
+          headBranch: pullRequest.headBranch,
+        });
         yield* gitHubCli.checkoutPullRequest({
           cwd: input.cwd,
           reference: normalizedReference,
@@ -1178,11 +1199,26 @@ export const makeGitManager = Effect.gen(function* () {
       const existingBranchBeforeFetchPath = existingBranchBeforeFetch?.worktreePath
         ? canonicalizeExistingPath(existingBranchBeforeFetch.worktreePath)
         : null;
+      yield* Effect.logInfo("git manager evaluated existing worktree branch before fetch", {
+        cwd: input.cwd,
+        pullRequestNumber: pullRequest.number,
+        localPullRequestBranch,
+        existingBranchName: existingBranchBeforeFetch?.name ?? null,
+        existingBranchWorktreePath: existingBranchBeforeFetch?.worktreePath ?? null,
+        existingBranchBeforeFetchPath,
+        rootWorktreePath,
+      });
       if (
         existingBranchBeforeFetch?.worktreePath &&
         existingBranchBeforeFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchBeforeFetch.worktreePath);
+        yield* Effect.logInfo("git manager reusing existing worktree before fetch", {
+          cwd: input.cwd,
+          pullRequestNumber: pullRequest.number,
+          localPullRequestBranch,
+          worktreePath: existingBranchBeforeFetch.worktreePath,
+        });
         return {
           pullRequest,
           branch: localPullRequestBranch,
@@ -1203,16 +1239,36 @@ export const makeGitManager = Effect.gen(function* () {
         ...(input.settings ? { settings: input.settings } : {}),
         ...(input.remote ? { remote: input.remote } : {}),
       });
+      yield* Effect.logInfo("git manager materialized pull request head branch", {
+        cwd: input.cwd,
+        pullRequestNumber: pullRequest.number,
+        localPullRequestBranch,
+      });
 
       const existingBranchAfterFetch = yield* findLocalHeadBranch(input.cwd);
       const existingBranchAfterFetchPath = existingBranchAfterFetch?.worktreePath
         ? canonicalizeExistingPath(existingBranchAfterFetch.worktreePath)
         : null;
+      yield* Effect.logInfo("git manager evaluated existing worktree branch after fetch", {
+        cwd: input.cwd,
+        pullRequestNumber: pullRequest.number,
+        localPullRequestBranch,
+        existingBranchName: existingBranchAfterFetch?.name ?? null,
+        existingBranchWorktreePath: existingBranchAfterFetch?.worktreePath ?? null,
+        existingBranchAfterFetchPath,
+        rootWorktreePath,
+      });
       if (
         existingBranchAfterFetch?.worktreePath &&
         existingBranchAfterFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchAfterFetch.worktreePath);
+        yield* Effect.logInfo("git manager reusing existing worktree after fetch", {
+          cwd: input.cwd,
+          pullRequestNumber: pullRequest.number,
+          localPullRequestBranch,
+          worktreePath: existingBranchAfterFetch.worktreePath,
+        });
         return {
           pullRequest,
           branch: localPullRequestBranch,
@@ -1226,6 +1282,13 @@ export const makeGitManager = Effect.gen(function* () {
         );
       }
 
+      yield* Effect.logInfo("git manager creating new worktree for pull request thread", {
+        cwd: input.cwd,
+        pullRequestNumber: pullRequest.number,
+        localPullRequestBranch,
+        requestedPath: null,
+        remoteHostAlias: input.remote?.kind === "ssh" ? input.remote.hostAlias : null,
+      });
       const worktree = yield* gitCore.createWorktree({
         cwd: input.cwd,
         branch: localPullRequestBranch,
@@ -1233,6 +1296,12 @@ export const makeGitManager = Effect.gen(function* () {
         ...(input.remote ? { remote: input.remote } : {}),
       });
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
+      yield* Effect.logInfo("git manager created new worktree for pull request thread", {
+        cwd: input.cwd,
+        pullRequestNumber: pullRequest.number,
+        branch: worktree.worktree.branch,
+        worktreePath: worktree.worktree.path,
+      });
 
       return {
         pullRequest,
