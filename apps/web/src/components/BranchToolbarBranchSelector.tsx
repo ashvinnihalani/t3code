@@ -47,7 +47,6 @@ interface BranchToolbarBranchSelectorProps {
   activeThreadBranch: string | null;
   activeWorktreePath: string | null;
   branchCwd: string | null;
-  repoPath: string | null;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
@@ -80,7 +79,6 @@ export function BranchToolbarBranchSelector({
   activeThreadBranch,
   activeWorktreePath,
   branchCwd,
-  repoPath,
   effectiveEnvMode,
   envLocked,
   onSetThreadBranch,
@@ -92,8 +90,8 @@ export function BranchToolbarBranchSelector({
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
   const gitTarget = useMemo(
-    () => ({ cwd: branchCwd, projectId: activeProjectId, repoPath }),
-    [activeProjectId, branchCwd, repoPath],
+    () => ({ repoPath: branchCwd, projectId: activeProjectId }),
+    [activeProjectId, branchCwd],
   );
 
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitTarget));
@@ -201,9 +199,8 @@ export function BranchToolbarBranchSelector({
       setOptimisticBranch(selectedBranchName);
       try {
         await api.git.checkout({
-          cwd: selectionTarget.checkoutCwd,
+          repoPath: selectionTarget.checkoutCwd,
           projectId: activeProjectId,
-          ...(repoPath ? { repoPath } : {}),
           branch: branch.name,
         });
         await invalidateGitQueries(queryClient);
@@ -220,9 +217,8 @@ export function BranchToolbarBranchSelector({
       if (branch.isRemote) {
         const status = await api.git
           .status({
-            cwd: selectionTarget.checkoutCwd,
+            repoPath: selectionTarget.checkoutCwd,
             projectId: activeProjectId,
-            ...(repoPath ? { repoPath } : {}),
           })
           .catch(() => null);
         if (status?.branch) {
@@ -248,16 +244,14 @@ export function BranchToolbarBranchSelector({
 
       try {
         await api.git.createBranch({
-          cwd: branchCwd,
+          repoPath: branchCwd,
           projectId: activeProjectId,
-          ...(repoPath ? { repoPath } : {}),
           branch: name,
         });
         try {
           await api.git.checkout({
-            cwd: branchCwd,
+            repoPath: branchCwd,
             projectId: activeProjectId,
-            ...(repoPath ? { repoPath } : {}),
             branch: name,
           });
         } catch (error) {

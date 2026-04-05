@@ -216,7 +216,7 @@ export default function GitActionsControl({
   disableGitActions = false,
 }: GitActionsControlProps) {
   const { settings } = useAppSettings();
-  const gitCwd = gitTarget.cwd;
+  const gitRepoPath = gitTarget.repoPath;
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -353,7 +353,7 @@ export default function GitActionsControl({
       if (!progress) {
         return;
       }
-      if (gitCwd && event.cwd !== gitCwd) {
+      if (gitRepoPath && event.cwd !== gitRepoPath) {
         return;
       }
       if (progress.actionId !== event.actionId) {
@@ -408,7 +408,7 @@ export default function GitActionsControl({
     };
 
     return api.git.onActionProgress(applyProgressEvent);
-  }, [gitCwd, updateActiveProgressToast]);
+  }, [gitRepoPath, updateActiveProgressToast]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -771,7 +771,7 @@ export default function GitActionsControl({
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
       const api = readNativeApi();
-      if (!api || !gitTarget.cwd) {
+      if (!api || !gitTarget.repoPath) {
         toastManager.add({
           type: "error",
           title: "Editor opening is unavailable.",
@@ -782,7 +782,7 @@ export default function GitActionsControl({
       const target = resolveProjectEditorTargetFromRawPath(filePath, {
         projectId: gitTarget.projectId ?? undefined,
         threadId: activeThreadId ?? undefined,
-        referenceRoot: gitTarget.cwd,
+        referenceRoot: gitTarget.repoPath,
         remote: projectRemote,
       });
       if (!target) {
@@ -802,10 +802,10 @@ export default function GitActionsControl({
         });
       });
     },
-    [activeThreadId, gitTarget.cwd, gitTarget.projectId, projectRemote, threadToastData],
+    [activeThreadId, gitTarget.projectId, gitTarget.repoPath, projectRemote, threadToastData],
   );
 
-  if (!gitTarget.cwd) return null;
+  if (!gitTarget.repoPath) return null;
 
   return (
     <>

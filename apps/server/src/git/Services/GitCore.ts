@@ -51,31 +51,45 @@ export interface GitExecutionContext {
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitStatusExecutionInput extends GitStatusInput {
+export interface GitStatusExecutionInput extends Omit<GitStatusInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitListBranchesExecutionInput extends GitListBranchesInput {
+export interface GitListBranchesExecutionInput extends Omit<GitListBranchesInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitCreateWorktreeExecutionInput extends GitCreateWorktreeInput {
+export interface GitCreateWorktreeExecutionInput extends Omit<GitCreateWorktreeInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitRemoveWorktreeExecutionInput extends GitRemoveWorktreeInput {
+export interface GitRemoveWorktreeExecutionInput extends Omit<GitRemoveWorktreeInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitCreateBranchExecutionInput extends GitCreateBranchInput {
+export interface GitCreateBranchExecutionInput extends Omit<GitCreateBranchInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitCheckoutExecutionInput extends GitCheckoutInput {
+export interface GitCheckoutExecutionInput extends Omit<GitCheckoutInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 
-export interface GitInitExecutionInput extends GitInitInput {
+export interface GitInitExecutionInput extends Omit<GitInitInput, "repoPath"> {
+  cwd: string;
+  repoPath?: string;
   remote?: ProjectRemoteTarget | null;
 }
 

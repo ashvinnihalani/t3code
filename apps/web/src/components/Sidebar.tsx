@@ -513,8 +513,8 @@ export default function Sidebar() {
     [projects],
   );
   const gitTargetKey = useCallback(
-    (input: { projectId: ProjectId | null; cwd: string | null }) =>
-      `${input.projectId ?? ""}\u0000${input.cwd ?? ""}`,
+    (input: { projectId: ProjectId | null; repoPath: string | null }) =>
+      `${input.projectId ?? ""}\u0000${input.repoPath ?? ""}`,
     [],
   );
   const threadGitTargets = useMemo(
@@ -525,7 +525,7 @@ export default function Sidebar() {
           threadId: thread.id,
           branch: getSingleRepoBranch(thread),
           projectId: thread.projectId,
-          cwd:
+          repoPath:
             project?.gitMode === "multi"
               ? null
               : (getSingleRepoWorktreePath(thread) ?? projectCwdById.get(thread.projectId) ?? null),
@@ -537,15 +537,15 @@ export default function Sidebar() {
     () => [
       ...new Map(
         threadGitTargets
-          .filter((target) => target.branch !== null && target.cwd !== null)
+          .filter((target) => target.branch !== null && target.repoPath !== null)
           .map((target) => [
             gitTargetKey({
               projectId: target.projectId,
-              cwd: target.cwd,
+              repoPath: target.repoPath,
             }),
             {
               projectId: target.projectId,
-              cwd: target.cwd,
+              repoPath: target.repoPath,
             },
           ]),
       ).values(),
@@ -573,11 +573,11 @@ export default function Sidebar() {
     const map = new Map<ThreadId, ThreadPr>();
     for (const target of threadGitTargets) {
       const status =
-        target.cwd !== null
+        target.repoPath !== null
           ? statusByTarget.get(
               gitTargetKey({
                 projectId: target.projectId,
-                cwd: target.cwd,
+                repoPath: target.repoPath,
               }),
             )
           : undefined;
@@ -921,7 +921,7 @@ export default function Sidebar() {
 
       try {
         await removeWorktreeMutation.mutateAsync({
-          cwd: threadProject.cwd,
+          repoPath: threadProject.cwd,
           projectId: threadProject.id,
           path: orphanedWorktreePath,
           force: true,

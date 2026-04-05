@@ -215,7 +215,7 @@ describe("WsTransport", () => {
 
     const requestPromise = transport.request(
       "git.runStackedAction",
-      { cwd: "/repo" },
+      { repoPath: "/repo" },
       { timeoutMs: null },
     );
     const sent = socket.sent.at(-1);
@@ -244,7 +244,7 @@ describe("WsTransport", () => {
 
     const requestPromise = transport.request(
       "git.runStackedAction",
-      { cwd: "/repo" },
+      { repoPath: "/repo" },
       { timeoutMs: null },
     );
 

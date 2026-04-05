@@ -501,6 +501,7 @@ function createSnapshotWithSessionError(options: {
 
 function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   const tag = body._tag;
+  const requestRepoPath = typeof body.repoPath === "string" ? body.repoPath : "/repo/project";
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
@@ -535,17 +536,54 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   }
   if (tag === WS_METHODS.gitStatus) {
     return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
+      branch: requestRepoPath.includes("services/api") ? "api-feature" : "main",
+      hasWorkingTreeChanges: requestRepoPath.includes("services/api"),
       workingTree: {
-        files: [],
-        insertions: 0,
-        deletions: 0,
+        files: requestRepoPath.includes("services/api")
+          ? [{ path: "src/api.ts", insertions: 3, deletions: 1 }]
+          : [],
+        insertions: requestRepoPath.includes("services/api") ? 3 : 0,
+        deletions: requestRepoPath.includes("services/api") ? 1 : 0,
       },
       hasUpstream: true,
       aheadCount: 0,
       behindCount: 0,
       pr: null,
+    };
+  }
+  if (tag === WS_METHODS.gitRunStackedAction) {
+    return {
+      action: typeof body.action === "string" ? body.action : "commit",
+      branch: { status: "skipped_not_requested" },
+      commit: { status: "created", commitSha: "abc1234", subject: "Browser test commit" },
+      push: { status: "skipped_not_requested" },
+      pr: { status: "skipped_not_requested" },
+    };
+  }
+  if (tag === WS_METHODS.gitResolvePullRequest) {
+    return {
+      pullRequest: {
+        number: 42,
+        title: "Checkout API PR",
+        url: "https://github.com/example/repo/pull/42",
+        baseBranch: "main",
+        headBranch: "feature/api-pr",
+        state: "open",
+      },
+    };
+  }
+  if (tag === WS_METHODS.gitPreparePullRequestThread) {
+    return {
+      pullRequest: {
+        number: 42,
+        title: "Checkout API PR",
+        url: "https://github.com/example/repo/pull/42",
+        baseBranch: "main",
+        headBranch: "feature/api-pr",
+        state: "open",
+      },
+      branch: "feature/api-pr",
+      worktreePath: null,
     };
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
@@ -1325,6 +1363,189 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(Math.abs(repoRect.top - branchRect.top)).toBeLessThanOrEqual(2);
       expect(repoRect.left).toBeLessThan(branchRect.left);
       expect(localRect.left).toBeLessThan(repoRect.left);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("targets the selected repo for multi-repo header git actions", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo/project",
+          branch: [null, null],
+          worktreePath: [null, null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createMultiRepoDraftOnlySnapshot(),
+    });
+
+    try {
+      const repoButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "web",
+          ) as HTMLButtonElement | null,
+        "Unable to find multi-repo repo selector.",
+      );
+      repoButton.click();
+
+      const apiItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("[role='option']")).find(
+            (element) => element.textContent?.trim() === "api",
+          ) as HTMLElement | null,
+        "Unable to find api repo option.",
+      );
+      apiItem.click();
+
+      const commitButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find((button) =>
+            button.textContent?.includes("Commit"),
+          ) as HTMLButtonElement | null,
+        "Unable to find Commit action button.",
+      );
+      commitButton.click();
+
+      await vi.waitFor(
+        () => {
+          const actionRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.gitRunStackedAction,
+          );
+          expect(actionRequest).toMatchObject({
+            _tag: WS_METHODS.gitRunStackedAction,
+            repoPath: "/repo/project/services/api",
+            action: "commit",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("targets the selected repo for multi-repo pull request checkout", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          projectPath: "/repo/project",
+          branch: [null, null],
+          worktreePath: [null, null],
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createMultiRepoDraftOnlySnapshot(),
+    });
+
+    try {
+      const repoButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "web",
+          ) as HTMLButtonElement | null,
+        "Unable to find multi-repo repo selector.",
+      );
+      repoButton.click();
+
+      const apiItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("[role='option']")).find(
+            (element) => element.textContent?.trim() === "api",
+          ) as HTMLElement | null,
+        "Unable to find api repo option.",
+      );
+      apiItem.click();
+
+      const branchButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find((button) =>
+            button.textContent?.includes("api-feature"),
+          ) as HTMLButtonElement | null,
+        "Unable to find api branch selector.",
+      );
+      branchButton.click();
+
+      const branchSearch = await waitForElement(
+        () =>
+          document.querySelector(
+            "input[placeholder='Search branches...']",
+          ) as HTMLInputElement | null,
+        "Unable to find branch search input.",
+      );
+      branchSearch.value = "#42";
+      branchSearch.dispatchEvent(new Event("input", { bubbles: true }));
+
+      const checkoutPrItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("[role='option']")).find((element) =>
+            element.textContent?.includes("Checkout Pull Request"),
+          ) as HTMLElement | null,
+        "Unable to find Checkout Pull Request option.",
+      );
+      checkoutPrItem.click();
+
+      await vi.waitFor(
+        () => {
+          const resolveRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.gitResolvePullRequest,
+          );
+          expect(resolveRequest).toMatchObject({
+            _tag: WS_METHODS.gitResolvePullRequest,
+            repoPath: "/repo/project/services/api",
+            reference: "#42",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const localButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "Local",
+          ) as HTMLButtonElement | null,
+        "Unable to find PR dialog Local button.",
+      );
+      localButton.click();
+
+      await vi.waitFor(
+        () => {
+          const prepareRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.gitPreparePullRequestThread,
+          );
+          expect(prepareRequest).toMatchObject({
+            _tag: WS_METHODS.gitPreparePullRequestThread,
+            repoPath: "/repo/project/services/api",
+            reference: "#42",
+            mode: "local",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
