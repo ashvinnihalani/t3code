@@ -748,6 +748,31 @@ describe("TerminalManager", () => {
     manager.dispose();
   });
 
+  it("passes runtime env overrides through remote ssh terminal launches", async () => {
+    const { manager, ptyAdapter } = makeManager();
+    await manager.open({
+      ...openInput({
+        env: {
+          T3CODE: "1",
+          CUSTOM_FLAG: "enabled",
+        },
+      }),
+      remote: {
+        kind: "ssh",
+        hostAlias: "buildbox",
+      },
+    });
+    const spawnInput = ptyAdapter.spawnInputs[0];
+    expect(spawnInput).toBeDefined();
+    if (!spawnInput) return;
+
+    expect(spawnInput.shell).toBe("ssh");
+    expect(spawnInput.args?.[2]).toContain("export T3CODE=");
+    expect(spawnInput.args?.[2]).toContain("export CUSTOM_FLAG=");
+
+    manager.dispose();
+  });
+
   it("starts zsh with prompt spacer disabled to avoid `%` end markers", async () => {
     if (process.platform === "win32") return;
     const { manager, ptyAdapter } = makeManager(5, {
