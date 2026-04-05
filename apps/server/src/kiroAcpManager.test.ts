@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { ThreadId, TurnId } from "@t3tools/contracts";
 
@@ -146,6 +147,109 @@ Current context window (5.9% used)
 });
 
 describe("KiroAcpManager", () => {
+  it("falls back to a fresh session when session/load returns a recoverable internal error", async () => {
+    class FakeStream extends EventEmitter {
+      setEncoding(): this {
+        return this;
+      }
+    }
+
+    class FakeProcess extends EventEmitter {
+      readonly stdout = new FakeStream();
+      readonly stderr = new FakeStream();
+      readonly stdin = {
+        write: vi.fn((line: string) => {
+          const message = JSON.parse(line) as {
+            id: number;
+            method: string;
+          };
+          if (message.method === "initialize") {
+            this.stdout.emit(
+              "data",
+              `${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} })}\n`,
+            );
+            return true;
+          }
+          if (message.method === "session/load") {
+            this.stdout.emit(
+              "data",
+              `${JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: { code: -32603, message: "Internal error" },
+              })}\n`,
+            );
+            return true;
+          }
+          if (message.method === "session/new") {
+            this.stdout.emit(
+              "data",
+              `${JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: { sessionId: "session-fresh" },
+              })}\n`,
+            );
+            return true;
+          }
+          throw new Error(`Unexpected RPC method in test: ${message.method}`);
+        }),
+      };
+      kill = vi.fn();
+    }
+
+    const manager = new KiroAcpManager();
+    const fakeProcess = new FakeProcess();
+    (
+      manager as unknown as {
+        spawnProcess: () => { process: FakeProcess; command: string };
+      }
+    ).spawnProcess = () => ({
+      process: fakeProcess,
+      command: "kiro-cli acp",
+    });
+
+    const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    manager.on("event", (event) => {
+      events.push(event as { type: string; payload?: Record<string, unknown> });
+    });
+
+    const session = await manager.startSession({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      runtimeMode: "full-access",
+      resumeCursor: { sessionId: "session-stale" },
+    });
+
+    expect(session.resumeCursor).toEqual({ sessionId: "session-fresh" });
+    expect(fakeProcess.kill).not.toHaveBeenCalled();
+    expect(fakeProcess.stdin.write).toHaveBeenCalledTimes(3);
+    expect(fakeProcess.stdin.write).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('"method":"session/load"'),
+    );
+    expect(fakeProcess.stdin.write).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('"method":"session/new"'),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session.started",
+          payload: expect.objectContaining({
+            message: "Starting a new Kiro thread.",
+          }),
+        }),
+        expect.objectContaining({
+          type: "thread.started",
+          payload: expect.objectContaining({
+            providerThreadId: "session-fresh",
+            message: "Connected to thread session-fresh",
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("emits turn.completed when ACP sends turn_end", async () => {
     const manager = new KiroAcpManager();
     const session = createTestSession();

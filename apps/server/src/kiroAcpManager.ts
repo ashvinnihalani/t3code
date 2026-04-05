@@ -274,6 +274,16 @@ function readResumeSessionId(resumeCursor: unknown): string | undefined {
   );
 }
 
+function isRecoverableResumeLoadError(error: unknown): boolean {
+  const normalized = toErrorMessage(error).toLowerCase();
+  return (
+    normalized.includes("internal error") ||
+    normalized.includes("unknown session") ||
+    normalized.includes("not found") ||
+    normalized.includes("closed")
+  );
+}
+
 function kiroSessionStartedMessage(sessionId: string | undefined): string {
   return sessionId ? `Attempting to resume thread ${sessionId}.` : "Starting a new Kiro thread.";
 }
@@ -810,6 +820,7 @@ export class KiroAcpManager extends EventEmitter {
     };
 
     const resumeSessionId = readResumeSessionId(input.resumeCursor);
+    let resumedSession = false;
     let threadOpenMethod: "session/new" | "session/load" = "session/new";
     logger.info("kiro thread opening", {
       threadId: input.threadId,
@@ -832,9 +843,36 @@ export class KiroAcpManager extends EventEmitter {
         if (modeState) {
           session.modeState = modeState;
         }
+        resumedSession = true;
       } catch (error) {
-        process.kill();
-        throw error;
+        if (!isRecoverableResumeLoadError(error)) {
+          process.kill();
+          throw error;
+        }
+        logger.warn("kiro session/load fell back to session/new", {
+          threadId: input.threadId,
+          requestedRuntimeMode: input.runtimeMode,
+          requestedModel: input.model ?? null,
+          requestedCwd: input.cwd ?? null,
+          requestedResumeThreadId: resumeSessionId,
+          cause: toErrorMessage(error),
+        });
+        threadOpenMethod = "session/new";
+        session.sessionId = undefined;
+        const created = asRecord(
+          await rpc.request("session/new", {
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            mcpServers: [],
+          }),
+        );
+        const sessionId = normalizeNonEmpty(asString(created?.sessionId));
+        if (sessionId) {
+          session.sessionId = sessionId;
+        }
+        const modeState = extractModeState(created);
+        if (modeState) {
+          session.modeState = modeState;
+        }
       } finally {
         session.suppressReplay = false;
       }
@@ -887,7 +925,7 @@ export class KiroAcpManager extends EventEmitter {
       this.runtimeEvent(session, {
         type: "session.started",
         payload: {
-          message: kiroSessionStartedMessage(resumeSessionId),
+          message: kiroSessionStartedMessage(resumedSession ? resumeSessionId : undefined),
           resume: resumeCursorFromSessionId(session.sessionId),
         },
       }),
@@ -898,7 +936,7 @@ export class KiroAcpManager extends EventEmitter {
         type: "thread.started",
         payload: {
           providerThreadId: session.sessionId,
-          message: kiroThreadConnectedMessage(session.sessionId, Boolean(resumeSessionId)),
+          message: kiroThreadConnectedMessage(session.sessionId, resumedSession),
         },
       }),
     );
