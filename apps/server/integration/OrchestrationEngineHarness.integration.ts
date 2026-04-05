@@ -41,6 +41,8 @@ import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSes
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
+import { makeKiroAdapterLive } from "../src/provider/Layers/KiroAdapter.ts";
+import { KiroAdapter } from "../src/provider/Services/KiroAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
@@ -210,7 +212,7 @@ export interface OrchestrationIntegrationHarness {
 
 interface MakeOrchestrationIntegrationHarnessOptions {
   readonly provider?: ProviderKind;
-  readonly realCodex?: boolean;
+  readonly realProvider?: ProviderKind;
 }
 
 export const makeOrchestrationIntegrationHarness = (
@@ -221,8 +223,10 @@ export const makeOrchestrationIntegrationHarness = (
     const fileSystem = yield* FileSystem.FileSystem;
 
     const provider = options?.provider ?? "codex";
-    const useRealCodex = options?.realCodex === true;
-    const adapterHarness = useRealCodex
+    const realProvider = options?.realProvider;
+    const effectiveProvider = realProvider ?? provider;
+    const useRealProvider = realProvider !== undefined;
+    const adapterHarness = useRealProvider
       ? null
       : yield* makeTestProviderAdapterHarness({
           provider,
@@ -256,28 +260,48 @@ export const makeOrchestrationIntegrationHarness = (
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
-    const realCodexRegistry = Layer.effect(
+    const realProviderRegistry = Layer.effect(
       ProviderAdapterRegistry,
       Effect.gen(function* () {
-        const codexAdapter = yield* CodexAdapter;
+        if (effectiveProvider === "codex") {
+          const codexAdapter = yield* CodexAdapter;
+          return {
+            getByProvider: (resolvedProvider) =>
+              resolvedProvider === "codex"
+                ? Effect.succeed(codexAdapter)
+                : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
+            listProviders: () => Effect.succeed(["codex"] as const),
+          } as typeof ProviderAdapterRegistry.Service;
+        }
+
+        if (effectiveProvider === "kiro") {
+          const kiroAdapter = yield* KiroAdapter;
+          return {
+            getByProvider: (resolvedProvider) =>
+              resolvedProvider === "kiro"
+                ? Effect.succeed(kiroAdapter)
+                : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
+            listProviders: () => Effect.succeed(["kiro"] as const),
+          } as typeof ProviderAdapterRegistry.Service;
+        }
+
         return {
           getByProvider: (resolvedProvider) =>
-            resolvedProvider === "codex"
-              ? Effect.succeed(codexAdapter)
-              : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
-          listProviders: () => Effect.succeed(["codex"] as const),
+            Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
+          listProviders: () => Effect.succeed([] as const),
         } as typeof ProviderAdapterRegistry.Service;
       }),
     ).pipe(
       Layer.provide(makeCodexAdapterLive()),
+      Layer.provide(makeKiroAdapterLive()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    const providerLayer = useRealCodex
+    const providerLayer = useRealProvider
       ? makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
-          Layer.provide(realCodexRegistry),
+          Layer.provide(realProviderRegistry),
           Layer.provide(AnalyticsService.layerTest),
         )
       : makeProviderServiceLive().pipe(

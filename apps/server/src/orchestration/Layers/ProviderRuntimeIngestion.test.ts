@@ -1856,6 +1856,45 @@ describe("ProviderRuntimeIngestion", () => {
     expect(resolvedPayload?.requestType).toBe("command_execution_approval");
   });
 
+  it("keeps generic tool approvals actionable", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-request-opened-tool"),
+      provider: "kiro",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      requestId: ApprovalRequestId.makeUnsafe("req-tool"),
+      payload: {
+        requestType: "unknown",
+        detail: "Querying knowledge base",
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-request-opened-tool",
+      ),
+    );
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread).toBeDefined();
+
+    const requested = thread?.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-request-opened-tool",
+    );
+    const requestedPayload =
+      requested?.payload && typeof requested.payload === "object"
+        ? (requested.payload as Record<string, unknown>)
+        : undefined;
+    expect(requested?.summary).toBe("Tool approval requested");
+    expect(requestedPayload?.requestKind).toBe("tool");
+    expect(requestedPayload?.requestType).toBe("unknown");
+  });
+
   it("maps runtime.error into errored session state", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
