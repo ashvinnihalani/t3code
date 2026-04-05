@@ -21,11 +21,20 @@ import type {
 
 export type ProviderPickerKind = ProviderKind | "cursor";
 
-export const PROVIDER_OPTIONS: Array<{
+export interface ProviderPickerOption {
   value: ProviderPickerKind;
   label: string;
   available: boolean;
-}> = [
+}
+
+export const PROVIDER_OPTIONS: ProviderPickerOption[] = [
+  { value: "codex", label: "Codex", available: true },
+  { value: "claudeAgent", label: "Claude", available: true },
+  { value: "kiro", label: "Kiro CLI", available: true },
+  { value: "cursor", label: "Cursor", available: false },
+];
+
+export const GIT_PROVIDER_OPTIONS: ProviderPickerOption[] = [
   { value: "codex", label: "Codex", available: true },
   { value: "claudeAgent", label: "Claude", available: true },
   { value: "kiro", label: "Kiro CLI", available: false },

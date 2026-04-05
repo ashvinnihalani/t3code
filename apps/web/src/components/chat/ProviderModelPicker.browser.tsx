@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import type { ProviderPickerOption } from "../../session-logic";
 
 const MODEL_OPTIONS_BY_PROVIDER = {
   claudeAgent: [
@@ -22,6 +23,7 @@ async function mountPicker(props: {
   provider: ProviderKind;
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
+  providerOptions?: ReadonlyArray<ProviderPickerOption>;
   triggerVariant?: "ghost" | "outline";
 }) {
   const host = document.createElement("div");
@@ -33,6 +35,7 @@ async function mountPicker(props: {
       model={props.model}
       lockedProvider={props.lockedProvider}
       modelOptionsByProvider={MODEL_OPTIONS_BY_PROVIDER}
+      providerOptions={props.providerOptions}
       triggerVariant={props.triggerVariant}
       onProviderModelChange={onProviderModelChange}
     />,
@@ -68,6 +71,33 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Codex");
         expect(text).toContain("Claude");
         expect(text).not.toContain("Claude Sonnet 4.6");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("supports narrower provider lists for non-chat pickers", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+      providerOptions: [
+        { value: "codex", label: "Codex", available: true },
+        { value: "claudeAgent", label: "Claude", available: true },
+        { value: "kiro", label: "Kiro CLI", available: false },
+      ],
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Codex");
+        expect(text).toContain("Claude");
+        expect(text).toContain("Kiro CLI");
+        expect(text).toContain("Coming soon");
       });
     } finally {
       await mounted.cleanup();
