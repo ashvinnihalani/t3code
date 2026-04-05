@@ -1010,7 +1010,7 @@ export class KiroAcpManager extends EventEmitter {
 
   async interruptTurn(threadId: ThreadId): Promise<void> {
     const session = this.requireSession(threadId);
-    await session.rpc.request("session/cancel", {
+    session.rpc.notify("session/cancel", {
       sessionId: session.sessionId,
     });
   }
