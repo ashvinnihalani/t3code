@@ -616,7 +616,7 @@ it.effect("ProviderServiceLive falls back to a fresh Kiro session when resume st
             reconnectState?: string;
             reconnectSummary?: string;
           };
-          assert.equal(runtimePayload.reconnectState, "fresh-start");
+          assert.equal(runtimePayload.reconnectState, "resume-fallback-fresh-start");
           assert.equal(
             runtimePayload.reconnectSummary,
             "Persisted provider session was unavailable; started a new provider session.",
@@ -859,7 +859,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   );
 
   it.effect(
-    "marks resume fallback as fresh-start when an adapter returns a new resume cursor",
+    "marks resume fallback as resume-fallback-fresh-start when an adapter returns a new resume cursor",
     () =>
       Effect.gen(function* () {
         const provider = yield* ProviderService;
@@ -916,7 +916,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
               reconnectState?: string;
               reconnectSummary?: string;
             };
-            assert.equal(runtimePayload.reconnectState, "fresh-start");
+            assert.equal(runtimePayload.reconnectState, "resume-fallback-fresh-start");
             assert.equal(
               runtimePayload.reconnectSummary,
               "Persisted provider session was unavailable; started a new provider session.",

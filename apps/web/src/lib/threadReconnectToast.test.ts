@@ -45,7 +45,7 @@ describe("buildThreadRestartToastMarker", () => {
             provider: "kiro",
             status: "ready",
             orchestrationStatus: "ready",
-            reconnectState: "fresh-start",
+            reconnectState: "resume-fallback-fresh-start",
             reconnectSummary:
               "Persisted provider session was unavailable; started a new provider session.",
             reconnectUpdatedAt: "2026-04-04T00:01:00.000Z",
@@ -54,9 +54,7 @@ describe("buildThreadRestartToastMarker", () => {
           },
         }),
       ),
-    ).toBe(
-      "fresh-start:2026-04-04T00:01:00.000Z:Persisted provider session was unavailable; started a new provider session.",
-    );
+    ).toBe("resume-fallback-fresh-start:2026-04-04T00:01:00.000Z");
   });
 
   it("does not return a marker for normal fresh starts", () => {

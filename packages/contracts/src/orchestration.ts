@@ -220,6 +220,7 @@ export type OrchestrationSessionStatus = typeof OrchestrationSessionStatus.Type;
 
 export const OrchestrationSessionReconnectState = Schema.Literals([
   "fresh-start",
+  "resume-fallback-fresh-start",
   "adopt-existing",
   "resume-thread",
   "resume-unavailable",

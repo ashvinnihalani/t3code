@@ -123,7 +123,7 @@ function toRuntimePayloadFromSession(
 }
 
 const RESUME_FALLBACK_RECONNECT_SUMMARY =
-  "Persisted provider session was unavailable; started a new provider session.";
+  "Persisted provider session was unavailable; started a new provider session." as const;
 
 function readResumeCursorIdentity(resumeCursor: unknown): string | undefined {
   const providerThreadId = readProviderThreadIdFromResumeCursor(resumeCursor);
@@ -363,7 +363,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             Effect.map((session) => ({
               session,
               strategy: "resume-fallback-fresh-start" as const,
-              reconnectState: "fresh-start" as const,
+              reconnectState: "resume-fallback-fresh-start" as const,
               reconnectSummary: RESUME_FALLBACK_RECONNECT_SUMMARY,
             })),
           );
@@ -385,7 +385,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 return {
                   session,
                   strategy: "resume-fallback-fresh-start" as const,
-                  reconnectState: "fresh-start" as const,
+                  reconnectState: "resume-fallback-fresh-start" as const,
                   reconnectSummary: RESUME_FALLBACK_RECONNECT_SUMMARY,
                 };
               }
