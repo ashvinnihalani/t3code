@@ -636,7 +636,7 @@ const make = Effect.gen(function* () {
     if (!workspaceCwd) {
       return false;
     }
-    if (project.remote) {
+    if (project.host) {
       return true;
     }
     return isGitRepository(workspaceCwd);

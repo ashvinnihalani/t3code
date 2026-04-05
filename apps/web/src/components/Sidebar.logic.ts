@@ -1,4 +1,4 @@
-import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import type { ProjectExecutionTarget } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import type { Thread } from "../types";
 import { cn } from "../lib/utils";
@@ -67,10 +67,10 @@ export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null
 export function resolveSidebarNewThreadEnvMode(input: {
   requestedEnvMode?: SidebarNewThreadEnvMode;
   defaultEnvMode: SidebarNewThreadEnvMode;
-  projectRemote?: ProjectRemoteTarget | null;
+  projectHost?: ProjectExecutionTarget | null;
 }): SidebarNewThreadEnvMode {
   return resolveRequestedThreadEnvMode({
-    projectRemote: input.projectRemote,
+    projectHost: input.projectHost,
     requestedEnvMode: input.requestedEnvMode,
     defaultEnvMode: input.defaultEnvMode,
   });

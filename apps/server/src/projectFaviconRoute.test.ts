@@ -200,7 +200,7 @@ describe("tryHandleProjectFaviconRequest", () => {
       },
       (projectId) =>
         projectId === "project-remote"
-          ? { workspaceRoot: "/srv/app", remote: { kind: "ssh" } }
+          ? { workspaceRoot: "/srv/app", host: { kind: "ssh" } }
           : null,
     );
   });

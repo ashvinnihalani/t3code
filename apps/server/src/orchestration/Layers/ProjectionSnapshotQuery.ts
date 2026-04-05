@@ -6,8 +6,8 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  ProjectExecutionTarget,
   ProjectGitRepo,
-  ProjectRemoteTarget,
   ProjectScript,
   ThreadId,
   TurnId,
@@ -53,7 +53,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-    remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
+    host: Schema.NullOr(Schema.fromJsonString(ProjectExecutionTarget)),
     gitRepos: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProjectGitRepo))),
   }),
 );
@@ -258,7 +258,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          remote_json AS "remote",
+          remote_json AS "host",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           git_mode AS "gitMode",
@@ -695,7 +695,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 try: () =>
                   discoverProjectRepos({
                     workspaceRoot: row.workspaceRoot,
-                    remote: row.remote,
+                    remote: row.host,
                   }),
                 catch: () => ({
                   gitMode: row.gitMode ?? "none",
@@ -706,7 +706,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   id: row.projectId,
                   title: row.title,
                   workspaceRoot: row.workspaceRoot,
-                  remote: row.remote,
+                  host: row.host,
                   defaultModelSelection: row.defaultModelSelection,
                   scripts: row.scripts,
                   gitMode: discovery.gitMode,
@@ -739,8 +739,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activities: activitiesByThread.get(row.threadId) ?? [],
             checkpoints: checkpointsByThread.get(row.threadId) ?? [],
             session:
-              projectsById.get(row.projectId)?.remote !== null &&
-              projectsById.get(row.projectId)?.remote !== undefined
+              projectsById.get(row.projectId)?.host !== null &&
+              projectsById.get(row.projectId)?.host !== undefined
                 ? mergeRemoteRuntimeSession({
                     session: sessionsByThread.get(row.threadId) ?? null,
                     runtime: providerRuntimeByThread.get(row.threadId),

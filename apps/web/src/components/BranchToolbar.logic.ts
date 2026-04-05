@@ -1,4 +1,4 @@
-import type { GitBranch, ProjectRemoteTarget } from "@t3tools/contracts";
+import type { GitBranch, ProjectExecutionTarget } from "@t3tools/contracts";
 import { resolveEffectiveThreadEnvMode } from "../threadEnvMode";
 
 export type EnvMode = "local" | "worktree";
@@ -6,12 +6,12 @@ export type EnvMode = "local" | "worktree";
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   draftThreadEnvMode: EnvMode | undefined;
-  projectRemote: ProjectRemoteTarget | null | undefined;
+  projectHost: ProjectExecutionTarget | null | undefined;
 }): EnvMode {
   return resolveEffectiveThreadEnvMode({
     worktreePath: input.activeWorktreePath,
     draftThreadEnvMode: input.draftThreadEnvMode,
-    projectRemote: input.projectRemote,
+    projectHost: input.projectHost,
   });
 }
 

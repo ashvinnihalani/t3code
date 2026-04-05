@@ -1,7 +1,7 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
 import { ModelSelection } from "./model";
 import { GitRequestSettings } from "./git";
-import { ProjectRemoteTarget } from "./remote";
+import { ProjectExecutionTarget, ProjectRemoteTarget } from "./remote";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -161,7 +161,7 @@ export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
-  remote: Schema.optional(Schema.NullOr(ProjectRemoteTarget)),
+  host: Schema.optional(Schema.NullOr(ProjectExecutionTarget)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   gitMode: Schema.optional(ProjectGitMode),

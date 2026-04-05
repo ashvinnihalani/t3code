@@ -1,8 +1,8 @@
-import type { ProjectRemoteTarget } from "@t3tools/contracts";
+import type { ProjectExecutionTarget } from "@t3tools/contracts";
 import type { DraftThreadEnvMode } from "./composerDraftStore";
 
 interface ThreadEnvInput {
-  projectRemote: ProjectRemoteTarget | null | undefined;
+  projectHost: ProjectExecutionTarget | null | undefined;
 }
 
 export function supportsDraftWorktreeEnv(_input: ThreadEnvInput): boolean {
@@ -34,7 +34,7 @@ export function resolvePersistedThreadEnvMode(
   }
 
   return resolveRequestedThreadEnvMode({
-    projectRemote: input.projectRemote,
+    projectHost: input.projectHost,
     requestedEnvMode: input.requestedEnvMode,
     defaultEnvMode: input.fallbackEnvMode,
   });
@@ -47,7 +47,7 @@ export function resolveEffectiveThreadEnvMode(
   },
 ): DraftThreadEnvMode {
   return resolvePersistedThreadEnvMode({
-    projectRemote: input.projectRemote,
+    projectHost: input.projectHost,
     requestedEnvMode: input.draftThreadEnvMode,
     worktreePath: input.worktreePath,
   });
