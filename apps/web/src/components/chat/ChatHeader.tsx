@@ -8,7 +8,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { memo, useEffect, useRef, useState } from "react";
-import GitActionsControl from "../GitActionsControl";
+import GitActionsControl, { type MultiRepoGitActionTarget } from "../GitActionsControl";
 import type { GitQueryTarget } from "~/lib/gitReactQuery";
 import { DiffIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
@@ -41,6 +41,7 @@ interface ChatHeaderProps {
   terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
   gitTarget: GitQueryTarget;
+  multiRepoTargets?: ReadonlyArray<MultiRepoGitActionTarget> | undefined;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
@@ -73,6 +74,7 @@ export const ChatHeader = memo(function ChatHeader({
   terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
   gitTarget,
+  multiRepoTargets,
   diffOpen,
   onRunProjectScript,
   onAddProjectScript,
@@ -198,6 +200,7 @@ export const ChatHeader = memo(function ChatHeader({
             activeThreadId={activeThreadId}
             projectRemote={activeProjectRemote}
             disableGitActions={disableGitActions}
+            multiRepoTargets={multiRepoTargets}
           />
         )}
         <Tooltip>

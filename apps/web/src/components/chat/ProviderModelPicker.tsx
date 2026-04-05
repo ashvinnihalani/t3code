@@ -58,11 +58,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
-  providerOptions?: ReadonlyArray<ProviderPickerOption>;
+  providerOptions?: ReadonlyArray<ProviderPickerOption> | undefined;
   activeProviderIconClassName?: string;
   compact?: boolean;
   disabled?: boolean;
-  triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
+  triggerVariant?: VariantProps<typeof buttonVariants>["variant"] | undefined;
   triggerClassName?: string;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 }) {
