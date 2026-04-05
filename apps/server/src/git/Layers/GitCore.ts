@@ -573,7 +573,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 cwd: commandInput.cwd,
                 env: {
                   ...process.env,
-                  ...(normalizedEnv ?? {}),
+                  ...normalizedEnv,
                   ...trace2Monitor.env,
                 },
               }),
