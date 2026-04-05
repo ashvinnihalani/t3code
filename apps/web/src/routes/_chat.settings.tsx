@@ -1233,6 +1233,40 @@ function SettingsRouteView() {
               </SettingsRow>
             </SettingsSection>
 
+            <SettingsSection title="Terminal">
+              <SettingsRow
+                title="Environment Variables"
+                description="Set optional environment variables for any terminals opened within T3 Code"
+                resetAction={
+                  settings.terminalEnvironmentVariables !==
+                  defaults.terminalEnvironmentVariables ? (
+                    <SettingResetButton
+                      label="terminal environment variables"
+                      onClick={() =>
+                        updateSettings({
+                          terminalEnvironmentVariables: defaults.terminalEnvironmentVariables,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <div className="mt-4 border-t border-border pt-4">
+                  <Input
+                    id="terminal-environment-variables"
+                    value={settings.terminalEnvironmentVariables}
+                    onChange={(event) =>
+                      updateSettings({
+                        terminalEnvironmentVariables: event.target.value,
+                      })
+                    }
+                    placeholder="T3CODE=1"
+                    spellCheck={false}
+                  />
+                </div>
+              </SettingsRow>
+            </SettingsSection>
+
             <SettingsSection title="Advanced">
               <SettingsRow
                 title="Provider installs"

@@ -301,6 +301,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     enableAssistantStreaming: false,
     sidebarProjectSortOrder: "updated_at",
     sidebarThreadSortOrder: "updated_at",
+    terminalEnvironmentVariables: "",
     desktopAppCloseBehavior: "terminate_all_agents",
     threadIdDisplayMode: "hidden",
     timestampFormat: "locale",
@@ -1965,6 +1966,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      dispatchAppSettingsChange(
+        buildAppSettings({
+          terminalEnvironmentVariables: "T3CODE=1, FEATURE_FLAG=enabled",
+        }),
+      );
       const runButton = await waitForElement(
         () =>
           Array.from(document.querySelectorAll("button")).find(
@@ -1984,6 +1990,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
+              FEATURE_FLAG: "enabled",
+              T3CODE: "1",
               T3CODE_PROJECT_ROOT: "/repo/project",
             },
           });
@@ -2063,6 +2071,53 @@ describe("ChatView timeline estimator parity (full app)", () => {
             env: {
               T3CODE_PROJECT_ROOT: "/repo/project",
               T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("applies configured environment variables when opening the terminal drawer", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-target-terminal" as MessageId,
+        targetText: "open terminal",
+      }),
+    });
+
+    try {
+      dispatchAppSettingsChange(
+        buildAppSettings({
+          terminalEnvironmentVariables: "T3CODE=1, FEATURE_FLAG=enabled",
+        }),
+      );
+      const toggleButton = await waitForElement(
+        () =>
+          document.querySelector(
+            'button[aria-label="Toggle terminal drawer"]',
+          ) as HTMLButtonElement | null,
+        "Unable to find terminal toggle button.",
+      );
+      toggleButton.click();
+
+      await vi.waitFor(
+        () => {
+          const openRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.terminalOpen,
+          );
+          expect(openRequest).toMatchObject({
+            _tag: WS_METHODS.terminalOpen,
+            threadId: THREAD_ID,
+            cwd: "/repo/project",
+            env: {
+              FEATURE_FLAG: "enabled",
+              T3CODE: "1",
+              T3CODE_PROJECT_ROOT: "/repo/project",
             },
           });
         },

@@ -43,6 +43,7 @@ export type ThreadIdDisplayMode = (typeof THREAD_ID_DISPLAY_MODE_OPTIONS)[number
 export const DEFAULT_THREAD_ID_DISPLAY_MODE: ThreadIdDisplayMode = "hidden";
 
 export const DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR: DesktopAppCloseBehavior = "terminate_all_agents";
+const TERMINAL_ENVIRONMENT_VARIABLE_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const DEFAULT_GIT_TEXT_GENERATION_MODEL_SELECTION = {
   provider: "codex" as const,
@@ -124,6 +125,7 @@ export const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
+  terminalEnvironmentVariables: SettingsPathSchema,
   desktopAppCloseBehavior: Schema.Literals(DESKTOP_APP_CLOSE_BEHAVIOR_OPTIONS).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR)),
     Schema.withDecodingDefault(() => DEFAULT_DESKTOP_APP_CLOSE_BEHAVIOR),
@@ -328,6 +330,35 @@ export function buildGitRequestSettings(
     ...(commitPrompt ? { commitPrompt } : {}),
     textGenerationModelSelection,
   };
+}
+
+export function parseTerminalEnvironmentVariables(raw: string): Record<string, string> {
+  const normalized = raw.trim();
+  if (!normalized) {
+    return {};
+  }
+
+  const parsed: Record<string, string> = {};
+  for (const segment of normalized.split(",")) {
+    const entry = segment.trim();
+    if (!entry) {
+      continue;
+    }
+
+    const separatorIndex = entry.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = entry.slice(0, separatorIndex).trim();
+    const value = entry.slice(separatorIndex + 1).trim();
+    if (!TERMINAL_ENVIRONMENT_VARIABLE_KEY_PATTERN.test(key)) {
+      continue;
+    }
+    parsed[key] = value;
+  }
+
+  return parsed;
 }
 
 export function getProviderStartOptions(

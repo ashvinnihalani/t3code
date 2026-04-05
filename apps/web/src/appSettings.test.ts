@@ -15,6 +15,7 @@ import {
   getCodexHostOverride,
   getKiroHostOverride,
   getProviderStartOptions,
+  parseTerminalEnvironmentVariables,
 } from "./appSettings";
 import {
   getAppModelOptions,
@@ -383,10 +384,30 @@ describe("AppSettingsSchema", () => {
       enableAssistantStreaming: false,
       sidebarProjectSortOrder: DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
       sidebarThreadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+      terminalEnvironmentVariables: "",
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
       customCodexModels: [],
       customClaudeModels: [],
       customKiroModels: [],
+    });
+  });
+});
+
+describe("parseTerminalEnvironmentVariables", () => {
+  it("parses comma-separated key value pairs", () => {
+    expect(parseTerminalEnvironmentVariables("T3CODE=1, FOO=bar baz,EMPTY=")).toEqual({
+      T3CODE: "1",
+      FOO: "bar baz",
+      EMPTY: "",
+    });
+  });
+
+  it("ignores invalid entries and keeps the last value for duplicate keys", () => {
+    expect(
+      parseTerminalEnvironmentVariables("invalid,T3CODE=1,1BAD=nope,_OK=yes,T3CODE=2"),
+    ).toEqual({
+      T3CODE: "2",
+      _OK: "yes",
     });
   });
 });

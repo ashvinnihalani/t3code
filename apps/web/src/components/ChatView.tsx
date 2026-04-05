@@ -122,7 +122,12 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { buildGitRequestSettings, getProviderStartOptions, useAppSettings } from "../appSettings";
+import {
+  buildGitRequestSettings,
+  getProviderStartOptions,
+  parseTerminalEnvironmentVariables,
+  useAppSettings,
+} from "../appSettings";
 import {
   getCustomModelOptionsByProvider,
   getCustomModelsByProvider,
@@ -1313,6 +1318,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     settings.threadIdDisplayMode === "message" ? visibleProviderThreadId : null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread ? getSingleRepoWorktreePath(activeThread) : null;
+  const configuredTerminalEnvironmentVariables = useMemo(
+    () => parseTerminalEnvironmentVariables(settings.terminalEnvironmentVariables),
+    [settings.terminalEnvironmentVariables],
+  );
   const threadTerminalRuntimeEnv = useMemo(() => {
     if (!activeProjectCwd) return {};
     return projectScriptRuntimeEnv({
@@ -1320,8 +1329,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         cwd: activeProjectCwd,
       },
       worktreePath: activeThreadWorktreePath,
+      extraEnv: configuredTerminalEnvironmentVariables,
     });
-  }, [activeProjectCwd, activeThreadWorktreePath]);
+  }, [activeProjectCwd, activeThreadWorktreePath, configuredTerminalEnvironmentVariables]);
   const isGitRepo =
     activeProject?.gitMode === "multi"
       ? (activeProject.gitRepos?.length ?? 0) > 0
@@ -1561,7 +1571,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
           options?.worktreePath ??
           getSingleRepoWorktreePath(activeThread) ??
           (activeProject.gitMode === "multi" ? activeThread.projectPath : null),
-        ...(options?.env ? { extraEnv: options.env } : {}),
+        extraEnv: {
+          ...configuredTerminalEnvironmentVariables,
+          ...options?.env,
+        },
       });
       const openTerminalInput: Parameters<typeof api.terminal.open>[0] = shouldCreateNewTerminal
         ? {
@@ -1608,6 +1621,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       terminalState.activeTerminalId,
       terminalState.runningTerminalIds,
       terminalState.terminalIds,
+      configuredTerminalEnvironmentVariables,
     ],
   );
   const persistProjectScripts = useCallback(
