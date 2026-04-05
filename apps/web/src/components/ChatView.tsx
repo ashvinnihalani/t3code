@@ -254,10 +254,24 @@ function buildMultiRepoWorktreeBranchName(input: {
 }
 
 function joinRepoPath(...parts: Array<string>): string {
-  return parts
-    .flatMap((part) => part.split("/"))
-    .filter((part) => part.length > 0)
-    .join("/");
+  const firstPart = parts[0] ?? "";
+  const normalizedParts = parts
+    .flatMap((part) => part.replaceAll("\\", "/").split("/"))
+    .filter((part) => part.length > 0);
+  const joined = normalizedParts.join("/");
+  if (joined.length === 0) {
+    return joined;
+  }
+  if (firstPart.startsWith("/")) {
+    return `/${joined}`;
+  }
+  const windowsDriveMatch = /^([a-zA-Z]:)(?:[\\/]|$)/.exec(firstPart);
+  if (windowsDriveMatch?.[1]) {
+    const drive = windowsDriveMatch[1];
+    const suffix = joined.startsWith(drive) ? joined.slice(drive.length) : `/${joined}`;
+    return `${drive}${suffix.startsWith("/") ? suffix : `/${suffix}`}`;
+  }
+  return joined;
 }
 
 function deriveSyntheticParentPath(childWorktreePath: string, repoPath: string): string {
