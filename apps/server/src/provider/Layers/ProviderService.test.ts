@@ -608,7 +608,7 @@ it.effect("ProviderServiceLive falls back to a fresh Kiro session when resume st
             reconnectState?: string;
             reconnectSummary?: string;
           };
-          assert.equal(runtimePayload.reconnectState, "fresh-start");
+          assert.equal(runtimePayload.reconnectState, "resume-fallback-fresh-start");
           assert.equal(
             runtimePayload.reconnectSummary,
             "Persisted provider session was unavailable; started a new provider session.",
@@ -844,6 +844,74 @@ routing.layer("ProviderServiceLive routing", (it) => {
             assert.equal(
               runtimePayload.reconnectSummary,
               "Resumed the persisted remote provider session.",
+            );
+          }
+        }
+      }),
+  );
+
+  it.effect(
+    "marks resume fallback as resume-fallback-fresh-start when an adapter returns a new resume cursor",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+
+        const initial = yield* provider.startSession(asThreadId("thread-1"), {
+          provider: "codex",
+          threadId: asThreadId("thread-1"),
+          cwd: "/tmp/project-send-turn",
+          runtimeMode: "full-access",
+        });
+
+      yield* routing.codex.stopAll();
+      routing.codex.startSession.mockImplementationOnce((input) =>
+        Effect.sync(() => {
+          const now = new Date().toISOString();
+          return {
+              provider: "codex" as const,
+              status: "ready" as const,
+              runtimeMode: input.runtimeMode,
+              threadId: input.threadId,
+              resumeCursor:
+                input.resumeCursor !== undefined
+                  ? { opaque: `replacement-${String(input.threadId)}` }
+                  : { opaque: `cursor-${String(input.threadId)}` },
+              cwd: input.cwd ?? process.cwd(),
+              createdAt: now,
+            updatedAt: now,
+          };
+        }),
+      );
+      routing.codex.sendTurn.mockImplementationOnce((input) =>
+        Effect.succeed({
+          threadId: input.threadId,
+          turnId: TurnId.makeUnsafe(`turn-${String(input.threadId)}`),
+        }),
+      );
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "resume",
+          attachments: [],
+        });
+
+        const recoveredRuntime = yield* runtimeRepository.getByThreadId({
+          threadId: initial.threadId,
+        });
+        assert.equal(Option.isSome(recoveredRuntime), true);
+        if (Option.isSome(recoveredRuntime)) {
+          const payload = recoveredRuntime.value.runtimePayload;
+          assert.equal(payload !== null && typeof payload === "object", true);
+          if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+            const runtimePayload = payload as {
+              reconnectState?: string;
+              reconnectSummary?: string;
+            };
+            assert.equal(runtimePayload.reconnectState, "resume-fallback-fresh-start");
+            assert.equal(
+              runtimePayload.reconnectSummary,
+              "Persisted provider session was unavailable; started a new provider session.",
             );
           }
         }
