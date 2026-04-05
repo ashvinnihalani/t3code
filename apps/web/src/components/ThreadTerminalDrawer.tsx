@@ -183,7 +183,7 @@ interface TerminalViewportProps {
   terminalLabel: string;
   cwd: string;
   projectId: ProjectId | null;
-  projectRemote: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -199,7 +199,7 @@ function TerminalViewport({
   terminalLabel,
   cwd,
   projectId,
-  projectRemote,
+  projectHost,
   runtimeEnv,
   onSessionExited,
   onAddTerminalContext,
@@ -407,7 +407,7 @@ function TerminalViewport({
                 projectId: projectId ?? undefined,
                 threadId,
                 referenceRoot: cwd,
-                host: projectRemote,
+                host: projectHost,
               });
               if (!target) {
                 writeSystemMessage(latestTerminal, "Unable to resolve path for editor opening.");
@@ -611,7 +611,7 @@ function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, projectId, projectRemote, runtimeEnv, terminalId, threadId]);
+  }, [cwd, projectId, projectHost, runtimeEnv, terminalId, threadId]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -658,7 +658,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   projectId: ProjectId | null;
-  projectRemote: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | null;
   runtimeEnv?: Record<string, string>;
   height: number;
   terminalIds: string[];
@@ -710,7 +710,7 @@ export default function ThreadTerminalDrawer({
   threadId,
   cwd,
   projectId,
-  projectRemote,
+  projectHost,
   runtimeEnv,
   height,
   terminalIds,
@@ -1026,7 +1026,7 @@ export default function ThreadTerminalDrawer({
                         terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                         cwd={cwd}
                         projectId={projectId}
-                        projectRemote={projectRemote}
+                        projectHost={projectHost}
                         {...(runtimeEnv ? { runtimeEnv } : {})}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         onAddTerminalContext={onAddTerminalContext}
@@ -1048,7 +1048,7 @@ export default function ThreadTerminalDrawer({
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={cwd}
                   projectId={projectId}
-                  projectRemote={projectRemote}
+                  projectHost={projectHost}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}

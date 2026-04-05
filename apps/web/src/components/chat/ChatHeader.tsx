@@ -26,7 +26,7 @@ interface ChatHeaderProps {
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   activeProjectGitMode: ProjectGitMode | null;
-  activeProjectRemote: ProjectExecutionTarget | null;
+  activeProjectHost: ProjectExecutionTarget | null;
   disableGitActions?: boolean;
   isRemoteProject: boolean;
   isGitRepo: boolean;
@@ -58,7 +58,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectId,
   activeProjectName,
   activeProjectGitMode,
-  activeProjectRemote,
+  activeProjectHost,
   disableGitActions = false,
   isRemoteProject,
   isGitRepo,
@@ -196,7 +196,7 @@ export const ChatHeader = memo(function ChatHeader({
           <GitActionsControl
             gitTarget={gitTarget}
             activeThreadId={activeThreadId}
-            projectHost={activeProjectRemote}
+            projectHost={activeProjectHost}
             disableGitActions={disableGitActions}
           />
         )}

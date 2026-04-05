@@ -3871,7 +3871,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           activeProjectGitMode={activeProject?.gitMode ?? null}
-          activeProjectRemote={activeProject?.host ?? null}
+          activeProjectHost={activeProject?.host ?? null}
           disableGitActions={false}
           isRemoteProject={Boolean(activeProject?.host)}
           isGitRepo={isGitRepo}
@@ -4551,7 +4551,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId={activeThread.id}
             cwd={gitCwd ?? activeProject.cwd}
             projectId={activeProject.id}
-            projectRemote={activeProject.host ?? null}
+            projectHost={activeProject.host ?? null}
             runtimeEnv={threadTerminalRuntimeEnv}
             height={terminalState.terminalHeight}
             terminalIds={terminalState.terminalIds}
