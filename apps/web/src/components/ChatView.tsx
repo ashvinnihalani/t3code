@@ -1244,7 +1244,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           type: "slash-command",
           command: "default",
           label: "/default",
-          description: "Switch this thread back to normal chat mode",
+          description: "Switch this thread back to normal build mode",
         },
       ];
       const slashCommandItems = allSlashCommandItems.filter((item) => {
@@ -4301,13 +4301,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               onClick={toggleInteractionMode}
                               title={
                                 interactionMode === "plan"
-                                  ? "Plan mode — click to return to normal chat mode"
+                                  ? "Plan mode — click to return to normal build mode"
                                   : `Default mode — click to enter ${INTERACTION_MODE_LABEL_BY_OPTION[nextInteractionMode]} mode`
                               }
                             >
                               <INTERACTION_MODE_ICON_BY_OPTION.default />
                               <span className="sr-only sm:not-sr-only">
-                                {interactionMode === "plan" ? "Plan" : "Chat"}
+                                {interactionMode === "plan" ? "Plan" : "Build"}
                               </span>
                             </Button>
 
