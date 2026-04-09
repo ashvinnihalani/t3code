@@ -12,7 +12,15 @@ import { ChevronDownIcon, FolderClosedIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
-import { AntigravityIcon, CursorIcon, Icon, VisualStudioCode, Zed } from "../Icons";
+import {
+  AntigravityIcon,
+  CursorIcon,
+  Icon,
+  VisualStudioCode,
+  VisualStudioCodeInsiders,
+  VSCodium,
+  Zed,
+} from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "../ui/toast";
@@ -32,6 +40,16 @@ const resolveOptions = (
       label: "VS Code",
       Icon: VisualStudioCode,
       value: "vscode",
+    },
+    {
+      label: "VS Code Insiders",
+      Icon: VisualStudioCodeInsiders,
+      value: "vscode-insiders",
+    },
+    {
+      label: "VSCodium",
+      Icon: VSCodium,
+      value: "vscodium",
     },
     {
       label: "Zed",
