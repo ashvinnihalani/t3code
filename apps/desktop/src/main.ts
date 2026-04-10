@@ -17,7 +17,6 @@ import {
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import * as Effect from "effect/Effect";
 import type {
   DesktopAppCloseBehavior,
   DesktopTheme,
@@ -27,8 +26,8 @@ import type {
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@t3tools/contracts";
-import { NetService } from "@t3tools/shared/Net";
 import { RotatingFileSink } from "@t3tools/shared/logging";
+import { DEFAULT_DESKTOP_BACKEND_PORT, resolveDesktopBackendPort } from "./backendPort";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
@@ -1197,14 +1196,15 @@ async function adoptPersistedBackendIfAvailable(): Promise<boolean> {
 }
 
 async function reserveNewBackendConnection(): Promise<void> {
-  const port = await Effect.service(NetService).pipe(
-    Effect.flatMap((net) => net.reserveLoopbackPort()),
-    Effect.provide(NetService.layer),
-    Effect.runPromise,
-  );
+  const port = await resolveDesktopBackendPort({
+    host: "127.0.0.1",
+    startPort: DEFAULT_DESKTOP_BACKEND_PORT,
+  });
   const authToken = Crypto.randomBytes(24).toString("hex");
   setBackendConnection(port, authToken);
-  writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
+  writeDesktopLogHeader(
+    `selected backend port via sequential scan startPort=${DEFAULT_DESKTOP_BACKEND_PORT} port=${backendPort}`,
+  );
   writeDesktopLogHeader(
     `bootstrap resolved websocket endpoint baseUrl=ws://127.0.0.1:${backendPort}`,
   );
