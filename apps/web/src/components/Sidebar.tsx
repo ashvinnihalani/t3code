@@ -123,6 +123,7 @@ import {
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   sortThreadsForSidebar,
+  useThreadJumpHintVisibility,
 } from "./Sidebar.logic";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import type { Project } from "../types";
@@ -553,7 +554,7 @@ export default function Sidebar() {
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<ProjectId>
   >(() => new Set());
-  const [showThreadJumpHints, setShowThreadJumpHints] = useState(false);
+  const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const projectRenamingCommittedRef = useRef(false);
   const projectRenamingInputRef = useRef<HTMLInputElement | null>(null);
   const renamingCommittedRef = useRef(false);
@@ -1517,23 +1518,22 @@ export default function Sidebar() {
       visibleThreads,
     ],
   );
+  const visibleSidebarThreadIds = useMemo(
+    () => getVisibleSidebarThreadIds(renderedProjects),
+    [renderedProjects],
+  );
   const threadJumpCommandById = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
-    let visibleThreadIndex = 0;
-
-    for (const renderedProject of renderedProjects) {
-      for (const thread of renderedProject.renderedThreads) {
-        const jumpCommand = threadJumpCommandForIndex(visibleThreadIndex);
-        if (!jumpCommand) {
-          return mapping;
-        }
-        mapping.set(thread.id, jumpCommand);
-        visibleThreadIndex += 1;
+    for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
+      const jumpCommand = threadJumpCommandForIndex(visibleThreadIndex);
+      if (!jumpCommand) {
+        return mapping;
       }
+      mapping.set(threadId, jumpCommand);
     }
 
     return mapping;
-  }, [renderedProjects]);
+  }, [visibleSidebarThreadIds]);
   const threadJumpThreadIds = useMemo(
     () => [...threadJumpCommandById.keys()],
     [threadJumpCommandById],
@@ -1548,10 +1548,7 @@ export default function Sidebar() {
     }
     return mapping;
   }, [keybindings, sidebarShortcutLabelOptions, threadJumpCommandById]);
-  const orderedSidebarThreadIds = useMemo(
-    () => getVisibleSidebarThreadIds(renderedProjects),
-    [renderedProjects],
-  );
+  const orderedSidebarThreadIds = visibleSidebarThreadIds;
 
   useEffect(() => {
     const getShortcutContext = () => ({
@@ -1560,7 +1557,7 @@ export default function Sidebar() {
     });
 
     const onWindowKeyDown = (event: KeyboardEvent) => {
-      setShowThreadJumpHints(
+      updateThreadJumpHintsVisibility(
         shouldShowThreadJumpHints(event, keybindings, {
           platform,
           context: getShortcutContext(),
@@ -1608,7 +1605,7 @@ export default function Sidebar() {
     };
 
     const onWindowKeyUp = (event: KeyboardEvent) => {
-      setShowThreadJumpHints(
+      updateThreadJumpHintsVisibility(
         shouldShowThreadJumpHints(event, keybindings, {
           platform,
           context: getShortcutContext(),
@@ -1617,7 +1614,7 @@ export default function Sidebar() {
     };
 
     const onWindowBlur = () => {
-      setShowThreadJumpHints(false);
+      updateThreadJumpHintsVisibility(false);
     };
 
     window.addEventListener("keydown", onWindowKeyDown);
@@ -1637,6 +1634,7 @@ export default function Sidebar() {
     routeTerminalOpen,
     routeThreadId,
     threadJumpThreadIds,
+    updateThreadJumpHintsVisibility,
   ]);
 
   function renderProjectItem(
