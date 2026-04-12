@@ -11,6 +11,12 @@ const WORKSPACE_CACHE_MAX_KEYS = 4;
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_SCAN_READDIR_CONCURRENCY = 32;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
+const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+] as const;
 const IGNORED_DIRECTORY_NAMES = new Set([
   ".git",
   ".convex",
@@ -344,7 +350,7 @@ async function filterGitIgnoredPaths(
     const checkIgnore = await runWorkspaceProcess({
       cwd,
       command: "git",
-      args: ["check-ignore", "--no-index", "-z", "--stdin"],
+      args: [...WORKSPACE_GIT_HARDENED_CONFIG_ARGS, "check-ignore", "--no-index", "-z", "--stdin"],
       remote,
       allowNonZeroExit: true,
       timeoutMs: 20_000,
@@ -414,7 +420,14 @@ async function buildWorkspaceIndexFromGit(
   const listedFiles = await runWorkspaceProcess({
     cwd,
     command: "git",
-    args: ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    args: [
+      ...WORKSPACE_GIT_HARDENED_CONFIG_ARGS,
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+    ],
     remote,
     allowNonZeroExit: true,
     timeoutMs: 20_000,

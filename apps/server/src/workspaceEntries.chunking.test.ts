@@ -30,6 +30,26 @@ function processResult(
   };
 }
 
+const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+] as const;
+
+function isHardenedWorkspaceGitArgs(
+  args: readonly string[],
+  commandArgs: readonly string[],
+): boolean {
+  return (
+    args.length === WORKSPACE_GIT_HARDENED_CONFIG_ARGS.length + commandArgs.length &&
+    WORKSPACE_GIT_HARDENED_CONFIG_ARGS.every((arg, index) => args[index] === arg) &&
+    commandArgs.every(
+      (arg, index) => args[WORKSPACE_GIT_HARDENED_CONFIG_ARGS.length + index] === arg,
+    )
+  );
+}
+
 describe("searchWorkspaceEntries git-ignore chunking", () => {
   beforeEach(() => {
     runProcessMock.mockReset();
@@ -50,11 +70,19 @@ describe("searchWorkspaceEntries git-ignore chunking", () => {
         return processResult({ code: 0, stdout: "true\n" });
       }
 
-      if (args[0] === "ls-files") {
+      if (
+        isHardenedWorkspaceGitArgs(args, [
+          "ls-files",
+          "--cached",
+          "--others",
+          "--exclude-standard",
+          "-z",
+        ])
+      ) {
         return processResult({ code: 0, stdout: `${listedPaths.join("\0")}\0` });
       }
 
-      if (args[0] === "check-ignore") {
+      if (isHardenedWorkspaceGitArgs(args, ["check-ignore", "--no-index", "-z", "--stdin"])) {
         checkIgnoreCalls += 1;
         const chunkPaths = (options?.stdin ?? "").split("\0").filter((value) => value.length > 0);
         const chunkIgnored = chunkPaths.filter((value) => value.startsWith("ignored/"));
@@ -77,5 +105,54 @@ describe("searchWorkspaceEntries git-ignore chunking", () => {
     assert.isAbove(checkIgnoreCalls, 1);
     assert.isFalse(result.entries.some((entry) => entry.path.startsWith("ignored/")));
     assert.isTrue(result.entries.some((entry) => entry.path === "src/keep.ts"));
+  });
+
+  it("disables fsmonitor and untracked cache helpers for git workspace indexing", async () => {
+    const observedArgs: string[][] = [];
+
+    runProcessMock.mockImplementation(async (_command, args) => {
+      observedArgs.push([...args]);
+
+      if (args[0] === "rev-parse") {
+        return processResult({ code: 0, stdout: "true\n" });
+      }
+
+      if (
+        isHardenedWorkspaceGitArgs(args, [
+          "ls-files",
+          "--cached",
+          "--others",
+          "--exclude-standard",
+          "-z",
+        ])
+      ) {
+        return processResult({ code: 0, stdout: "src/index.ts\0README.md\0" });
+      }
+
+      throw new Error(`Unexpected command: git ${args.join(" ")}`);
+    });
+
+    const { searchWorkspaceEntries } = await import("./workspaceEntries");
+    const result = await searchWorkspaceEntries({
+      cwd: "/virtual/workspace",
+      query: "",
+      limit: 100,
+    });
+
+    assert.deepEqual(
+      result.entries.map((entry) => entry.path),
+      ["src", "README.md", "src/index.ts"],
+    );
+    assert.isTrue(
+      observedArgs.some((args) =>
+        isHardenedWorkspaceGitArgs(args, [
+          "ls-files",
+          "--cached",
+          "--others",
+          "--exclude-standard",
+          "-z",
+        ]),
+      ),
+    );
   });
 });
