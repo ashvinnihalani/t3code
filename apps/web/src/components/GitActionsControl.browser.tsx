@@ -182,7 +182,11 @@ function Harness() {
       <button type="button" onClick={() => setActiveThreadId(THREAD_B)}>
         Switch thread
       </button>
-      <GitActionsControl gitTarget={GIT_TARGET} activeThreadId={activeThreadId} projectRemote={null} />
+      <GitActionsControl
+        gitTarget={GIT_TARGET}
+        activeThreadId={activeThreadId}
+        projectRemote={null}
+      />
     </>
   );
 }

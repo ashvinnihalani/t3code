@@ -79,7 +79,7 @@ export function invalidateGitQueries(
   input?: { target?: GitQueryTarget | null; cwd?: string | null },
 ) {
   const target = toInvalidateTarget(input);
-  if (target?.repoPath !== null) {
+  if (target && target.repoPath !== null) {
     return Promise.all([
       queryClient.invalidateQueries({ queryKey: gitStatusInvalidationKey(target) }),
       queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(target) }),

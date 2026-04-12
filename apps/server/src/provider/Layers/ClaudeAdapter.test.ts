@@ -2492,7 +2492,7 @@ describe("ClaudeAdapterLive", () => {
     },
   );
 
-  it.effect("re-sets the Claude model when the effective API model changes", () => {
+  it.effect("re-sets the Claude model when the selected model changes", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -2509,9 +2509,6 @@ describe("ClaudeAdapterLive", () => {
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-6",
-          options: {
-            contextWindow: "1m",
-          },
         },
         attachments: [],
       });
@@ -2520,12 +2517,12 @@ describe("ClaudeAdapterLive", () => {
         input: "hello again",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-opus-4-6",
+          model: "claude-sonnet-4-6",
         },
         attachments: [],
       });
 
-      assert.deepEqual(harness.query.setModelCalls, ["claude-opus-4-6[1m]", "claude-opus-4-6"]);
+      assert.deepEqual(harness.query.setModelCalls, ["claude-opus-4-6", "claude-sonnet-4-6"]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

@@ -38,10 +38,7 @@ describe("ChatMarkdown", () => {
     const filePath =
       "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
-      <ChatMarkdown
-        text={`[PermissionRule.ts](file://${filePath})`}
-        linkContext={LINK_CONTEXT}
-      />,
+      <ChatMarkdown text={`[PermissionRule.ts](file://${filePath})`} linkContext={LINK_CONTEXT} />,
     );
 
     try {

@@ -1639,7 +1639,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (pendingPullRequestSetupRequest.threadId !== activeThreadId) {
       return;
     }
-    if (activeThread.worktreePath !== pendingPullRequestSetupRequest.worktreePath) {
+    if (getSingleRepoWorktreePath(activeThread) !== pendingPullRequestSetupRequest.worktreePath) {
       return;
     }
 

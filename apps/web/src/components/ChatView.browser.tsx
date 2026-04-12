@@ -2102,10 +2102,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          projectPath: "/repo/project",
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          branch: [null],
+          worktreePath: [null],
           envMode: "local",
         },
       },

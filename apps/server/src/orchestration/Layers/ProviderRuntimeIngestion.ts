@@ -1405,11 +1405,14 @@ const make = Effect.gen(function* () {
       if (event.type === "turn.diff.updated") {
         const turnId = toTurnId(event.turnId);
         if (turnId && (yield* isGitRepoForThread(thread.id))) {
-          const payload = runtimePayloadRecord(event);
+          const payload =
+            typeof event.payload === "object" && event.payload !== null
+              ? (event.payload as Record<string, unknown>)
+              : undefined;
           const unifiedDiff =
-            asString(payload?.unifiedDiff) ??
-            asString(payload?.diff) ??
-            asString(payload?.patch) ??
+            (typeof payload?.unifiedDiff === "string" ? payload.unifiedDiff : undefined) ??
+            (typeof payload?.diff === "string" ? payload.diff : undefined) ??
+            (typeof payload?.patch === "string" ? payload.patch : undefined) ??
             "";
           const files = (() => {
             try {

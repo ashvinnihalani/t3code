@@ -1,6 +1,11 @@
 import type { EditorId } from "@t3tools/contracts";
 
-const REMOTE_SSH_SUPPORTED_EDITORS = new Set<EditorId>(["cursor", "vscode", "zed"]);
+const REMOTE_SSH_SUPPORTED_EDITORS = new Set<EditorId>([
+  "cursor",
+  "vscode",
+  "vscode-insiders",
+  "zed",
+]);
 
 export function supportsRemoteSshEditor(editorId: EditorId): boolean {
   return REMOTE_SSH_SUPPORTED_EDITORS.has(editorId);

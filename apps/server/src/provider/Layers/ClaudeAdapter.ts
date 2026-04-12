@@ -222,6 +222,10 @@ function getEffectiveClaudeCodeEffort(
   return effort === "ultrathink" ? null : effort;
 }
 
+function resolveApiModelId(modelSelection: { readonly model: string }): string {
+  return modelSelection.model;
+}
+
 function claudeSessionStartedMessage(resumeState: ClaudeResumeState | undefined): string {
   if (resumeState?.threadId) {
     return `Attempting to resume thread ${resumeState.threadId}.`;
@@ -2771,6 +2775,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const providerOptions = input.providerOptions?.claudeAgent;
         const modelSelection =
           input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
+        const apiModelId = modelSelection?.model ? resolveApiModelId(modelSelection) : undefined;
         const requestedEffort = trimOrNull(modelSelection?.options?.effort ?? null);
         const caps = getModelCapabilities("claudeAgent", modelSelection?.model);
         const effort =
