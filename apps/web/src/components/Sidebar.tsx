@@ -536,11 +536,15 @@ export default function Sidebar() {
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const [renamingProjectId, setRenamingProjectId] = useState<ProjectId | null>(null);
+  const [renamingProjectTitle, setRenamingProjectTitle] = useState("");
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<ProjectId>
   >(() => new Set());
+  const projectRenamingCommittedRef = useRef(false);
+  const projectRenamingInputRef = useRef<HTMLInputElement | null>(null);
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const dragInProgressRef = useRef(false);
@@ -834,6 +838,11 @@ export default function Sidebar() {
     renamingInputRef.current = null;
   }, []);
 
+  const cancelProjectRename = useCallback(() => {
+    setRenamingProjectId(null);
+    projectRenamingInputRef.current = null;
+  }, []);
+
   const commitRename = useCallback(
     async (threadId: ThreadId, newTitle: string, originalTitle: string) => {
       const finishRename = () => {
@@ -870,6 +879,50 @@ export default function Sidebar() {
         toastManager.add({
           type: "error",
           title: "Failed to rename thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+      finishRename();
+    },
+    [],
+  );
+
+  const commitProjectRename = useCallback(
+    async (projectId: ProjectId, newTitle: string, originalTitle: string) => {
+      const finishRename = () => {
+        setRenamingProjectId((current) => {
+          if (current !== projectId) return current;
+          projectRenamingInputRef.current = null;
+          return null;
+        });
+      };
+
+      const trimmed = newTitle.trim();
+      if (trimmed.length === 0) {
+        toastManager.add({ type: "warning", title: "Project title cannot be empty" });
+        finishRename();
+        return;
+      }
+      if (trimmed === originalTitle) {
+        finishRename();
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        finishRename();
+        return;
+      }
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "project.meta.update",
+          commandId: newCommandId(),
+          projectId,
+          title: trimmed,
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to rename project",
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
@@ -1053,6 +1106,8 @@ export default function Sidebar() {
       );
 
       if (clicked === "rename") {
+        setRenamingProjectId(null);
+        projectRenamingInputRef.current = null;
         setRenamingThreadId(threadId);
         setRenamingTitle(thread.title);
         renamingCommittedRef.current = false;
@@ -1203,11 +1258,20 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
+          { id: "rename", label: "Rename project" },
           { id: "copy-path", label: "Copy Project Path" },
           { id: "delete", label: "Remove project", destructive: true },
         ],
         position,
       );
+      if (clicked === "rename") {
+        setRenamingThreadId(null);
+        renamingInputRef.current = null;
+        setRenamingProjectId(projectId);
+        setRenamingProjectTitle(project.name);
+        projectRenamingCommittedRef.current = false;
+        return;
+      }
       if (clicked === "copy-path") {
         copyPathToClipboard(project.cwd, { path: project.cwd });
         return;
@@ -1574,9 +1638,43 @@ export default function Sidebar() {
             ) : (
               <ProjectFavicon projectId={project.id} />
             )}
-            <span className="flex-1 truncate text-xs font-medium text-foreground/90">
-              {project.name}
-            </span>
+            {renamingProjectId === project.id ? (
+              <input
+                ref={(element) => {
+                  if (element && projectRenamingInputRef.current !== element) {
+                    projectRenamingInputRef.current = element;
+                    element.focus();
+                    element.select();
+                  }
+                }}
+                className="min-w-0 flex-1 truncate rounded border border-ring bg-transparent px-0.5 text-xs font-medium text-foreground/90 outline-none"
+                value={renamingProjectTitle}
+                onChange={(event) => setRenamingProjectTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    projectRenamingCommittedRef.current = true;
+                    void commitProjectRename(project.id, renamingProjectTitle, project.name);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    projectRenamingCommittedRef.current = true;
+                    cancelProjectRename();
+                  }
+                }}
+                onBlur={() => {
+                  if (!projectRenamingCommittedRef.current) {
+                    void commitProjectRename(project.id, renamingProjectTitle, project.name);
+                  }
+                }}
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              />
+            ) : (
+              <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+                {project.name}
+              </span>
+            )}
             {project.remote ? (
               <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
                 {project.remote.hostAlias}

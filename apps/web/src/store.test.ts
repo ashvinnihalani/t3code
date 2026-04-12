@@ -433,6 +433,24 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
   });
 
+  it("updates existing project titles from the read model", () => {
+    const initialState = makeState(makeThread());
+    const readModel = {
+      ...makeReadModel(makeReadModelThread({})),
+      projects: [
+        makeReadModelProject({
+          title: "Renamed Project",
+          updatedAt: "2026-02-27T00:05:00.000Z",
+        }),
+      ],
+    };
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.projects[0]?.name).toBe("Renamed Project");
+    expect(next.projects[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
+  });
+
   it("preserves the current project order when syncing incoming read model updates", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
