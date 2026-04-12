@@ -98,7 +98,10 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       }
       // If the user has started typing a custom answer in the contenteditable
       // composer, let digit keys pass through so they can type numbers.
-      if (target instanceof HTMLElement && target.isContentEditable) {
+      if (
+        target instanceof HTMLElement &&
+        target.closest('[contenteditable]:not([contenteditable="false"])')
+      ) {
         const hasCustomText = progress.customAnswer.length > 0;
         if (hasCustomText) return;
       }
