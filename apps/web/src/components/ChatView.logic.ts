@@ -1,7 +1,8 @@
 import {
   ProjectId,
   type ModelSelection,
-  type ProjectRemoteTarget,
+  type ProjectExecutionTarget,
+  type SshExecutionTarget,
   type ServerProviderStatus,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -230,11 +231,11 @@ function isOlderThanOrEqualToDismissedAt(
 }
 
 function buildRemoteProviderHealthStatus(input: {
-  projectRemote: ProjectRemoteTarget;
+  projectHost: SshExecutionTarget;
   session: ThreadSession | null;
   localProviderStatus: ServerProviderStatus | null;
 }): VisibleProviderHealthStatus {
-  const hostAlias = input.projectRemote.hostAlias;
+  const hostAlias = input.projectHost.hostAlias;
   const session = input.session;
 
   if (!session) {
@@ -276,13 +277,13 @@ function buildRemoteProviderHealthStatus(input: {
 
 export function resolveVisibleProviderHealthStatus(input: {
   status: ServerProviderStatus | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   session: ThreadSession | null;
   localCodexErrorsDismissedAfter?: string | null;
 }): VisibleProviderHealthStatus {
-  if (input.projectRemote) {
+  if (input.projectHost?.kind === "ssh") {
     return buildRemoteProviderHealthStatus({
-      projectRemote: input.projectRemote,
+      projectHost: input.projectHost,
       session: input.session,
       localProviderStatus: input.status,
     });
@@ -301,7 +302,7 @@ export function resolveVisibleProviderHealthStatus(input: {
 
 export function resolveVisibleThreadError(input: {
   thread: Thread | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   localCodexErrorsDismissedAfter?: string | null;
 }): string | null {
   const error = input.thread?.error ?? null;
@@ -309,7 +310,7 @@ export function resolveVisibleThreadError(input: {
     return null;
   }
 
-  if (input.projectRemote) {
+  if (input.projectHost?.kind === "ssh") {
     if (isSuppressedRemoteThreadManagementMessage(error)) {
       return null;
     }

@@ -5,9 +5,9 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  ProjectExecutionTarget,
   ProjectGitMode,
   ProjectGitRepo,
-  ProjectRemoteTarget,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -85,7 +85,7 @@ export interface Project {
   id: ProjectId;
   name: string;
   cwd: string;
-  remote?: ProjectRemoteTarget | null;
+  host: ProjectExecutionTarget;
   defaultModelSelection: ModelSelection | null;
   expanded: boolean;
   createdAt?: string | undefined;

@@ -100,7 +100,7 @@ export function tryHandleProjectFaviconRequest(input: {
   res: http.ServerResponse;
   resolveProject: (
     projectId: string,
-  ) => { workspaceRoot: string; remote?: { kind: "ssh" } | null } | null;
+  ) => { workspaceRoot: string; host: { kind: "local" | "ssh" } } | null;
 }): boolean {
   if (input.url.pathname !== "/api/project-favicon") {
     return false;
@@ -118,7 +118,7 @@ export function tryHandleProjectFaviconRequest(input: {
     input.res.end("Project not found");
     return true;
   }
-  if (project.remote) {
+  if (project.host.kind === "ssh") {
     serveFallbackFavicon(input.res);
     return true;
   }

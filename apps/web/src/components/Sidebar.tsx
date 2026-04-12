@@ -32,7 +32,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
   ProjectId,
-  type ProjectRemoteTarget,
+  type SshExecutionTarget,
   type RemoteProjectValidationResult,
   type SshHostSummary,
   ThreadId,
@@ -235,13 +235,18 @@ function getServerHttpOrigin(): string {
 const serverHttpOrigin = getServerHttpOrigin();
 
 function projectMatchesLocation(
-  project: Pick<Project, "cwd" | "remote">,
-  input: { cwd: string; remote: ProjectRemoteTarget | null },
+  project: Pick<Project, "cwd" | "host">,
+  // `input.host` is SshExecutionTarget | null because the add-project form produces either an SSH
+  // target or null (meaning "local") — it never produces a { kind: "local" } object.  We treat
+  // null as "local" here to bridge that UI convention with the non-nullable ProjectExecutionTarget
+  // on the read model.
+  input: { cwd: string; host: SshExecutionTarget | null },
 ): boolean {
+  const inputKind = input.host?.kind ?? "local";
   return (
     project.cwd === input.cwd &&
-    project.remote?.kind === input.remote?.kind &&
-    project.remote?.hostAlias === input.remote?.hostAlias
+    project.host.kind === inputKind &&
+    (project.host.kind !== "ssh" || project.host.hostAlias === input.host?.hostAlias)
   );
 }
 
@@ -637,7 +642,7 @@ export default function Sidebar() {
   );
 
   const addProject = useCallback(
-    async (input: { rawCwd: string; remote: ProjectRemoteTarget | null }) => {
+    async (input: { rawCwd: string; host: SshExecutionTarget | null }) => {
       let cwd = input.rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
@@ -654,10 +659,10 @@ export default function Sidebar() {
       };
 
       let remoteValidation: RemoteProjectValidationResult | null = null;
-      if (input.remote !== null) {
+      if (input.host !== null) {
         try {
           remoteValidation = await api.server.validateRemoteProject({
-            remote: input.remote,
+            remote: input.host,
             workspaceRoot: cwd,
           });
           cwd = remoteValidation.workspaceRoot;
@@ -678,7 +683,7 @@ export default function Sidebar() {
       }
 
       const existing = projects.find((project) =>
-        projectMatchesLocation(project, { cwd, remote: input.remote }),
+        projectMatchesLocation(project, { cwd, host: input.host }),
       );
       if (existing) {
         focusMostRecentThreadForProject(existing.id);
@@ -697,7 +702,7 @@ export default function Sidebar() {
           projectId,
           title,
           workspaceRoot: cwd,
-          remote: input.remote,
+          remote: input.host,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -707,13 +712,11 @@ export default function Sidebar() {
         await handleNewThread(projectId, {
           envMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
-            projectRemote: input.remote,
+            projectHost: input.host,
           }),
         }).catch(() => undefined);
-        if (input.remote !== null && remoteValidation !== null) {
-          toastManager.add(
-            describeRemoteProjectValidation(remoteValidation, input.remote.hostAlias),
-          );
+        if (input.host !== null && remoteValidation !== null) {
+          toastManager.add(describeRemoteProjectValidation(remoteValidation, input.host.hostAlias));
         }
       } catch (error) {
         const description =
@@ -737,7 +740,7 @@ export default function Sidebar() {
     if (projectSourceMode === "ssh") {
       void addProject({
         rawCwd: newRemotePath,
-        remote: selectedSshHost
+        host: selectedSshHost
           ? {
               kind: "ssh",
               hostAlias: selectedSshHost,
@@ -749,7 +752,7 @@ export default function Sidebar() {
 
     void addProject({
       rawCwd: newCwd,
-      remote: null,
+      host: null,
     });
   };
 
@@ -770,7 +773,7 @@ export default function Sidebar() {
       // Ignore picker failures and leave the current thread selection unchanged.
     }
     if (pickedPath) {
-      await addProject({ rawCwd: pickedPath, remote: null });
+      await addProject({ rawCwd: pickedPath, host: null });
     } else {
       addProjectInputRef.current?.focus();
     }
@@ -1505,7 +1508,7 @@ export default function Sidebar() {
                 }`}
               />
             )}
-            {project.remote ? (
+            {project.host.kind === "ssh" ? (
               <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
             ) : (
               <ProjectFavicon projectId={project.id} />
@@ -1513,9 +1516,9 @@ export default function Sidebar() {
             <span className="flex-1 truncate text-xs font-medium text-foreground/90">
               {project.name}
             </span>
-            {project.remote ? (
+            {project.host.kind === "ssh" ? (
               <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                {project.remote.hostAlias}
+                {project.host.hostAlias}
               </span>
             ) : null}
           </SidebarMenuButton>
@@ -1538,7 +1541,7 @@ export default function Sidebar() {
                     void handleNewThread(project.id, {
                       envMode: resolveSidebarNewThreadEnvMode({
                         defaultEnvMode: appSettings.defaultThreadEnvMode,
-                        projectRemote: project.remote ?? null,
+                        projectHost: project.host,
                       }),
                     });
                   }}
@@ -1550,8 +1553,8 @@ export default function Sidebar() {
             <TooltipPopup side="top">
               {newThreadShortcutLabel
                 ? `New thread (${newThreadShortcutLabel})`
-                : project.remote
-                  ? `New thread on ${project.remote.hostAlias}`
+                : project.host.kind === "ssh"
+                  ? `New thread on ${project.host.hostAlias}`
                   : "New thread"}
             </TooltipPopup>
           </Tooltip>

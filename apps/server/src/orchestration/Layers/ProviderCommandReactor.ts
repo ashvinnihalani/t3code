@@ -6,7 +6,7 @@ import {
   type GitRequestSettings,
   type ModelSelection,
   type OrchestrationEvent,
-  type ProjectRemoteTarget,
+  type SshExecutionTarget,
   ProviderKind,
   type ProviderStartOptions,
   type OrchestrationSession,
@@ -135,7 +135,7 @@ function resolveGitTextGenerationModelSelection(gitSettings?: GitRequestSettings
 function resolveProjectScopedProviderOptions(input: {
   readonly providerOptions?: ProviderStartOptions;
   readonly provider?: ProviderKind;
-  readonly projectRemote?: ProjectRemoteTarget | null;
+  readonly projectHost?: SshExecutionTarget | null;
 }): ProviderStartOptions | undefined {
   if (input.provider === "claudeAgent") {
     const claude = input.providerOptions?.claudeAgent;
@@ -154,7 +154,7 @@ function resolveProjectScopedProviderOptions(input: {
     const kiro = input.providerOptions?.kiro;
     const kiroOptions = {
       ...(kiro?.binaryPath ? { binaryPath: kiro.binaryPath } : {}),
-      ...(input.projectRemote ? { remote: input.projectRemote } : {}),
+      ...(input.projectHost ? { remote: input.projectHost } : {}),
     };
 
     return Object.keys(kiroOptions).length > 0 ? { kiro: kiroOptions } : undefined;
@@ -164,7 +164,7 @@ function resolveProjectScopedProviderOptions(input: {
   const codexOptions = {
     ...(codex?.binaryPath ? { binaryPath: codex.binaryPath } : {}),
     ...(codex?.homePath ? { homePath: codex.homePath } : {}),
-    ...(input.projectRemote ? { remote: input.projectRemote } : {}),
+    ...(input.projectHost ? { remote: input.projectHost } : {}),
   };
 
   return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
@@ -269,7 +269,9 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return null;
     }
-    return readModel.projects.find((project) => project.id === thread.projectId)?.remote ?? null;
+    const projectEntry = readModel.projects.find((project) => project.id === thread.projectId);
+    const host = projectEntry?.host;
+    return host?.kind === "ssh" ? host : null;
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -311,13 +313,13 @@ const make = Effect.gen(function* () {
       projects: readModel.projects,
     });
     const project = readModel.projects.find((entry) => entry.id === thread.projectId) ?? null;
-    const projectRemote = project?.remote ?? null;
+    const projectHost = project?.host.kind === "ssh" ? project.host : null;
     const effectiveProviderOptions = resolveProjectScopedProviderOptions({
       ...(preferredProvider !== undefined ? { provider: preferredProvider } : {}),
       ...(options?.providerOptions !== undefined
         ? { providerOptions: options.providerOptions }
         : {}),
-      projectRemote,
+      projectHost,
     });
     const cachedProviderOptions = threadProviderOptions.get(threadId);
 
@@ -565,7 +567,7 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const projectRemote = yield* resolveProjectRemoteForThread(input.threadId);
+    const projectHost = yield* resolveProjectRemoteForThread(input.threadId);
 
     const userMessages = thread.messages.filter((message) => message.role === "user");
     if (userMessages.length !== 1 || userMessages[0]?.id !== input.messageId) {
@@ -577,7 +579,7 @@ const make = Effect.gen(function* () {
       .generateBranchName({
         cwd,
         message: input.messageText,
-        ...(projectRemote ? { remote: projectRemote } : {}),
+        ...(projectHost ? { remote: projectHost } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(input.gitSettings?.commitPrompt
           ? { systemPrompt: input.gitSettings.commitPrompt }
@@ -602,7 +604,7 @@ const make = Effect.gen(function* () {
               cwd,
               oldBranch,
               newBranch: targetBranch,
-              ...(projectRemote ? { remote: projectRemote } : {}),
+              ...(projectHost ? { remote: projectHost } : {}),
             }),
             (renamed) => {
               const nextBranch = [...input.branch];

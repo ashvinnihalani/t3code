@@ -2,7 +2,7 @@ import type {
   GitActionProgressEvent,
   GitStackedAction,
   GitStatusResult,
-  ProjectRemoteTarget,
+  ProjectExecutionTarget,
   ThreadId,
 } from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,7 +58,7 @@ import { resolveProjectEditorTargetFromRawPath } from "~/projectEditorTargets";
 interface GitActionsControlProps {
   gitTarget: GitQueryTarget;
   activeThreadId: ThreadId | null;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   disableGitActions?: boolean;
 }
 
@@ -212,7 +212,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 export default function GitActionsControl({
   gitTarget,
   activeThreadId,
-  projectRemote,
+  projectHost,
   disableGitActions = false,
 }: GitActionsControlProps) {
   const { settings } = useAppSettings();
@@ -783,7 +783,7 @@ export default function GitActionsControl({
         projectId: gitTarget.projectId ?? undefined,
         threadId: activeThreadId ?? undefined,
         referenceRoot: gitTarget.repoPath,
-        remote: projectRemote,
+        host: projectHost,
       });
       if (!target) {
         toastManager.add({
@@ -802,7 +802,7 @@ export default function GitActionsControl({
         });
       });
     },
-    [activeThreadId, gitTarget.projectId, gitTarget.repoPath, projectRemote, threadToastData],
+    [activeThreadId, gitTarget.projectId, gitTarget.repoPath, projectHost, threadToastData],
   );
 
   if (!gitTarget.repoPath) return null;

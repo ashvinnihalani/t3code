@@ -1,7 +1,7 @@
 import type {
   ProjectId,
   ProjectOpenPathInEditorInput,
-  ProjectRemoteTarget,
+  ProjectExecutionTarget,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveMarkdownFileLinkTarget } from "./markdown-links";
@@ -11,7 +11,7 @@ export interface ProjectLinkContext {
   projectId: ProjectId | undefined;
   threadId: ThreadId | undefined;
   referenceRoot: string | undefined;
-  remote: ProjectRemoteTarget | null | undefined;
+  host: ProjectExecutionTarget | null | undefined;
 }
 
 export type ResolvedEditorTarget =
@@ -148,11 +148,11 @@ function resolveEditorTargetFromResolvedPath(
     return {
       kind: "project-path",
       input: projectInput,
-      isRemoteProject: Boolean(context.remote),
+      isRemoteProject: context.host?.kind === "ssh",
     };
   }
 
-  if (context.remote) {
+  if (context.host?.kind === "ssh") {
     return null;
   }
 

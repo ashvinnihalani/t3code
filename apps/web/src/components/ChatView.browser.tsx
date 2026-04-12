@@ -485,7 +485,7 @@ function createSnapshotWithSessionError(options: {
     ...snapshot,
     projects: snapshot.projects.map((project) =>
       Object.assign({}, project, {
-        remote: options.remote ?? undefined,
+        host: options.remote ?? undefined,
       }),
     ),
     threads: snapshot.threads.map((thread) =>
@@ -1820,7 +1820,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ...baseSnapshot,
       projects: baseSnapshot.projects.map((project) =>
         Object.assign({}, project, {
-          remote: {
+          host: {
             kind: "ssh" as const,
             hostAlias: "buildbox",
           },

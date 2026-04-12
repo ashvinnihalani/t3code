@@ -9,10 +9,10 @@
 import {
   IsoDateTime,
   ModelSelection,
+  ProjectExecutionTarget,
   ProjectGitMode,
   ProjectGitRepo,
   ProjectId,
-  ProjectRemoteTarget,
   ProjectScript,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
@@ -24,7 +24,7 @@ export const ProjectionProject = Schema.Struct({
   projectId: ProjectId,
   title: Schema.String,
   workspaceRoot: Schema.String,
-  remote: Schema.NullOr(ProjectRemoteTarget),
+  host: Schema.NullOr(ProjectExecutionTarget),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   gitMode: Schema.optional(ProjectGitMode),

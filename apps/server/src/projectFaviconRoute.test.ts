@@ -24,7 +24,7 @@ async function withRouteServer(
   run: (baseUrl: string) => Promise<void>,
   resolveProject: (
     projectId: string,
-  ) => { workspaceRoot: string; remote?: { kind: "ssh" } | null } | null = () => null,
+  ) => { workspaceRoot: string; host: { kind: "local" | "ssh" } } | null = () => null,
 ): Promise<void> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -102,7 +102,8 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>favicon</svg>");
       },
-      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+      (projectId) =>
+        projectId === "project-1" ? { workspaceRoot: projectDir, host: { kind: "local" } } : null,
     );
   });
 
@@ -124,7 +125,8 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand</svg>");
       },
-      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+      (projectId) =>
+        projectId === "project-1" ? { workspaceRoot: projectDir, host: { kind: "local" } } : null,
     );
   });
 
@@ -146,7 +148,8 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand-html-order</svg>");
       },
-      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+      (projectId) =>
+        projectId === "project-1" ? { workspaceRoot: projectDir, host: { kind: "local" } } : null,
     );
   });
 
@@ -170,7 +173,8 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toBe("<svg>brand-obj-order</svg>");
       },
-      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+      (projectId) =>
+        projectId === "project-1" ? { workspaceRoot: projectDir, host: { kind: "local" } } : null,
     );
   });
 
@@ -185,7 +189,8 @@ describe("tryHandleProjectFaviconRequest", () => {
         expect(response.contentType).toContain("image/svg+xml");
         expect(response.body).toContain('data-fallback="project-favicon"');
       },
-      (projectId) => (projectId === "project-1" ? { workspaceRoot: projectDir } : null),
+      (projectId) =>
+        projectId === "project-1" ? { workspaceRoot: projectDir, host: { kind: "local" } } : null,
     );
   });
 
@@ -200,7 +205,7 @@ describe("tryHandleProjectFaviconRequest", () => {
       },
       (projectId) =>
         projectId === "project-remote"
-          ? { workspaceRoot: "/srv/app", remote: { kind: "ssh" } }
+          ? { workspaceRoot: "/srv/app", host: { kind: "ssh" } }
           : null,
     );
   });

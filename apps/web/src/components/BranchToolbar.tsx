@@ -1,4 +1,4 @@
-import type { ProjectRemoteTarget, ThreadId } from "@t3tools/contracts";
+import type { ProjectExecutionTarget, ThreadId } from "@t3tools/contracts";
 import { getSingleRepoBranch, getSingleRepoWorktreePath } from "@t3tools/shared/threadGit";
 import { FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
@@ -47,7 +47,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
-  projectRemote: ProjectRemoteTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   selectedRepoPath: string | null;
   onSelectedRepoPathChange: (repoPath: string | null) => void;
   providerThreadId?: string | null;
@@ -59,7 +59,7 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
-  projectRemote,
+  projectHost,
   selectedRepoPath,
   onSelectedRepoPathChange,
   providerThreadId,
@@ -110,9 +110,9 @@ export default function BranchToolbar({
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
     draftThreadEnvMode: draftThread?.envMode,
-    projectRemote,
+    projectHost,
   });
-  const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectRemote });
+  const supportsWorktreeEnv = supportsDraftWorktreeEnv({ projectHost });
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {

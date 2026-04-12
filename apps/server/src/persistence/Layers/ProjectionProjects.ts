@@ -4,9 +4,9 @@ import { Effect, Layer, Schema, Struct } from "effect";
 
 import {
   ModelSelection,
+  ProjectExecutionTarget,
   ProjectGitMode,
   ProjectGitRepo,
-  ProjectRemoteTarget,
   ProjectScript,
 } from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
@@ -21,7 +21,7 @@ const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-    remote: Schema.NullOr(Schema.fromJsonString(ProjectRemoteTarget)),
+    host: Schema.NullOr(Schema.fromJsonString(ProjectExecutionTarget)),
     gitRepos: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProjectGitRepo))),
     gitMode: ProjectGitMode,
   }),
@@ -52,7 +52,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.projectId},
           ${row.title},
           ${row.workspaceRoot},
-          ${row.remote !== null ? JSON.stringify(row.remote) : null},
+          ${row.host?.kind === "ssh" ? JSON.stringify(row.host) : null},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
           ${row.gitMode ?? "none"},
@@ -85,7 +85,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          remote_json AS "remote",
+          remote_json AS "host",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           git_mode AS "gitMode",
@@ -107,7 +107,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          remote_json AS "remote",
+          remote_json AS "host",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           git_mode AS "gitMode",

@@ -1,11 +1,75 @@
 import { Schema } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
+import { PositiveInt, RemoteId, TrimmedNonEmptyString } from "./baseSchemas";
 
-export const ProjectRemoteTarget = Schema.Struct({
+/**
+ * BackendKind - Discriminates local vs remote execution targets.
+ */
+export const BackendKind = Schema.Literals(["local", "remote"]);
+export type BackendKind = typeof BackendKind.Type;
+
+/**
+ * RemoteProfile - Identity and connection details for a remote host reachable
+ * via SSH.  One profile corresponds to one remote server process that
+ * multiplexes many projects, threads, terminals, and provider sessions.
+ */
+export const RemoteProfile = Schema.Struct({
+  id: RemoteId,
+  sshHost: TrimmedNonEmptyString,
+  sshUser: Schema.optional(TrimmedNonEmptyString),
+  sshPort: Schema.optional(PositiveInt),
+  displayName: TrimmedNonEmptyString,
+});
+export type RemoteProfile = typeof RemoteProfile.Type;
+
+/**
+ * BackendLocator - Identifies which backend (local or a specific remote) a
+ * resource such as a project, thread, terminal, or provider session belongs to.
+ */
+export const BackendLocator = Schema.Struct({
+  backend: BackendKind,
+  remoteId: Schema.optional(RemoteId),
+});
+export type BackendLocator = typeof BackendLocator.Type;
+
+/**
+ * LocalExecutionTarget - Represents a project that is executed on the local machine.
+ */
+export const LocalExecutionTarget = Schema.Struct({
+  kind: Schema.Literal("local"),
+});
+export type LocalExecutionTarget = typeof LocalExecutionTarget.Type;
+
+/**
+ * SshExecutionTarget - Represents a project that is executed on a remote host
+ * reached over SSH.
+ */
+export const SshExecutionTarget = Schema.Struct({
   kind: Schema.Literal("ssh"),
   hostAlias: TrimmedNonEmptyString,
 });
-export type ProjectRemoteTarget = typeof ProjectRemoteTarget.Type;
+export type SshExecutionTarget = typeof SshExecutionTarget.Type;
+
+/**
+ * ProjectExecutionTarget - Discriminated union describing where a project is
+ * executed.  Use `kind` to distinguish local from remote (SSH) projects.
+ *
+ * @example
+ * if (project.host.kind === "ssh") {
+ *   // project.host.hostAlias is available here
+ * }
+ */
+export const ProjectExecutionTarget = Schema.Union(LocalExecutionTarget, SshExecutionTarget);
+export type ProjectExecutionTarget = typeof ProjectExecutionTarget.Type;
+
+/**
+ * ProjectRemoteTarget - SSH-only execution target.
+ *
+ * @deprecated Prefer `SshExecutionTarget` for SSH-specific operations or
+ * `ProjectExecutionTarget` for the full discriminated union.  This alias
+ * remains for existing git-operation APIs that accept a nullable SSH target.
+ */
+export const ProjectRemoteTarget = SshExecutionTarget;
+export type ProjectRemoteTarget = SshExecutionTarget;
 
 export const SshHostSummary = Schema.Struct({
   alias: TrimmedNonEmptyString,

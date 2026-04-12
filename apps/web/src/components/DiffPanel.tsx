@@ -334,14 +334,14 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         projectId: activeProject?.id ?? undefined,
         threadId: activeThreadId ?? undefined,
         referenceRoot: activeCwd,
-        remote: activeProject?.remote ?? null,
+        host: activeProject?.host,
       });
       if (!target) return;
       void openResolvedEditorTargetInPreferredEditor(api, target).catch((error) => {
         console.warn("Failed to open diff file in editor.", error);
       });
     },
-    [activeCwd, activeProject?.id, activeProject?.remote, activeThreadId],
+    [activeCwd, activeProject?.id, activeProject?.host, activeThreadId],
   );
 
   const selectTurn = (turnId: TurnId) => {

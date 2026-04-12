@@ -776,7 +776,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
   const activeProjectHostAlias =
-    activeProject?.remote?.kind === "ssh" ? activeProject.remote.hostAlias : null;
+    activeProject?.host?.kind === "ssh" ? activeProject.host.hostAlias : null;
   const providerOptionsForDispatch = useMemo(
     () => getProviderStartOptions(settings, activeProjectHostAlias),
     [activeProjectHostAlias, settings],
@@ -1159,9 +1159,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       projectId: activeProject?.id,
       threadId: activeThread?.id,
       referenceRoot: gitCwd ?? undefined,
-      remote: activeProject?.remote ?? null,
+      host: activeProject?.host,
     }),
-    [activeProject?.id, activeProject?.remote, activeThread?.id, gitCwd],
+    [activeProject?.id, activeProject?.host, activeThread?.id, gitCwd],
   );
   const gitTarget = useMemo(
     () =>
@@ -1283,12 +1283,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () =>
       resolveVisibleProviderHealthStatus({
         status: activeProviderStatus,
-        projectRemote: activeProject?.remote ?? null,
+        projectHost: activeProject?.host,
         session: activeThread?.session ?? null,
         localCodexErrorsDismissedAfter,
       }),
     [
-      activeProject?.remote,
+      activeProject?.host,
       activeProviderStatus,
       activeThread?.session,
       localCodexErrorsDismissedAfter,
@@ -1298,10 +1298,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () =>
       resolveVisibleThreadError({
         thread: activeThread ?? null,
-        projectRemote: activeProject?.remote ?? null,
+        projectHost: activeProject?.host,
         localCodexErrorsDismissedAfter,
       }),
-    [activeProject?.remote, activeThread, localCodexErrorsDismissedAfter],
+    [activeProject?.host, activeThread, localCodexErrorsDismissedAfter],
   );
   const visibleProviderThreadId = useMemo(
     () => resolveVisibleProviderThreadId(activeThread ?? null),
@@ -2265,7 +2265,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const envMode: DraftThreadEnvMode = resolveEffectiveThreadEnvMode({
     worktreePath: activeWorktreePath,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
-    projectRemote: activeProject?.remote ?? null,
+    projectHost: activeProject?.host,
   });
 
   useEffect(() => {
@@ -3871,9 +3871,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           activeProjectGitMode={activeProject?.gitMode ?? null}
-          activeProjectRemote={activeProject?.remote ?? null}
+          activeProjectHost={activeProject?.host}
           disableGitActions={false}
-          isRemoteProject={Boolean(activeProject?.remote)}
+          isRemoteProject={activeProject?.host.kind === "ssh"}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
           openInProjectRoot={getSingleRepoWorktreePath(activeThread) === null}
@@ -4490,7 +4490,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               threadId={activeThread.id}
               onEnvModeChange={onEnvModeChange}
               envLocked={envLocked}
-              projectRemote={activeProject?.remote ?? null}
+              projectHost={activeProject?.host}
               selectedRepoPath={selectedMultiRepoRelativePath}
               onSelectedRepoPathChange={setSelectedMultiRepoPath}
               providerThreadId={showComposerThreadId ? visibleProviderThreadId : null}
@@ -4506,7 +4506,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               open
               repoPath={gitTarget.repoPath}
               projectId={activeProject?.id ?? null}
-              isRemoteProject={Boolean(activeProject?.remote)}
+              isRemoteProject={activeProject?.host.kind === "ssh"}
               initialReference={pullRequestDialogState.initialReference}
               onOpenChange={(open) => {
                 if (!open) {
@@ -4551,7 +4551,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId={activeThread.id}
             cwd={gitCwd ?? activeProject.cwd}
             projectId={activeProject.id}
-            projectRemote={activeProject.remote ?? null}
+            projectHost={activeProject.host}
             runtimeEnv={threadTerminalRuntimeEnv}
             height={terminalState.terminalHeight}
             terminalIds={terminalState.terminalIds}
