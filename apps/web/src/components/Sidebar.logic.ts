@@ -67,7 +67,7 @@ export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null
 export function resolveSidebarNewThreadEnvMode(input: {
   requestedEnvMode?: SidebarNewThreadEnvMode;
   defaultEnvMode: SidebarNewThreadEnvMode;
-  projectHost?: ProjectExecutionTarget | null;
+  projectHost?: ProjectExecutionTarget;
 }): SidebarNewThreadEnvMode {
   return resolveRequestedThreadEnvMode({
     projectHost: input.projectHost,

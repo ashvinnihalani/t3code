@@ -613,7 +613,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                     return false;
                   }
                   const project = projectsById.get(thread.projectId);
-                  return project?.deletedAt === null && project.host == null;
+                  return project?.deletedAt === null && project.host.kind === "local";
                 })
                 .map((thread) => thread.id);
 
@@ -670,7 +670,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
               }
               return {
                 workspaceRoot: project.workspaceRoot,
-                ...(project.host !== undefined ? { host: project.host } : {}),
+                host: project.host,
               };
             },
           })
@@ -924,7 +924,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       ...(input.threadId ? { threadId: input.threadId } : {}),
     });
     const relativePath = input.relativePath ?? ".";
-    if (project.host?.kind === "ssh") {
+    if (project.host.kind === "ssh") {
       const resolvedTarget = yield* resolveRemoteWorkspaceRelativePath({
         workspaceRoot: baseRoot,
         relativePath,
@@ -961,7 +961,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       return null;
     }
     const project = yield* resolveProject(projectId);
-    return project.host ?? null;
+    return project.host.kind === "ssh" ? project.host : null;
   });
 
   const resolveGitOperationTarget = Effect.fnUntraced(function* (input: {
@@ -986,8 +986,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const project = yield* resolveProject(input.projectId);
     return {
       cwd: repoPath,
-      // git operation functions accept a `remote` field (ProjectExecutionTarget alias)
-      remote: project.host ?? null,
+      // git operation functions accept a `remote` field (SshExecutionTarget | null)
+      remote: project.host.kind === "ssh" ? project.host : null,
     };
   });
 
@@ -1002,7 +1002,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const normalizedRepoPath = input.repoPath.trim().replaceAll("\\", "/");
     for (const repo of project.gitRepos ?? []) {
       const absoluteRepoPath =
-        project.host?.kind === "ssh"
+        project.host.kind === "ssh"
           ? nodePath.posix.join(project.workspaceRoot, repo.repoPath)
           : path.join(project.workspaceRoot, repo.repoPath);
       if (absoluteRepoPath.replaceAll("\\", "/") === normalizedRepoPath) {
@@ -1179,7 +1179,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         .filter((name) => name.length > 0),
     );
 
-    if (project.host?.kind === "ssh") {
+    if (project.host.kind === "ssh") {
       const remoteHomeDir =
         readRemoteHomeDir({
           hostAlias: project.host.hostAlias,
@@ -1217,7 +1217,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     readonly operation: string;
   }) {
     const project = yield* resolveProject(input.projectId);
-    if (project.host) {
+    if (project.host.kind === "ssh") {
       return yield* new RouteRequestError({
         message: `${input.operation} is unavailable for remote projects.`,
       });
@@ -1404,7 +1404,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             searchWorkspaceEntries({
               cwd: project.workspaceRoot,
               // searchWorkspaceEntries accepts a `remote` field (ProjectExecutionTarget alias)
-              remote: project.host ?? null,
+              remote: project.host.kind === "ssh" ? project.host : null,
               query: body.query,
               limit: body.limit,
             }),

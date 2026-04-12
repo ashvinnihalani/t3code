@@ -148,11 +148,11 @@ function resolveEditorTargetFromResolvedPath(
     return {
       kind: "project-path",
       input: projectInput,
-      isRemoteProject: Boolean(context.host),
+      isRemoteProject: context.host?.kind === "ssh",
     };
   }
 
-  if (context.host) {
+  if (context.host?.kind === "ssh") {
     return null;
   }
 

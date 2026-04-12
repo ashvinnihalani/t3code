@@ -334,7 +334,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         projectId: activeProject?.id ?? undefined,
         threadId: activeThreadId ?? undefined,
         referenceRoot: activeCwd,
-        host: activeProject?.host ?? null,
+        host: activeProject?.host,
       });
       if (!target) return;
       void openResolvedEditorTargetInPreferredEditor(api, target).catch((error) => {

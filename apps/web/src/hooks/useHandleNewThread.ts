@@ -57,7 +57,7 @@ export function useHandleNewThread() {
         fallbackEnvMode?: DraftThreadEnvMode,
       ) =>
         resolvePersistedThreadEnvMode({
-          projectHost: project?.host ?? null,
+          projectHost: project?.host,
           requestedEnvMode: options?.envMode,
           fallbackEnvMode,
           worktreePath: hasWorktreePathOption

@@ -636,7 +636,7 @@ const make = Effect.gen(function* () {
     if (!workspaceCwd) {
       return false;
     }
-    if (project.host) {
+    if (project.host.kind === "ssh") {
       return true;
     }
     return isGitRepository(workspaceCwd);

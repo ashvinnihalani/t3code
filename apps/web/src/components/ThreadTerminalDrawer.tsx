@@ -183,7 +183,7 @@ interface TerminalViewportProps {
   terminalLabel: string;
   cwd: string;
   projectId: ProjectId | null;
-  projectHost: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
@@ -658,7 +658,7 @@ interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
   cwd: string;
   projectId: ProjectId | null;
-  projectHost: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   runtimeEnv?: Record<string, string>;
   height: number;
   terminalIds: string[];

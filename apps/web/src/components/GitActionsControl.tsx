@@ -58,7 +58,7 @@ import { resolveProjectEditorTargetFromRawPath } from "~/projectEditorTargets";
 interface GitActionsControlProps {
   gitTarget: GitQueryTarget;
   activeThreadId: ThreadId | null;
-  projectHost: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   disableGitActions?: boolean;
 }
 

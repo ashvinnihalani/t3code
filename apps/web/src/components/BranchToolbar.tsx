@@ -47,7 +47,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
-  projectHost: ProjectExecutionTarget | null;
+  projectHost: ProjectExecutionTarget | undefined;
   selectedRepoPath: string | null;
   onSelectedRepoPathChange: (repoPath: string | null) => void;
   providerThreadId?: string | null;

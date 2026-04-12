@@ -695,7 +695,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 try: () =>
                   discoverProjectRepos({
                     workspaceRoot: row.workspaceRoot,
-                    remote: row.host,
+                    remote: row.host?.kind === "ssh" ? row.host : null,
                   }),
                 catch: () => ({
                   gitMode: row.gitMode ?? "none",
@@ -706,7 +706,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   id: row.projectId,
                   title: row.title,
                   workspaceRoot: row.workspaceRoot,
-                  host: row.host,
+                  host: row.host ?? { kind: "local" as const },
                   defaultModelSelection: row.defaultModelSelection,
                   scripts: row.scripts,
                   gitMode: discovery.gitMode,
@@ -739,8 +739,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activities: activitiesByThread.get(row.threadId) ?? [],
             checkpoints: checkpointsByThread.get(row.threadId) ?? [],
             session:
-              projectsById.get(row.projectId)?.host !== null &&
-              projectsById.get(row.projectId)?.host !== undefined
+              projectsById.get(row.projectId)?.host.kind === "ssh"
                 ? mergeRemoteRuntimeSession({
                     session: sessionsByThread.get(row.threadId) ?? null,
                     runtime: providerRuntimeByThread.get(row.threadId),

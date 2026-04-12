@@ -6,7 +6,7 @@ export type EnvMode = "local" | "worktree";
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   draftThreadEnvMode: EnvMode | undefined;
-  projectHost: ProjectExecutionTarget | null | undefined;
+  projectHost: ProjectExecutionTarget | undefined;
 }): EnvMode {
   return resolveEffectiveThreadEnvMode({
     worktreePath: input.activeWorktreePath,

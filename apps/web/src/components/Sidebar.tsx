@@ -32,7 +32,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
   ProjectId,
-  type ProjectExecutionTarget,
+  type SshExecutionTarget,
   type RemoteProjectValidationResult,
   type SshHostSummary,
   ThreadId,
@@ -236,12 +236,14 @@ const serverHttpOrigin = getServerHttpOrigin();
 
 function projectMatchesLocation(
   project: Pick<Project, "cwd" | "host">,
-  input: { cwd: string; host: ProjectExecutionTarget | null },
+  input: { cwd: string; host: SshExecutionTarget | null },
 ): boolean {
+  // Treat null input host as "local"
+  const inputKind = input.host?.kind ?? "local";
   return (
     project.cwd === input.cwd &&
-    project.host?.kind === input.host?.kind &&
-    project.host?.hostAlias === input.host?.hostAlias
+    project.host.kind === inputKind &&
+    (project.host.kind !== "ssh" || project.host.hostAlias === input.host?.hostAlias)
   );
 }
 
@@ -637,7 +639,7 @@ export default function Sidebar() {
   );
 
   const addProject = useCallback(
-    async (input: { rawCwd: string; host: ProjectExecutionTarget | null }) => {
+    async (input: { rawCwd: string; host: SshExecutionTarget | null }) => {
       let cwd = input.rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
@@ -711,9 +713,7 @@ export default function Sidebar() {
           }),
         }).catch(() => undefined);
         if (input.host !== null && remoteValidation !== null) {
-          toastManager.add(
-            describeRemoteProjectValidation(remoteValidation, input.host.hostAlias),
-          );
+          toastManager.add(describeRemoteProjectValidation(remoteValidation, input.host.hostAlias));
         }
       } catch (error) {
         const description =
@@ -1505,7 +1505,7 @@ export default function Sidebar() {
                 }`}
               />
             )}
-            {project.host ? (
+            {project.host.kind === "ssh" ? (
               <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
             ) : (
               <ProjectFavicon projectId={project.id} />
@@ -1513,7 +1513,7 @@ export default function Sidebar() {
             <span className="flex-1 truncate text-xs font-medium text-foreground/90">
               {project.name}
             </span>
-            {project.host ? (
+            {project.host.kind === "ssh" ? (
               <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
                 {project.host.hostAlias}
               </span>
@@ -1538,7 +1538,7 @@ export default function Sidebar() {
                     void handleNewThread(project.id, {
                       envMode: resolveSidebarNewThreadEnvMode({
                         defaultEnvMode: appSettings.defaultThreadEnvMode,
-                        projectHost: project.host ?? null,
+                        projectHost: project.host,
                       }),
                     });
                   }}
@@ -1550,7 +1550,7 @@ export default function Sidebar() {
             <TooltipPopup side="top">
               {newThreadShortcutLabel
                 ? `New thread (${newThreadShortcutLabel})`
-                : project.host
+                : project.host.kind === "ssh"
                   ? `New thread on ${project.host.hostAlias}`
                   : "New thread"}
             </TooltipPopup>

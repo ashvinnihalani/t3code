@@ -62,7 +62,7 @@ function ChatRouteGlobalShortcuts() {
         void handleNewThread(projectId, {
           envMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
-            projectHost: activeProject?.host ?? null,
+            projectHost: activeProject?.host,
           }),
         });
         return;
@@ -83,7 +83,7 @@ function ChatRouteGlobalShortcuts() {
             ? getSingleRepoWorktreePath(activeThread)
             : (activeDraftThread?.worktreePath[0] ?? null),
           draftThreadEnvMode: activeDraftThread?.envMode,
-          projectHost: activeProject?.host ?? null,
+          projectHost: activeProject?.host,
         }),
       });
     };

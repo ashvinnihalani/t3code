@@ -2,7 +2,7 @@ import type { ProjectExecutionTarget } from "@t3tools/contracts";
 import type { DraftThreadEnvMode } from "./composerDraftStore";
 
 interface ThreadEnvInput {
-  projectHost: ProjectExecutionTarget | null | undefined;
+  projectHost: ProjectExecutionTarget | undefined;
 }
 
 export function supportsDraftWorktreeEnv(_input: ThreadEnvInput): boolean {

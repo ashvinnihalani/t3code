@@ -85,7 +85,7 @@ export interface Project {
   id: ProjectId;
   name: string;
   cwd: string;
-  host?: ProjectExecutionTarget | null;
+  host: ProjectExecutionTarget;
   defaultModelSelection: ModelSelection | null;
   expanded: boolean;
   createdAt?: string | undefined;

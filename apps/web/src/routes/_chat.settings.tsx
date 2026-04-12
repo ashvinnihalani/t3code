@@ -323,7 +323,7 @@ function SettingsRouteView() {
       Array.from(
         new Set(
           projects.flatMap((project) =>
-            project.host?.kind === "ssh" ? [project.host.hostAlias] : [],
+            project.host.kind === "ssh" ? [project.host.hostAlias] : [],
           ),
         ),
       ).toSorted((left, right) => left.localeCompare(right)),

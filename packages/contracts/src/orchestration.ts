@@ -161,7 +161,7 @@ export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
-  host: Schema.optional(Schema.NullOr(ProjectExecutionTarget)),
+  host: ProjectExecutionTarget,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   gitMode: Schema.optional(ProjectGitMode),

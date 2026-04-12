@@ -32,22 +32,44 @@ export const BackendLocator = Schema.Struct({
 export type BackendLocator = typeof BackendLocator.Type;
 
 /**
- * ProjectExecutionTarget - The canonical type for describing where a project
- * is executed.  Currently only SSH is supported as a remote transport.
+ * LocalExecutionTarget - Represents a project that is executed on the local machine.
  */
-export const ProjectExecutionTarget = Schema.Struct({
+export const LocalExecutionTarget = Schema.Struct({
+  kind: Schema.Literal("local"),
+});
+export type LocalExecutionTarget = typeof LocalExecutionTarget.Type;
+
+/**
+ * SshExecutionTarget - Represents a project that is executed on a remote host
+ * reached over SSH.
+ */
+export const SshExecutionTarget = Schema.Struct({
   kind: Schema.Literal("ssh"),
   hostAlias: TrimmedNonEmptyString,
 });
+export type SshExecutionTarget = typeof SshExecutionTarget.Type;
+
+/**
+ * ProjectExecutionTarget - Discriminated union describing where a project is
+ * executed.  Use `kind` to distinguish local from remote (SSH) projects.
+ *
+ * @example
+ * if (project.host.kind === "ssh") {
+ *   // project.host.hostAlias is available here
+ * }
+ */
+export const ProjectExecutionTarget = Schema.Union(LocalExecutionTarget, SshExecutionTarget);
 export type ProjectExecutionTarget = typeof ProjectExecutionTarget.Type;
 
 /**
- * ProjectRemoteTarget - Compatibility alias for {@link ProjectExecutionTarget}.
+ * ProjectRemoteTarget - SSH-only execution target.
  *
- * @deprecated Use `ProjectExecutionTarget` for new code.
+ * @deprecated Prefer `SshExecutionTarget` for SSH-specific operations or
+ * `ProjectExecutionTarget` for the full discriminated union.  This alias
+ * remains for existing git-operation APIs that accept a nullable SSH target.
  */
-export const ProjectRemoteTarget = ProjectExecutionTarget;
-export type ProjectRemoteTarget = ProjectExecutionTarget;
+export const ProjectRemoteTarget = SshExecutionTarget;
+export type ProjectRemoteTarget = SshExecutionTarget;
 
 export const SshHostSummary = Schema.Struct({
   alias: TrimmedNonEmptyString,

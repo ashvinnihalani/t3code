@@ -52,7 +52,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.projectId},
           ${row.title},
           ${row.workspaceRoot},
-          ${row.host !== null ? JSON.stringify(row.host) : null},
+          ${row.host?.kind === "ssh" ? JSON.stringify(row.host) : null},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
           ${row.gitMode ?? "none"},

@@ -26,7 +26,7 @@ interface ChatHeaderProps {
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   activeProjectGitMode: ProjectGitMode | null;
-  activeProjectHost: ProjectExecutionTarget | null;
+  activeProjectHost: ProjectExecutionTarget | undefined;
   disableGitActions?: boolean;
   isRemoteProject: boolean;
   isGitRepo: boolean;
