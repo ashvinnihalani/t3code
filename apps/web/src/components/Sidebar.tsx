@@ -236,9 +236,12 @@ const serverHttpOrigin = getServerHttpOrigin();
 
 function projectMatchesLocation(
   project: Pick<Project, "cwd" | "host">,
+  // `input.host` is SshExecutionTarget | null because the add-project form produces either an SSH
+  // target or null (meaning "local") — it never produces a { kind: "local" } object.  We treat
+  // null as "local" here to bridge that UI convention with the non-nullable ProjectExecutionTarget
+  // on the read model.
   input: { cwd: string; host: SshExecutionTarget | null },
 ): boolean {
-  // Treat null input host as "local"
   const inputKind = input.host?.kind ?? "local";
   return (
     project.cwd === input.cwd &&
