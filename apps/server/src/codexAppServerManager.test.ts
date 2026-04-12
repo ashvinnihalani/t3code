@@ -13,6 +13,7 @@ import {
   CodexAppServerManager,
   classifyCodexStderrLine,
   isRecoverableThreadResumeError,
+  mapCodexRuntimeMode,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
@@ -347,6 +348,20 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("maps approval-required to untrusted read-only codex permissions", () => {
+    expect(mapCodexRuntimeMode("approval-required")).toEqual({
+      approvalPolicy: "untrusted",
+      sandbox: "read-only",
+    });
+  });
+
+  it("maps full-access to never-approve danger-full-access codex permissions", () => {
+    expect(mapCodexRuntimeMode("full-access")).toEqual({
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+    });
+  });
+
   it("uses direct codex execution for the default remote codex binary", () => {
     const command = buildRemoteCodexCommand({
       binaryPath: "codex",

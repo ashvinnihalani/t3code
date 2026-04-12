@@ -2729,7 +2729,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
       const permissionMode =
         toPermissionMode(providerOptions?.permissionMode) ??
-        (input.runtimeMode === "full-access" ? "bypassPermissions" : undefined);
+        (input.runtimeMode === "full-access" ? "bypassPermissions" : "default");
       const settings = {
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),
@@ -2936,8 +2936,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       });
     } else if (input.interactionMode === "default") {
       yield* Effect.tryPromise({
-        try: () =>
-          context.query.setPermissionMode(context.basePermissionMode ?? "bypassPermissions"),
+        try: () => context.query.setPermissionMode(context.basePermissionMode ?? "default"),
         catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
       });
     }
