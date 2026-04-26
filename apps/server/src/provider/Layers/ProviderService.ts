@@ -121,6 +121,42 @@ function toRuntimePayloadFromSession(
   };
 }
 
+const RESUME_FALLBACK_RECONNECT_SUMMARY =
+  "Persisted provider session was unavailable; started a new provider session." as const;
+
+function readResumeCursorIdentity(resumeCursor: unknown): string | undefined {
+  const providerThreadId = readProviderThreadIdFromResumeCursor(resumeCursor);
+  if (providerThreadId) {
+    return `thread:${providerThreadId}`;
+  }
+  if (!resumeCursor || typeof resumeCursor !== "object" || Array.isArray(resumeCursor)) {
+    return undefined;
+  }
+  const record = resumeCursor as Record<string, unknown>;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  if (sessionId.length > 0) {
+    return `session:${sessionId}`;
+  }
+  const resume = typeof record.resume === "string" ? record.resume.trim() : "";
+  if (resume.length > 0) {
+    return `resume:${resume}`;
+  }
+  try {
+    return JSON.stringify(resumeCursor);
+  } catch {
+    return undefined;
+  }
+}
+
+function didResumeCursorFallback(input: {
+  readonly requestedResumeCursor: unknown;
+  readonly resumedResumeCursor: unknown;
+}): boolean {
+  const requested = readResumeCursorIdentity(input.requestedResumeCursor);
+  const resumed = readResumeCursorIdentity(input.resumedResumeCursor);
+  return requested !== undefined && resumed !== undefined && requested !== resumed;
+}
+
 function readPersistedModelSelection(
   runtimePayload: ProviderRuntimeBinding["runtimePayload"],
 ): ModelSelection | undefined {
@@ -320,9 +356,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             Effect.map((session) => ({
               session,
               strategy: "resume-fallback-fresh-start" as const,
-              reconnectState: "fresh-start" as const,
-              reconnectSummary:
-                "Persisted provider session was unavailable; started a new provider session.",
+              reconnectState: "resume-fallback-fresh-start" as const,
+              reconnectSummary: RESUME_FALLBACK_RECONNECT_SUMMARY,
             })),
           );
 
@@ -332,19 +367,33 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           })
           .pipe(
-            Effect.map((session) => ({
-              session,
-              strategy: "resume-thread" as const,
-              reconnectState: "resume-thread" as const,
-              reconnectSummary: (() => {
-                const resumedProviderThreadId = readProviderThreadIdFromResumeCursor(
-                  session.resumeCursor,
-                );
-                return resumedProviderThreadId
+            Effect.map((session) => {
+              if (
+                hasResumeCursor &&
+                didResumeCursorFallback({
+                  requestedResumeCursor: input.binding.resumeCursor,
+                  resumedResumeCursor: session.resumeCursor,
+                })
+              ) {
+                return {
+                  session,
+                  strategy: "resume-fallback-fresh-start" as const,
+                  reconnectState: "resume-fallback-fresh-start" as const,
+                  reconnectSummary: RESUME_FALLBACK_RECONNECT_SUMMARY,
+                };
+              }
+              const resumedProviderThreadId = readProviderThreadIdFromResumeCursor(
+                session.resumeCursor,
+              );
+              return {
+                session,
+                strategy: "resume-thread" as const,
+                reconnectState: "resume-thread" as const,
+                reconnectSummary: resumedProviderThreadId
                   ? `Reconnected to remote provider thread ${resumedProviderThreadId}.`
-                  : "Resumed the persisted remote provider session.";
-              })(),
-            })),
+                  : "Resumed the persisted remote provider session.",
+              };
+            }),
             Effect.catchTags({
               ProviderAdapterSessionNotFoundError: (error) =>
                 input.binding.provider === "kiro"

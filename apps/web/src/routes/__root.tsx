@@ -25,6 +25,10 @@ import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import {
+  buildThreadRestartToastMarker,
+  THREAD_RESTART_TOAST_TITLE,
+} from "../lib/threadReconnectToast";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -54,6 +58,7 @@ function RootRouteView() {
       <AnchoredToastProvider>
         <AppSettingsWatcher />
         <EventRouter />
+        <ThreadReconnectToastWatcher />
         <DesktopProjectBootstrap />
         <Outlet />
       </AnchoredToastProvider>
@@ -357,6 +362,45 @@ function AppSettingsWatcher() {
     previousSettingsSignatureRef.current = settingsSignature;
     dismissLocalCodexErrors(new Date().toISOString());
   }, [dismissLocalCodexErrors, settingsSignature]);
+
+  return null;
+}
+
+function ThreadReconnectToastWatcher() {
+  const threads = useStore((store) => store.threads);
+  const previousMarkersRef = useRef<Map<string, string | null> | null>(null);
+
+  useEffect(() => {
+    const nextMarkers = new Map<string, string | null>();
+    for (const thread of threads) {
+      nextMarkers.set(thread.id, buildThreadRestartToastMarker(thread));
+    }
+
+    const previousMarkers = previousMarkersRef.current;
+    previousMarkersRef.current = nextMarkers;
+    if (previousMarkers === null) {
+      return;
+    }
+
+    for (const thread of threads) {
+      const nextMarker = nextMarkers.get(thread.id) ?? null;
+      if (nextMarker === null) {
+        continue;
+      }
+      const previousMarker = previousMarkers.get(thread.id) ?? null;
+      if (previousMarker === nextMarker) {
+        continue;
+      }
+      toastManager.add({
+        type: "warning",
+        title: THREAD_RESTART_TOAST_TITLE,
+        description: thread.session?.reconnectSummary,
+        data: {
+          threadId: thread.id,
+        },
+      });
+    }
+  }, [threads]);
 
   return null;
 }
