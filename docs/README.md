@@ -22,6 +22,7 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 
 - [Architecture overview](./internals/overview.md)
 - [Desktop app-server extraction](./internals/desktop-app-server-extraction.md)
+- [T3 Codex repository scope and cleanup order](./internals/t3-codex-repository-scope.md)
 - [Workspace layout](./internals/workspace-layout.md)
 - [Glossary](./internals/glossary.md)
 - [Scripts](./internals/scripts.md)
