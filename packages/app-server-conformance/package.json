@@ -11,6 +11,10 @@
       "types": "./src/protocol/JsonlTransport.ts",
       "import": "./src/protocol/JsonlTransport.ts"
     },
+    "./child-process-transport": {
+      "types": "./src/servers/ChildProcessJsonlTransport.ts",
+      "import": "./src/servers/ChildProcessJsonlTransport.ts"
+    },
     "./message-recorder": {
       "types": "./src/protocol/MessageRecorder.ts",
       "import": "./src/protocol/MessageRecorder.ts"
@@ -18,6 +22,10 @@
     "./schema-validator": {
       "types": "./src/compare/SchemaValidator.ts",
       "import": "./src/compare/SchemaValidator.ts"
+    },
+    "./scenario-runner": {
+      "types": "./src/scenario/CoreLifecycleScenario.ts",
+      "import": "./src/scenario/CoreLifecycleScenario.ts"
     },
     "./trace-normalizer": {
       "types": "./src/normalize/TraceNormalizer.ts",

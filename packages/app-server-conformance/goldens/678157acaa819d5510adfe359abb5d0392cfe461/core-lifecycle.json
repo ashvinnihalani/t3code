@@ -1,0 +1,272 @@
+[
+  {
+    "sequence": 1,
+    "direction": "client-to-server",
+    "kind": "request",
+    "method": "initialize",
+    "id": "$request1",
+    "payload": {
+      "id": "$request1",
+      "method": "initialize",
+      "params": {
+        "clientInfo": {
+          "name": "t3-app-server-conformance",
+          "title": "T3 App Server Conformance",
+          "version": "$VERSION"
+        },
+        "capabilities": {
+          "experimentalApi": true,
+          "optOutNotificationMethods": null
+        }
+      }
+    }
+  },
+  {
+    "sequence": 2,
+    "direction": "server-to-client",
+    "kind": "response",
+    "id": "$request1",
+    "payload": {
+      "id": "$request1",
+      "result": {
+        "codexHome": "$WORKSPACE",
+        "platformFamily": "fixture",
+        "platformOs": "fixture",
+        "userAgent": "scripted-app-server/0.0.1"
+      }
+    }
+  },
+  {
+    "sequence": 3,
+    "direction": "client-to-server",
+    "kind": "notification",
+    "method": "initialized",
+    "payload": {
+      "method": "initialized"
+    }
+  },
+  {
+    "sequence": 4,
+    "direction": "client-to-server",
+    "kind": "request",
+    "method": "thread/start",
+    "id": "$request2",
+    "payload": {
+      "id": "$request2",
+      "method": "thread/start",
+      "params": {
+        "cwd": "$WORKSPACE"
+      }
+    }
+  },
+  {
+    "sequence": 5,
+    "direction": "server-to-client",
+    "kind": "response",
+    "id": "$request2",
+    "payload": {
+      "id": "$request2",
+      "result": {
+        "approvalPolicy": "never",
+        "approvalsReviewer": "user",
+        "cwd": "$WORKSPACE",
+        "model": "fixture-model",
+        "modelProvider": "fixture-provider",
+        "sandbox": {
+          "type": "dangerFullAccess"
+        },
+        "thread": {
+          "cliVersion": "$VERSION",
+          "createdAt": "$time1",
+          "cwd": "$WORKSPACE",
+          "ephemeral": false,
+          "id": "$thread1",
+          "modelProvider": "fixture-provider",
+          "preview": "",
+          "sessionId": "$session1",
+          "source": "appServer",
+          "status": {
+            "type": "idle"
+          },
+          "turns": [],
+          "updatedAt": "$time1"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 6,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "thread/started",
+    "payload": {
+      "method": "thread/started",
+      "params": {
+        "thread": {
+          "cliVersion": "$VERSION",
+          "createdAt": "$time1",
+          "cwd": "$WORKSPACE",
+          "ephemeral": false,
+          "id": "$thread1",
+          "modelProvider": "fixture-provider",
+          "preview": "",
+          "sessionId": "$session1",
+          "source": "appServer",
+          "status": {
+            "type": "idle"
+          },
+          "turns": [],
+          "updatedAt": "$time1"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 7,
+    "direction": "client-to-server",
+    "kind": "request",
+    "method": "turn/start",
+    "id": "$request3",
+    "payload": {
+      "id": "$request3",
+      "method": "turn/start",
+      "params": {
+        "threadId": "$thread1",
+        "input": [
+          {
+            "type": "text",
+            "text": "Reply with a deterministic greeting."
+          }
+        ]
+      }
+    }
+  },
+  {
+    "sequence": 8,
+    "direction": "server-to-client",
+    "kind": "response",
+    "id": "$request3",
+    "payload": {
+      "id": "$request3",
+      "result": {
+        "turn": {
+          "id": "$turn1",
+          "items": [],
+          "startedAt": "$time2",
+          "status": "inProgress"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 9,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "turn/started",
+    "payload": {
+      "method": "turn/started",
+      "params": {
+        "threadId": "$thread1",
+        "turn": {
+          "id": "$turn1",
+          "items": [],
+          "startedAt": "$time2",
+          "status": "inProgress"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 10,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "item/started",
+    "payload": {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "id": "$item1",
+          "text": "",
+          "type": "agentMessage"
+        },
+        "startedAtMs": "$time3",
+        "threadId": "$thread1",
+        "turnId": "$turn1"
+      }
+    }
+  },
+  {
+    "sequence": 11,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "item/agentMessage/delta",
+    "payload": {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "delta": "Hello ",
+        "itemId": "$item1",
+        "threadId": "$thread1",
+        "turnId": "$turn1"
+      }
+    }
+  },
+  {
+    "sequence": 12,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "item/agentMessage/delta",
+    "payload": {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "delta": "from the fixture.",
+        "itemId": "$item1",
+        "threadId": "$thread1",
+        "turnId": "$turn1"
+      }
+    }
+  },
+  {
+    "sequence": 13,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "item/completed",
+    "payload": {
+      "method": "item/completed",
+      "params": {
+        "completedAtMs": "$time4",
+        "item": {
+          "id": "$item1",
+          "text": "Hello from the fixture.",
+          "type": "agentMessage"
+        },
+        "threadId": "$thread1",
+        "turnId": "$turn1"
+      }
+    }
+  },
+  {
+    "sequence": 14,
+    "direction": "server-to-client",
+    "kind": "notification",
+    "method": "turn/completed",
+    "payload": {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "$thread1",
+        "turn": {
+          "completedAt": "$time5",
+          "id": "$turn1",
+          "items": [
+            {
+              "id": "$item1",
+              "text": "Hello from the fixture.",
+              "type": "agentMessage"
+            }
+          ],
+          "startedAt": "$time2",
+          "status": "completed"
+        }
+      }
+    }
+  }
+]

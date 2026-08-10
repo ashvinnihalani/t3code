@@ -7,7 +7,7 @@ export interface TraceNormalizerOptions {
   readonly codexHome: string;
 }
 
-type IdentityKind = "thread" | "turn" | "item" | "request" | "time";
+type IdentityKind = "thread" | "turn" | "item" | "request" | "session" | "time";
 
 const identityKeyKinds: Readonly<Record<string, IdentityKind>> = {
   threadid: "thread",
@@ -15,12 +15,36 @@ const identityKeyKinds: Readonly<Record<string, IdentityKind>> = {
   turnid: "turn",
   itemid: "item",
   requestid: "request",
+  sessionid: "session",
   timestamp: "time",
   createdat: "time",
   updatedat: "time",
+  startedat: "time",
+  startedatms: "time",
+  completedat: "time",
+  completedatms: "time",
+  recencyat: "time",
 };
 
 const canonicalKey = (key: string): string => key.replaceAll("_", "").toLowerCase();
+const itemTypes = new Set([
+  "agentMessage",
+  "commandExecution",
+  "contextCompaction",
+  "dynamicToolCall",
+  "enteredReviewMode",
+  "exitedReviewMode",
+  "fileChange",
+  "hookPrompt",
+  "imageGeneration",
+  "imageView",
+  "mcpToolCall",
+  "plan",
+  "reasoning",
+  "sleep",
+  "userMessage",
+  "webSearch",
+]);
 
 const replaceAllLiteral = (value: string, search: string, replacement: string): string =>
   search.length === 0 ? value : value.split(search).join(replacement);
@@ -31,6 +55,7 @@ export class TraceNormalizer {
     turn: new Map(),
     item: new Map(),
     request: new Map(),
+    session: new Map(),
     time: new Map(),
   };
   readonly options: TraceNormalizerOptions;
@@ -52,15 +77,26 @@ export class TraceNormalizer {
     });
   }
 
-  #normalizeValue(value: unknown, key?: string, depth = 0): unknown {
+  #normalizeValue(
+    value: unknown,
+    key?: string,
+    depth = 0,
+    containingIdentityKind?: IdentityKind,
+  ): unknown {
     if (Array.isArray(value)) {
-      return value.map((item) => this.#normalizeValue(item, key, depth));
+      return value.map((item) => this.#normalizeValue(item, key, depth, containingIdentityKind));
     }
 
     if (Predicate.isObject(value)) {
+      const objectIdentityKind = this.#objectIdentityKind(value, key) ?? containingIdentityKind;
       const normalized: Record<string, unknown> = {};
       for (const [childKey, childValue] of Object.entries(value)) {
-        normalized[childKey] = this.#normalizeValue(childValue, childKey, depth + 1);
+        normalized[childKey] = this.#normalizeValue(
+          childValue,
+          childKey,
+          depth + 1,
+          objectIdentityKind,
+        );
       }
       return normalized;
     }
@@ -69,14 +105,20 @@ export class TraceNormalizer {
     const identityKind: IdentityKind | undefined =
       normalizedKey === "id" && depth === 1
         ? "request"
-        : normalizedKey === undefined
-          ? undefined
-          : identityKeyKinds[normalizedKey];
+        : normalizedKey === "id"
+          ? containingIdentityKind
+          : normalizedKey === undefined
+            ? undefined
+            : identityKeyKinds[normalizedKey];
     if (identityKind !== undefined && (typeof value === "string" || typeof value === "number")) {
       return this.#normalizeIdentity(identityKind, value);
     }
 
-    if (normalizedKey === "version" || normalizedKey === "appversion") {
+    if (
+      normalizedKey === "version" ||
+      normalizedKey === "appversion" ||
+      normalizedKey === "cliversion"
+    ) {
       return "$VERSION";
     }
     if (normalizedKey === "installationid") {
@@ -90,6 +132,20 @@ export class TraceNormalizer {
       );
     }
     return value;
+  }
+
+  #objectIdentityKind(
+    value: { [x: PropertyKey]: unknown },
+    key: string | undefined,
+  ): IdentityKind | undefined {
+    const normalizedKey = key === undefined ? "" : canonicalKey(key);
+    if (normalizedKey.includes("thread")) return "thread";
+    if (normalizedKey.includes("turn")) return "turn";
+    if (normalizedKey.includes("item")) return "item";
+    if ("cwd" in value && "turns" in value && "sessionId" in value) return "thread";
+    if ("items" in value && "status" in value && "id" in value) return "turn";
+    if (typeof value.type === "string" && itemTypes.has(value.type)) return "item";
+    return undefined;
   }
 
   #normalizeIdentity(kind: IdentityKind, value: string | number): string {
