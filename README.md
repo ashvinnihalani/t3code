@@ -1,63 +1,74 @@
 # T3 Codex
 
-T3 Codex is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+T3 Codex is a desktop-oriented fork of [T3 Code](https://github.com/pingdotgg/t3code). It is a
+minimal control harness for coding agents exposed through a Codex app-server-compatible JSONL
+endpoint.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, T3 Codex can control them.
+The long-term boundary is deliberately small: T3 Codex owns desktop presentation and sends standard
+app-server requests, while the selected harness owns agents, models, tools, skills, context, and
+canonical conversation state. The UI does not integrate with a particular harness implementation.
 
-## "Wait, what are you selling me?"
+## Why this fork exists
 
-Nothing. We built T3 Codex because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+T3 Code already provides a polished, performant interface for controlling coding agents. T3 Codex
+keeps that foundation while moving the desktop client toward a generic Codex app-server transport
+instead of T3's provider-specific backend and parallel conversation model.
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+This fork is not affiliated with the upstream T3 Code maintainers or OpenAI. Upstream copyrights and
+licenses remain with their respective owners.
 
-## Installation
+## Current status
 
 > [!WARNING]
-> T3 Codex currently supports Codex, Claude, Cursor, Grok Build and OpenCode. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
+> The app-server extraction is in progress. The generic conformance client is usable now, but the
+> inherited desktop runtime has not yet been fully disconnected from the T3 backend. There is no
+> packaged T3 Codex release yet.
 
-### Try it out (install-free)
+The initial milestone pins the app-server protocol, validates raw JSON-RPC messages, normalizes
+traces, checks lifecycle ordering, and can run the same client scenario against any executable
+selected at runtime. Pi integration and Remote protocol work are intentionally outside this scope.
 
-The easiest way to test T3 Codex is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
+## Startup
 
-```bash
-npx t3@latest
-```
-
-This will launch T3 Codex's backend on your machine as well as the local web app to control your agents.
-
-Tip: Use `npx t3@latest --help` for the full CLI reference.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
+Install Node.js 24.13.1 and [Vite+](https://viteplus.dev/guide/), then install the workspace:
 
 ```bash
-winget install T3Tools.T3Code
+vp i
 ```
 
-#### macOS (Homebrew)
+Start the inherited desktop development stack:
 
 ```bash
-brew install --cask t3-code
+vp run dev:desktop
 ```
 
-#### Arch Linux (AUR)
+For the server and web client without Electron, run:
 
 ```bash
-yay -S t3code-bin
+vp run dev
 ```
+
+### Test an app-server-compatible harness
+
+The harness executable, arguments, environment, workspace, and timeout are runtime configuration;
+the conformance package does not import harness-specific code.
+
+```bash
+cd packages/app-server-conformance
+vp run verify-harness -- \
+  --executable /path/to/app-server-compatible-harness \
+  --arg=app-server \
+  --arg=--stdio \
+  --workspace /path/to/project \
+  --trace-output /tmp/app-server-trace.json
+```
+
+See [the conformance package README](./packages/app-server-conformance/README.md) for environment-only
+configuration and the compatibility report format.
 
 ## Some notes
 
-We are very very early in this project. Expect bugs.
+The fork is very early. Expect bugs and incomplete desktop migration work.
 
 We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
 
