@@ -15,6 +15,14 @@
       "types": "./src/protocol/MessageRecorder.ts",
       "import": "./src/protocol/MessageRecorder.ts"
     },
+    "./schema-validator": {
+      "types": "./src/compare/SchemaValidator.ts",
+      "import": "./src/compare/SchemaValidator.ts"
+    },
+    "./trace-normalizer": {
+      "types": "./src/normalize/TraceNormalizer.ts",
+      "import": "./src/normalize/TraceNormalizer.ts"
+    },
     "./reference-manifest": "./reference-manifest.json"
   },
   "scripts": {
@@ -22,7 +30,8 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "effect-codex-app-server": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

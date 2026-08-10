@@ -41,6 +41,7 @@ export type JsonRpcResponse = typeof JsonRpcResponse.Type;
 
 const JsonRpcEnvelope = Schema.Union([JsonRpcRequest, JsonRpcNotification, JsonRpcResponse]);
 type JsonRpcEnvelope = typeof JsonRpcEnvelope.Type;
+const decodeJsonRpcEnvelope = Schema.decodeUnknownSync(JsonRpcEnvelope);
 
 export class JsonRpcProtocolError extends Error {
   override readonly name = "JsonRpcProtocolError";
@@ -113,7 +114,9 @@ class AsyncMessageQueue<A> {
 
 const decodeEnvelope = (line: string): JsonRpcEnvelope => {
   try {
-    return Schema.decodeUnknownSync(JsonRpcEnvelope)(JSON.parse(line));
+    return decodeJsonRpcEnvelope(JSON.parse(line), {
+      onExcessProperty: "preserve",
+    });
   } catch (cause) {
     throw new JsonRpcProtocolError("Received an invalid JSON-RPC message.", cause);
   }

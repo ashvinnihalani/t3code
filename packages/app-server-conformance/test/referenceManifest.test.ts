@@ -1,5 +1,5 @@
 import * as NodeCrypto from "node:crypto";
-import * as NodeFs from "node:fs/promises";
+import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
@@ -12,7 +12,7 @@ const generatedSchemaPath = NodePath.resolve(
 
 describe("reference manifest", () => {
   it("pins the requested T3 and Codex protocol revisions", async () => {
-    const manifest = JSON.parse(await NodeFs.readFile(manifestPath, "utf8")) as {
+    const manifest = JSON.parse(await NodeFSP.readFile(manifestPath, "utf8")) as {
       readonly t3BaseTag: string;
       readonly t3BaseCommit: string;
       readonly codexProtocolRef: string;
@@ -23,7 +23,7 @@ describe("reference manifest", () => {
     expect(manifest.t3BaseCommit).toBe("be1a836745395286cbd392512179ab5816f538ba");
     expect(manifest.codexProtocolRef).toBe("678157acaa819d5510adfe359abb5d0392cfe461");
 
-    const schema = await NodeFs.readFile(generatedSchemaPath);
+    const schema = await NodeFSP.readFile(generatedSchemaPath);
     const schemaSha256 = NodeCrypto.createHash("sha256").update(schema).digest("hex");
     expect(manifest.schemaSha256).toBe(schemaSha256);
   });
