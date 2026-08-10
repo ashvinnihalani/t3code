@@ -73,8 +73,9 @@ export const parseHarnessCommandLine = (
   environment: HarnessCommandEnvironment,
   currentWorkingDirectory: string,
 ): HarnessCommand => {
+  const forwardedArguments = argv[0] === "--" ? argv.slice(1) : argv;
   const { values } = NodeUtil.parseArgs({
-    args: [...argv],
+    args: [...forwardedArguments],
     strict: true,
     options: {
       executable: { type: "string", short: "e" },

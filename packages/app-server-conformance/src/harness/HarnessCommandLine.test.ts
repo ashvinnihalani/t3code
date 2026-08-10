@@ -64,6 +64,19 @@ describe("parseHarnessCommandLine", () => {
     });
   });
 
+  it("accepts the argument separator forwarded by package scripts", () => {
+    const command = parseHarnessCommandLine(
+      ["--", "--executable", "/opt/harness/bin/server"],
+      {},
+      "/workspace",
+    );
+
+    expect(command).toMatchObject({
+      kind: "run",
+      harness: { executable: "/opt/harness/bin/server" },
+    });
+  });
+
   it("rejects invalid executable environment", () => {
     expect(() => parseHarnessCommandLine([], {}, "/workspace")).toThrow(
       "An app-server executable is required",
