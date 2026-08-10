@@ -1,0 +1,32 @@
+{
+  "name": "app-server-conformance",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./json-rpc-driver": {
+      "types": "./src/protocol/JsonRpcDriver.ts",
+      "import": "./src/protocol/JsonRpcDriver.ts"
+    },
+    "./jsonl-transport": {
+      "types": "./src/protocol/JsonlTransport.ts",
+      "import": "./src/protocol/JsonlTransport.ts"
+    },
+    "./message-recorder": {
+      "types": "./src/protocol/MessageRecorder.ts",
+      "import": "./src/protocol/MessageRecorder.ts"
+    },
+    "./reference-manifest": "./reference-manifest.json"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}
