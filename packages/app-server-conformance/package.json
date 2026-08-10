@@ -1,6 +1,9 @@
 {
   "name": "app-server-conformance",
   "private": true,
+  "bin": {
+    "t3-app-server-conformance": "./src/bin.ts"
+  },
   "type": "module",
   "exports": {
     "./json-rpc-driver": {
@@ -23,9 +26,17 @@
       "types": "./src/compare/SchemaValidator.ts",
       "import": "./src/compare/SchemaValidator.ts"
     },
+    "./partial-order": {
+      "types": "./src/compare/PartialOrder.ts",
+      "import": "./src/compare/PartialOrder.ts"
+    },
     "./scenario-runner": {
       "types": "./src/scenario/CoreLifecycleScenario.ts",
       "import": "./src/scenario/CoreLifecycleScenario.ts"
+    },
+    "./configured-harness": {
+      "types": "./src/harness/ConfiguredHarness.ts",
+      "import": "./src/harness/ConfiguredHarness.ts"
     },
     "./trace-normalizer": {
       "types": "./src/normalize/TraceNormalizer.ts",
@@ -35,7 +46,8 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "test": "vp test run"
+    "test": "vp test run",
+    "verify-harness": "node src/bin.ts"
   },
   "dependencies": {
     "effect": "catalog:",

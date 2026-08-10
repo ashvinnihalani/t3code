@@ -43,6 +43,17 @@ const withTimeout = async <A>(
   }
 };
 
+const nextNotificationWithMethod = async (
+  driver: JsonRpcDriver,
+  method: string,
+  timeoutMs: number,
+) => {
+  while (true) {
+    const notification = await withTimeout(driver.nextNotification(), timeoutMs, method);
+    if (notification.method === method) return notification;
+  }
+};
+
 export const runCoreLifecycleScenario = async ({
   driver,
   workspace,
@@ -74,10 +85,7 @@ export const runCoreLifecycleScenario = async ({
       "thread/start",
     ),
   );
-  const threadStarted = await withTimeout(driver.nextNotification(), timeoutMs, "thread/started");
-  if (threadStarted.method !== "thread/started") {
-    throw new Error(`Expected thread/started, received ${threadStarted.method}.`);
-  }
+  await nextNotificationWithMethod(driver, "thread/started", timeoutMs);
   decodeTurnStartResponse(
     await withTimeout(
       driver.request("turn/start", {
