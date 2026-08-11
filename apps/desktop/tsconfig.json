@@ -11,6 +11,7 @@
     "src/appServer",
     "src/ipc/channels.ts",
     "vite.config.ts",
+    "../../packages/effect-codex-app-server/src/connection.ts",
     "../../scripts/lib"
   ]
 }

@@ -4,6 +4,8 @@ import * as NodePath from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
 
 import { registerAppServerBridge } from "./appServer/bridge.ts";
+import { registerAppServerSettingsIpc } from "./appServer/settingsIpc.ts";
+import { makeAppServerSettingsStore } from "./appServer/settingsStore.ts";
 
 const APP_SCHEME = "t3codex";
 const APP_HOST = "app";
@@ -128,6 +130,7 @@ function createWindow(): BrowserWindow {
 
 let mainWindow: BrowserWindow | undefined;
 let closeAppServerBridge: (() => void) | undefined;
+let closeSettingsIpc: (() => void) | undefined;
 
 void app
   .whenReady()
@@ -135,6 +138,12 @@ void app
     if (!process.env.VITE_DEV_SERVER_URL?.trim()) {
       protocol.handle(APP_SCHEME, serveRenderer);
     }
+    const settingsStore = makeAppServerSettingsStore(
+      app.getPath("userData"),
+      process.env,
+      process.cwd(),
+    );
+    closeSettingsIpc = registerAppServerSettingsIpc(ipcMain, settingsStore);
     closeAppServerBridge = registerAppServerBridge(ipcMain);
     mainWindow = createWindow();
 
@@ -150,6 +159,7 @@ void app
 
 app.once("will-quit", () => {
   closeAppServerBridge?.();
+  closeSettingsIpc?.();
   if (protocol.isProtocolHandled(APP_SCHEME)) {
     void protocol.unhandle(APP_SCHEME);
   }

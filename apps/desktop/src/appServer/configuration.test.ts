@@ -2,6 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   AppServerConfigurationError,
+  buildRemoteAppServerCommand,
+  resolveConfiguredAppServerProcess,
   resolveAppServerProcessConfiguration,
 } from "./configuration.ts";
 
@@ -13,6 +15,59 @@ describe("resolveAppServerProcessConfiguration", () => {
       cwd: "/workspace",
       env: {},
     });
+  });
+
+  it("launches a remote app-server through OpenSSH stdio", () => {
+    const connection = {
+      kind: "ssh" as const,
+      host: "build-box",
+      username: "agent",
+      port: 2222,
+      identityFile: "/keys/work identity",
+      executable: "/opt/codex/bin/codex",
+      args: ["app-server", "--stdio"],
+      workspace: "/work/project with spaces",
+      env: { HARNESS_MODE: "remote" },
+    };
+    expect(buildRemoteAppServerCommand(connection)).toBe(
+      "cd -- '/work/project with spaces' && exec env 'HARNESS_MODE=remote' '/opt/codex/bin/codex' 'app-server' '--stdio'",
+    );
+    expect(
+      resolveConfiguredAppServerProcess({ connection }, { PATH: "/usr/bin" }, "/local", "darwin"),
+    ).toEqual({
+      executable: "ssh",
+      args: [
+        "-T",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        "/keys/work identity",
+        "-p",
+        "2222",
+        "agent@build-box",
+        "cd -- '/work/project with spaces' && exec env 'HARNESS_MODE=remote' '/opt/codex/bin/codex' 'app-server' '--stdio'",
+      ],
+      cwd: "/local",
+      env: { PATH: "/usr/bin" },
+    });
+  });
+
+  it("shell-quotes remote launch values", () => {
+    expect(
+      buildRemoteAppServerCommand({
+        kind: "ssh",
+        host: "host",
+        username: "",
+        port: null,
+        identityFile: "",
+        executable: "codex'preview",
+        args: ["app-server"],
+        workspace: "/work/user's project",
+        env: {},
+      }),
+    ).toBe(`cd -- '/work/user'"'"'s project' && exec 'codex'"'"'preview' 'app-server'`);
   });
 
   it("accepts a generic executable, arguments, environment, and workspace", () => {

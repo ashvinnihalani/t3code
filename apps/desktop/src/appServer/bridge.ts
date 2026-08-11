@@ -2,13 +2,17 @@ import * as NodeChildProcess from "node:child_process";
 
 import type { IpcMain, IpcMainEvent, MessagePortMain } from "electron";
 import { MessageChannelMain } from "electron";
+import type { AppServerDesktopSettings } from "../../../../packages/effect-codex-app-server/src/connection.ts";
 
 import {
   APP_SERVER_CONNECT_CHANNEL,
   APP_SERVER_ERROR_CHANNEL,
   APP_SERVER_PORT_CHANNEL,
 } from "../ipc/channels.ts";
-import { resolveAppServerProcessConfiguration } from "./configuration.ts";
+import {
+  parseAppServerDesktopSettings,
+  resolveConfiguredAppServerProcess,
+} from "./configuration.ts";
 
 interface AppServerConnection {
   readonly close: () => void;
@@ -33,8 +37,12 @@ function forwardOutput(port: MessagePortMain, chunk: Buffer): void {
   }
 }
 
-function openConnection(event: IpcMainEvent): AppServerConnection {
-  const configuration = resolveAppServerProcessConfiguration(process.env, process.cwd());
+function openConnection(
+  event: IpcMainEvent,
+  settings: AppServerDesktopSettings,
+  onClosed: () => void,
+): AppServerConnection {
+  const configuration = resolveConfiguredAppServerProcess(settings, process.env, process.cwd());
   const child = NodeChildProcess.spawn(configuration.executable, [...configuration.args], {
     cwd: configuration.cwd,
     env: configuration.env,
@@ -51,6 +59,7 @@ function openConnection(event: IpcMainEvent): AppServerConnection {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");
     }
+    onClosed();
   };
 
   child.stdout.on("data", (chunk: Buffer) => forwardOutput(port1, chunk));
@@ -63,9 +72,9 @@ function openConnection(event: IpcMainEvent): AppServerConnection {
     close();
   });
   child.on("close", (code, signal) => {
-    if (!closed && code !== 0) {
+    if (!closed) {
       const detail = signal === null ? `exit code ${String(code)}` : `signal ${signal}`;
-      event.sender.send(APP_SERVER_ERROR_CHANNEL, `App-server process stopped with ${detail}.`);
+      event.sender.send(APP_SERVER_ERROR_CHANNEL, `App-server connection closed with ${detail}.`);
     }
     close();
   });
@@ -85,9 +94,13 @@ function openConnection(event: IpcMainEvent): AppServerConnection {
 export function registerAppServerBridge(ipcMain: IpcMain): () => void {
   const connections = new Set<AppServerConnection>();
 
-  const handleConnect = (event: IpcMainEvent) => {
+  const handleConnect = (event: IpcMainEvent, value: unknown) => {
     try {
-      const connection = openConnection(event);
+      const settings = parseAppServerDesktopSettings(value);
+      let connection: AppServerConnection | undefined;
+      connection = openConnection(event, settings, () => {
+        if (connection !== undefined) connections.delete(connection);
+      });
       connections.add(connection);
       event.sender.once("destroyed", () => {
         connection.close();
