@@ -1,0 +1,122 @@
+:root {
+  color: #e8e8e3;
+  background: #111210;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.app-server-shell {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 48px;
+  background: radial-gradient(circle at 15% 0%, rgb(134 171 119 / 14%), transparent 34rem), #111210;
+}
+
+.app-server-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  max-width: 1080px;
+  margin: 0 auto 28px;
+}
+
+.app-server-header h1 {
+  margin: 4px 0 0;
+  font-size: clamp(2rem, 5vw, 4.25rem);
+  letter-spacing: -0.055em;
+}
+
+.app-server-eyebrow {
+  margin: 0;
+  color: #9eaa99;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-server-status {
+  padding: 7px 11px;
+  border: 1px solid #343831;
+  border-radius: 999px;
+  color: #adb2aa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.app-server-status--ready {
+  border-color: #45613d;
+  color: #9bc98d;
+}
+
+.app-server-status--error {
+  border-color: #754a43;
+  color: #e29b8f;
+}
+
+.app-server-panel {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 38px;
+  border: 1px solid #292c27;
+  border-radius: 22px;
+  background: rgb(25 27 24 / 88%);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 24%);
+}
+
+.app-server-panel--error {
+  border-color: #5f3933;
+}
+
+.app-server-panel h2 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+}
+
+.app-server-panel p {
+  max-width: 720px;
+  margin: 0;
+  color: #aeb2aa;
+  line-height: 1.6;
+}
+
+.app-server-hint {
+  margin-top: 18px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+.app-server-panel pre {
+  max-height: calc(100vh - 320px);
+  margin: 28px 0 0;
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid #30342e;
+  border-radius: 12px;
+  color: #cbd8c5;
+  background: #0d0e0c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 700px) {
+  .app-server-shell {
+    padding: 28px 18px;
+  }
+
+  .app-server-panel {
+    padding: 24px;
+  }
+}
