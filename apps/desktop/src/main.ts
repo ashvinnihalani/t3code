@@ -102,6 +102,9 @@ function createWindow(): BrowserWindow {
     minHeight: 520,
     title: "T3 Codex",
     backgroundColor: "#111210",
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 18 } }
+      : { titleBarStyle: "hidden" as const }),
     webPreferences: {
       preload: NodePath.join(__dirname, "preload.cjs"),
       contextIsolation: true,

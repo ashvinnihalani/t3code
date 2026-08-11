@@ -13,13 +13,16 @@
   "dependencies": {
     "effect": "catalog:",
     "effect-codex-app-server": "workspace:*",
+    "lucide-react": "^0.564.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
     "@types/react": "~19.2.14",
     "@types/react-dom": "~19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
+    "tailwindcss": "^4.0.0",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }
