@@ -18,7 +18,7 @@ consumer has moved to the app-server path.
 | `assets`                                                           | Target branding and packaging       | Retain; update branding separately.                                                         |
 | `docs`                                                             | Mixed                               | Retain fork and contributor docs; remove instructions for deleted products and services.    |
 | `experiments/messages-glass-lab`                                   | Explicitly preserved prototype      | Retain as requested; it remains outside the shipped workspace.                              |
-| `infra/relay`                                                      | Outside target                      | Remove with T3 Connect configuration and deployment workflows.                              |
+| `infra/relay`                                                      | Removed                             | Hosted relay service and deployment wiring are no longer part of the fork.                  |
 | `native/libghostty-vt`                                             | Target terminal dependency          | Retain while the web terminal consumes its WebAssembly build.                               |
 | `native/resource-monitor`                                          | Transitional backend dependency     | Remove with legacy server supervision and packaging.                                        |
 | `oxlint-plugin-t3code`                                             | Repository tooling                  | Retain while its rules are enabled by the root Vite+ configuration.                         |
