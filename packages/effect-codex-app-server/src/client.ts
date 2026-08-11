@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -16,7 +15,8 @@ import {
   encodeOptionalPayload,
   runHandler,
 } from "./_internal/shared.ts";
-import { makeChildStdio, makeTerminationError } from "./_internal/stdio.ts";
+import { makeChildWireTransport, makeTerminationError } from "./_internal/stdio.ts";
+import type { CodexAppServerWireTransport } from "./transport.ts";
 
 export interface CodexAppServerClientOptions {
   readonly logIncoming?: boolean;
@@ -85,7 +85,7 @@ type ServerNotificationHandler = (
 ) => Effect.Effect<void, CodexError.CodexAppServerError>;
 
 export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make")(function* (
-  stdio: Stdio.Stdio,
+  wireTransport: CodexAppServerWireTransport,
   options: CodexAppServerClientOptions = {},
   terminationError?: Effect.Effect<CodexError.CodexAppServerError>,
 ): Effect.fn.Return<CodexAppServerClient["Service"], never, Scope.Scope> {
@@ -184,8 +184,8 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
       : Effect.fail(CodexError.CodexAppServerRequestError.methodNotFound(request.method));
   };
 
-  const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
-    stdio,
+  const protocol = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+    transport: wireTransport,
     ...(terminationError ? { terminationError } : {}),
     ...(options.logIncoming !== undefined ? { logIncoming: options.logIncoming } : {}),
     ...(options.logOutgoing !== undefined ? { logOutgoing: options.logOutgoing } : {}),
@@ -199,7 +199,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     payload: CodexRpc.ClientRequestParamsByMethod[M],
   ): Effect.Effect<CodexRpc.ClientRequestResponsesByMethod[M], CodexError.CodexAppServerError> =>
     encodeOptionalPayload(method, getClientRequestParamSchema(method), payload).pipe(
-      Effect.flatMap((encoded) => transport.request(method, encoded)),
+      Effect.flatMap((encoded) => protocol.request(method, encoded)),
       Effect.flatMap(
         (
           raw,
@@ -215,17 +215,17 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     payload: CodexRpc.ClientNotificationParamsByMethod[M],
   ) =>
     encodeOptionalPayload(method, getClientNotificationParamSchema(method), payload).pipe(
-      Effect.flatMap((encoded) => transport.notify(method, encoded)),
+      Effect.flatMap((encoded) => protocol.notify(method, encoded)),
     );
 
   return CodexAppServerClient.of({
     raw: {
-      notifications: transport.incomingNotifications,
-      requests: transport.incomingRequests,
-      request: transport.request,
-      notify: transport.notify,
-      respond: transport.respond,
-      respondError: transport.respondError,
+      notifications: protocol.incomingNotifications,
+      requests: protocol.incomingRequests,
+      request: protocol.request,
+      notify: protocol.notify,
+      respond: protocol.respond,
+      respondError: protocol.respondError,
     },
     request,
     notify,
@@ -251,9 +251,10 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
 });
 
 export const layer = (
-  stdio: Stdio.Stdio,
+  transport: CodexAppServerWireTransport,
   options: CodexAppServerClientOptions = {},
-): Layer.Layer<CodexAppServerClient> => Layer.effect(CodexAppServerClient, make(stdio, options));
+): Layer.Layer<CodexAppServerClient> =>
+  Layer.effect(CodexAppServerClient, make(transport, options));
 
 export const layerChildProcess = (
   handle: ChildProcessSpawner.ChildProcessHandle,
@@ -265,5 +266,5 @@ const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
   yield* Stream.runDrain(handle.stderr).pipe(Effect.ignore, Effect.forkScoped);
-  return yield* make(makeChildStdio(handle), options, makeTerminationError(handle));
+  return yield* make(makeChildWireTransport(handle), options, makeTerminationError(handle));
 });
