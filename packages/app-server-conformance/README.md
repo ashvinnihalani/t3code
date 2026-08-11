@@ -1,6 +1,6 @@
 # App-server conformance
 
-This package exercises T3's client-side initialization and core thread/turn lifecycle against a
+This package exercises T3 Codex's client-side initialization and core thread/turn lifecycle against a
 JSONL app-server selected at runtime. The harness is launched directly, without a shell or any
 provider-specific imports.
 

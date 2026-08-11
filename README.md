@@ -1,128 +1,82 @@
 # T3 Codex
 
-T3 Codex is a desktop-oriented fork of [T3 Code](https://github.com/pingdotgg/t3code). It is a
-minimal control harness for coding agents exposed through a Codex app-server-compatible JSONL
-endpoint.
+T3 Codex is a desktop control harness for coding agents that implement the Codex app-server
+protocol. It is a stripped-down fork of [T3 Code](https://github.com/pingdotgg/t3code), retaining
+the Electron presentation shell while replacing T3's server, provider adapters, Effect-RPC
+contracts, cloud relay, and parallel conversation store with one app-server connection.
 
-The long-term boundary is deliberately small: T3 Codex owns desktop presentation and sends standard
-app-server requests, while the selected harness owns agents, models, tools, skills, context, and
-canonical conversation state. The UI does not integrate with a particular harness implementation.
+```text
+T3 Codex renderer
+        │ MessagePort + JSONL
+        ▼
+Codex-compatible app-server
+        │
+        ▼
+agent harness
+```
 
-## Why this fork exists
+The app-server is authoritative for projects, threads, turns, items, account state, models, skills,
+and Remote. T3 Codex stores only connection settings and a local presentation cache so the most
+recent project/thread list remains visible while reconnecting.
 
-T3 Code already provides a polished, performant interface for controlling coding agents. T3 Codex
-keeps that foundation while moving the desktop client toward a generic Codex app-server transport
-instead of T3's provider-specific backend and parallel conversation model.
+## Current scope
 
-This fork is not affiliated with the upstream T3 Code maintainers or OpenAI. Upstream copyrights and
-licenses remain with their respective owners.
+- Launch a local app-server over stdio. The default command is `codex app-server`.
+- Launch the same stdio protocol through OpenSSH on a configured remote machine.
+- Initialize a generic compatible harness and show its account, model, skill, and thread data.
+- Cache the last thread projection locally and refresh it from app-server after reconnecting.
+- Retry dropped connections with bounded backoff.
+- Present Remote status and pairing payloads returned by the official app-server
+  `remoteControl/*` methods. T3 Codex does not create pairing links, QR payloads, credentials, or
+  relay state.
+- Exercise compatible harnesses with the black-box conformance package.
 
-## Current status
+The inherited Pi/provider integration is intentionally out of scope. A harness may use any agent
+runtime internally; the desktop only speaks app-server.
 
-The desktop production path no longer launches or packages the inherited T3 server. Electron serves
-the renderer build directly, starts a runtime-configured app-server-compatible process, and carries
-JSONL traffic over a MessagePort. The current desktop screen verifies initialization and displays
-account, model, skill, and canonical thread diagnostics from that process.
+## Start from source
 
-The richer thread timeline and mutating controls are still being migrated. The protocol and
-conformance tooling remain pinned so the same path can be tested against any compatible executable.
-Pi integration and Remote protocol work are intentionally outside this scope.
-
-## Startup
-
-Install Node.js 24.13.1 and [Vite+](https://viteplus.dev/guide/), then install the workspace:
+Requirements: Node.js 24.13.1 and [Vite+](https://viteplus.dev/guide/).
 
 ```bash
 vp i
+vp run dev
 ```
 
-By default, the desktop launches `codex app-server` in the repository workspace:
-
-```bash
-vp run dev:desktop
-```
-
-Choose a different compatible harness entirely at runtime:
-
-```bash
-T3CODE_APP_SERVER_EXECUTABLE=/path/to/generic-harness \
-T3CODE_APP_SERVER_ARGS='["serve","--stdio"]' \
-T3CODE_APP_SERVER_ENV='{"HARNESS_MODE":"development"}' \
-T3CODE_APP_SERVER_WORKSPACE=/path/to/project \
-vp run dev:desktop
-```
-
-`T3CODE_APP_SERVER_ARGS` must be a JSON string array. `T3CODE_APP_SERVER_ENV` is an optional JSON
-object whose string values are merged over the desktop process environment.
-
-Build the renderer and Electron shell without building `apps/server`:
+For a production-mode local run:
 
 ```bash
 vp run build:desktop
+vp run start:desktop
 ```
 
-### Test an app-server-compatible harness
+The first launch uses `codex app-server` in the repository directory. Change the executable,
+arguments, workspace, environment, or SSH host from Settings. Startup defaults can also be set with
+`T3CODE_APP_SERVER_EXECUTABLE`, `T3CODE_APP_SERVER_ARGS`, `T3CODE_APP_SERVER_WORKSPACE`, and
+`T3CODE_APP_SERVER_ENV`.
 
-The harness executable, arguments, environment, workspace, and timeout are runtime configuration;
-the conformance package does not import harness-specific code.
+## Test another app-server harness
 
 ```bash
-cd packages/app-server-conformance
-vp run verify-harness -- \
-  --executable /path/to/app-server-compatible-harness \
+vp run harness:verify -- \
+  --executable /path/to/compatible-harness \
   --arg=app-server \
-  --arg=--stdio \
   --workspace /path/to/project \
   --trace-output /tmp/app-server-trace.json
 ```
 
-See [the conformance package README](./packages/app-server-conformance/README.md) for environment-only
-configuration and the compatibility report format.
+See [Harness testing](./docs/operations/testing.md) for configuration and verification details.
 
-## Some notes
+## Repository
 
-The fork is very early. Expect bugs and incomplete desktop migration work.
+- `apps/desktop` — Electron lifecycle, settings, local/SSH process launch, and MessagePort bridge.
+- `apps/web` — focused renderer and local presentation cache.
+- `packages/effect-codex-app-server` — generated pinned schemas and JSONL client transport.
+- `packages/app-server-conformance` — generic black-box compatibility harness.
+- `experiments/messages-glass-lab` — preserved experimental workspace; not part of the desktop
+  build.
 
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+Start with [the docs index](./docs/README.md) or [the architecture](./docs/internals/architecture.md).
 
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Codex uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+T3 Codex is not affiliated with the upstream T3 Code maintainers or OpenAI. Upstream copyrights and
+licenses remain with their respective owners.
