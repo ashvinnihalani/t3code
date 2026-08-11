@@ -17,7 +17,7 @@ consumer has moved to the app-server path.
 | `apps/marketing`                                                   | Outside target                      | Remove with its build and release wiring.                                                   |
 | `assets`                                                           | Target branding and packaging       | Retain; update branding separately.                                                         |
 | `docs`                                                             | Mixed                               | Retain fork and contributor docs; remove instructions for deleted products and services.    |
-| `experiments`                                                      | Unrelated prototypes                | Remove. Production UI experiments belong in branches, not the fork workspace.               |
+| `experiments/messages-glass-lab`                                   | Explicitly preserved prototype      | Retain as requested; it remains outside the shipped workspace.                              |
 | `infra/relay`                                                      | Outside target                      | Remove with T3 Connect configuration and deployment workflows.                              |
 | `native/libghostty-vt`                                             | Target terminal dependency          | Retain while the web terminal consumes its WebAssembly build.                               |
 | `native/resource-monitor`                                          | Transitional backend dependency     | Remove with legacy server supervision and packaging.                                        |
@@ -33,7 +33,7 @@ consumer has moved to the app-server path.
 ## Removal order
 
 1. Remove the isolated mobile application and mobile-only tooling.
-2. Remove the isolated marketing application, relay infrastructure, and unrelated experiments.
+2. Remove the isolated marketing application and relay infrastructure; preserve the glass lab.
 3. Remove Remote, SSH, Tailscale, cloud-auth, and provider-management entry points from desktop and
    web.
 4. Replace desktop backend supervision with the app-server transport and packaged renderer assets.

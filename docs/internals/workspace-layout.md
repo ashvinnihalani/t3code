@@ -14,7 +14,6 @@ the task commands.
   components, and web-specific platform layers.
 - `apps/desktop` (`@t3tools/desktop`): Electron shell. Supervises a desktop-scoped `t3` backend,
   loads the web bundle over the `t3code://` protocol, and owns SSH-managed remote environments.
-- `apps/marketing` (`@t3tools/marketing`): Astro marketing site.
 
 ## packages
 
@@ -49,7 +48,7 @@ the task commands.
 - `assets/`: brand and app icon sources per channel (`dev`, `nightly`, `prod`).
 - `patches/`: pnpm patches for pinned upstream dependencies.
 - `oxlint-plugin-t3code/`: repo-specific lint rules.
-- `experiments/`: throwaway prototypes. Not part of the shipped build.
+- `experiments/messages-glass-lab`: preserved UI prototype. It is not part of the shipped build.
 - `docs/`: this documentation tree.
 
 ## Import conventions
