@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/desktop",
+  "name": "@t3-codex/desktop",
   "version": "0.0.32",
   "private": true,
   "type": "module",
@@ -18,7 +18,6 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "cross-env": "^10.1.0",
-    "electron-builder": "26.15.6",
     "vite-plus": "catalog:"
   },
   "productName": "T3 Codex"

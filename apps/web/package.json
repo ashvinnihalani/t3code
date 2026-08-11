@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/web",
+  "name": "@t3-codex/web",
   "version": "0.0.32",
   "private": true,
   "type": "module",

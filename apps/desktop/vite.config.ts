@@ -7,7 +7,7 @@ export default defineConfig({
     tasks: {
       build: {
         command: "vp pack",
-        dependsOn: ["@t3tools/web#build"],
+        dependsOn: ["@t3-codex/web#build"],
         cache: false,
       },
       dev: {
