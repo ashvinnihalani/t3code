@@ -12,9 +12,8 @@ The fork freezes both sides of its initial compatibility boundary:
 | Codex app-server protocol     | `678157acaa819d5510adfe359abb5d0392cfe461`             |
 
 The generated schemas and method tables in `effect-codex-app-server` already use the protocol pin.
-Changing that pin requires a schema diff, refreshed conformance goldens, candidate conformance, and
-Remote smoke testing. The first milestone configures Remote outside T3 because this revision does
-not include the newer pairing and client-management methods.
+Changing that pin requires a schema diff, refreshed conformance goldens, and candidate conformance
+against the replacement protocol. Remote protocol work is outside the first milestone.
 
 ## Target boundary
 
@@ -23,14 +22,17 @@ T3 renderer
     |
 Electron MessagePort transport bridge
     |
-Codex-compatible app-server harness
+App-server-compatible harness
 ```
 
 T3 owns desktop presentation and local presentation preferences. App-server owns the external
-protocol, client coordination, and canonical thread, turn, item, and request identities. The selected
-harness owns the agent loop, providers, tools, skills, context, compaction, and execution sessions.
-T3 does not integrate with a harness implementation directly and does not keep an authoritative
-conversation store.
+protocol and canonical thread, turn, item, and request identities. The selected harness owns the
+agent runtime, providers, tools, skills, context, compaction, and execution sessions. T3 does not
+integrate with a harness implementation directly and does not keep an authoritative conversation
+store.
+
+The first milestone supports managed stdio. The executable and arguments are runtime configuration,
+so the same desktop path can launch Codex or any compatible harness without rebuilding the app.
 
 ## Migration rules
 
@@ -39,8 +41,8 @@ conversation store.
 - Desktop actions without a native method invoke a discovered skill through `turn/start`.
 - File pickers, window behavior, updates, local workspaces, and thread pin or snooze metadata remain
   desktop-local.
-- Provider management, T3 Connect, environment authentication, SSH, WSL, Tailscale, relay, mobile,
-  checkpoints, and the T3 server runtime are removed from the production desktop path.
+- Provider management, Remote, T3 Connect, environment authentication, SSH, WSL, Tailscale, relay,
+  mobile, checkpoints, and the T3 server runtime are removed from the production desktop path.
 - App-server snapshots establish truth. Notifications reduce latency, completed items replace
   streamed partial state, and reconnect reloads instead of replaying a T3 event log.
 
@@ -108,10 +110,10 @@ Obsolete packages can remain only until their last desktop import is removed.
 
 ## First milestone exit criteria
 
-The packaged desktop serves its renderer without `apps/server`, connects to the pinned official
-app-server, initializes, displays account/model/skill state, lists and opens canonical threads, sends
-and streams turns, renders tools and file changes, handles interaction requests, performs thread
-operations, invokes at least one skill action, and reconstructs visible state after reconnect. The
-reference conformance suite covers initialization through turn lifecycle. A configured executable or
-test endpoint can replace the official reference with any protocol-compatible harness without
-rebuilding T3 or importing harness-specific code.
+The packaged desktop serves its renderer without `apps/server`, launches a configured
+app-server-compatible harness, initializes, displays account/model/skill state, lists and opens
+canonical threads, sends and streams turns, renders tools and file changes, handles interaction
+requests, performs thread operations, invokes at least one skill action, and reconstructs visible
+state after reconnect. The reference conformance suite covers initialization through turn lifecycle.
+Changing the executable, arguments, or environment does not require rebuilding T3 or importing
+harness-specific code.
