@@ -1,6 +1,7 @@
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import type * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
@@ -11,12 +12,43 @@ export interface CodexAppServerWireTransport {
   readonly outgoing: Sink.Sink<void, string | Uint8Array, never, unknown>;
 }
 
+export interface CodexAppServerMessageEvent {
+  readonly data: unknown;
+}
+
+export interface CodexAppServerMessagePort extends Stream.EventListener<CodexAppServerMessageEvent> {
+  readonly postMessage: (message: string | Uint8Array) => void;
+  readonly start: () => void;
+}
+
 export const fromStdio = (stdio: Stdio.Stdio): CodexAppServerWireTransport => ({
   incoming: stdio.stdin,
   outgoing: stdio.stdout(),
 });
 
 const encoder = new TextEncoder();
+const isMessagePortPayload = Schema.is(Schema.Union([Schema.String, Schema.Uint8Array]));
+const hasMessagePortPayload = (
+  event: CodexAppServerMessageEvent,
+): event is CodexAppServerMessageEvent & { readonly data: string | Uint8Array } =>
+  isMessagePortPayload(event.data);
+
+export const fromMessagePort = (port: CodexAppServerMessagePort): CodexAppServerWireTransport => ({
+  incoming: Stream.unwrap(
+    Effect.sync(() => {
+      port.start();
+      return Stream.fromEventListener<CodexAppServerMessageEvent>(port, "message").pipe(
+        Stream.filter(hasMessagePortPayload),
+        Stream.map((event) =>
+          typeof event.data === "string" ? encoder.encode(event.data) : event.data,
+        ),
+      );
+    }),
+  ),
+  outgoing: Sink.forEach((message: string | Uint8Array) =>
+    Effect.sync(() => port.postMessage(message)),
+  ),
+});
 
 export const fromChildProcess = (
   handle: ChildProcessSpawner.ChildProcessHandle,
