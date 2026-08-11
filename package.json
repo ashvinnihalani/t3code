@@ -8,6 +8,7 @@
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "build": "vp run --filter './apps/*' --filter './packages/*' build",
     "build:desktop": "vp run --filter @t3-codex/desktop --filter @t3-codex/web build",
+    "dist:mac": "vp run build:desktop && vp run --filter @t3-codex/desktop dist:mac",
     "start": "vp run build:desktop && vp run --filter @t3-codex/desktop start",
     "start:desktop": "vp run --filter @t3-codex/desktop start",
     "typecheck": "vp run --filter './apps/*' --filter './packages/*' typecheck",

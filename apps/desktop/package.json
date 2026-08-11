@@ -2,23 +2,57 @@
   "name": "@t3-codex/desktop",
   "version": "0.0.32",
   "private": true,
+  "description": "Desktop control harness for Codex app-server compatible agents",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
     "start": "node scripts/start-electron.mjs",
+    "dist:mac": "electron-builder --mac dmg --arm64 --publish never",
     "typecheck": "tsgo --noEmit",
     "test": "vp test run --passWithNoTests",
     "smoke-test": "node scripts/smoke-test.mjs"
   },
-  "dependencies": {
-    "electron": "41.5.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "cross-env": "^10.1.0",
+    "electron": "41.5.0",
+    "electron-builder": "26.15.6",
     "vite-plus": "catalog:"
+  },
+  "build": {
+    "appId": "com.t3codex.desktop",
+    "productName": "T3 Codex",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "../../release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web/dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "resources/icon.icns",
+      "identity": null
+    },
+    "dmg": {
+      "title": "T3 Codex ${version}",
+      "artifactName": "T3 Codex-${version}-${arch}.${ext}"
+    }
   },
   "productName": "T3 Codex"
 }

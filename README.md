@@ -50,6 +50,17 @@ vp run build:desktop
 vp run start:desktop
 ```
 
+To build an unsigned Apple-silicon release image, install the pinned project tools and package the
+desktop app through mise:
+
+```bash
+mise install
+mise exec -- pnpm install
+mise exec -- pnpm exec vp run dist:mac
+```
+
+The DMG is written to `release/T3 Codex-<version>-arm64.dmg`.
+
 The first launch uses `codex app-server` in the repository directory. Change the executable,
 arguments, workspace, environment, or SSH host from Settings. Startup defaults can also be set with
 `T3CODE_APP_SERVER_EXECUTABLE`, `T3CODE_APP_SERVER_ARGS`, `T3CODE_APP_SERVER_WORKSPACE`, and

@@ -12,6 +12,7 @@ build/
 .vitest-*
 dist-electron/
 .electron-runtime/
+release/
 node_modules/
 *.log
 .env*
