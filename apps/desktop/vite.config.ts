@@ -15,7 +15,7 @@ export default defineConfig({
     tasks: {
       build: {
         command: "node scripts/build-preview-annotation-css.mjs && vp pack",
-        dependsOn: ["t3#build"],
+        dependsOn: ["@t3tools/web#build"],
         cache: false,
       },
       dev: {
@@ -30,7 +30,6 @@ export default defineConfig({
       },
       "dev:electron": {
         command: "node scripts/dev-electron.mjs",
-        dependsOn: ["t3#build"],
         cache: false,
       },
     },

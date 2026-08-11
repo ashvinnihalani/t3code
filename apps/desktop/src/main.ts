@@ -1,221 +1,160 @@
-for (const stream of [process.stdout, process.stderr]) {
-  stream.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EPIPE") throw err;
-  });
-}
+import * as NodeFS from "node:fs/promises";
+import * as NodePath from "node:path";
 
-import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodeOS from "node:os";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
 
-import * as Electron from "electron";
-
-import * as NetService from "@t3tools/shared/Net";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveRemoteT3CliPackageSpec } from "@t3tools/ssh/command";
-import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
-import serverPackageJson from "../../server/package.json" with { type: "json" };
-
-import * as DesktopIpc from "./ipc/DesktopIpc.ts";
 import { registerAppServerBridge } from "./appServer/bridge.ts";
-import * as ElectronApp from "./electron/ElectronApp.ts";
-import * as ElectronDialog from "./electron/ElectronDialog.ts";
-import * as ElectronMenu from "./electron/ElectronMenu.ts";
-import * as ElectronPowerMonitor from "./electron/ElectronPowerMonitor.ts";
-import * as ElectronProtocol from "./electron/ElectronProtocol.ts";
-import * as ElectronSafeStorage from "./electron/ElectronSafeStorage.ts";
-import * as ElectronShell from "./electron/ElectronShell.ts";
-import * as ElectronTheme from "./electron/ElectronTheme.ts";
-import * as ElectronUpdater from "./electron/ElectronUpdater.ts";
-import * as ElectronWindow from "./electron/ElectronWindow.ts";
-import * as DesktopApp from "./app/DesktopApp.ts";
-import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
-import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogStore.ts";
-import * as DesktopClerk from "./app/DesktopClerk.ts";
-import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
-import * as DesktopAssets from "./app/DesktopAssets.ts";
-import * as DesktopBackendConfiguration from "./backend/DesktopBackendConfiguration.ts";
-import * as DesktopBackendPool from "./backend/DesktopBackendPool.ts";
-import * as DesktopLocalEnvironmentAuth from "./backend/DesktopLocalEnvironmentAuth.ts";
-import * as DesktopNetworkInterfaces from "./backend/DesktopNetworkInterfaces.ts";
-import * as DesktopEnvironment from "./app/DesktopEnvironment.ts";
-import * as DesktopLifecycle from "./app/DesktopLifecycle.ts";
-import * as DesktopLinuxUrlHandler from "./app/DesktopLinuxUrlHandler.ts";
-import * as DesktopShutdown from "./app/DesktopShutdown.ts";
-import * as DesktopObservability from "./app/DesktopObservability.ts";
-import * as DesktopServerExposure from "./backend/DesktopServerExposure.ts";
-import * as DesktopClientSettings from "./settings/DesktopClientSettings.ts";
-import * as DesktopSavedEnvironments from "./settings/DesktopSavedEnvironments.ts";
-import * as DesktopAppSettings from "./settings/DesktopAppSettings.ts";
-import * as DesktopPreReadyPlatform from "./app/DesktopPreReadyPlatform.ts";
-import * as DesktopShellEnvironment from "./shell/DesktopShellEnvironment.ts";
-import * as DesktopSshEnvironment from "./ssh/DesktopSshEnvironment.ts";
-import * as DesktopSshPasswordPrompts from "./ssh/DesktopSshPasswordPrompts.ts";
-import * as DesktopState from "./app/DesktopState.ts";
-import * as DesktopTelemetryPublisher from "./telemetry/DesktopTelemetryPublisher.ts";
-import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
-import * as BrowserSession from "./preview/BrowserSession.ts";
-import * as PreviewManager from "./preview/Manager.ts";
-import * as DesktopWindow from "./window/DesktopWindow.ts";
-import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
-import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 
-const closeAppServerBridge = registerAppServerBridge(Electron.ipcMain);
-Electron.app.once("will-quit", closeAppServerBridge);
+const APP_SCHEME = "t3codex";
+const APP_HOST = "app";
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+].join("; ");
 
-const desktopEnvironmentLayer = Layer.unwrap(
-  Effect.gen(function* () {
-    const metadata = yield* Effect.service(ElectronApp.ElectronApp).pipe(
-      Effect.flatMap((app) => app.metadata),
-    );
-    const platform = yield* HostProcessPlatform;
-    const processArch = yield* HostProcessArchitecture;
-    return DesktopEnvironment.layer({
-      dirname: __dirname,
-      homeDirectory: NodeOS.homedir(),
-      platform,
-      processArch,
-      ...metadata,
-    });
-  }),
-);
-
-const resolveDesktopSshCliRunner = (
-  environment: DesktopEnvironment.DesktopEnvironment["Service"],
-  settings: DesktopAppSettings.DesktopSettings,
-): RemoteT3RunnerOptions => {
-  const devRemoteEntryPath = Option.getOrUndefined(environment.devRemoteT3ServerEntryPath);
-  if (environment.isDevelopment && devRemoteEntryPath !== undefined) {
-    return {
-      nodeScriptPath: devRemoteEntryPath,
-      nodeEngineRange: serverPackageJson.engines.node,
-    };
-  }
-  return {
-    packageSpec: resolveRemoteT3CliPackageSpec({
-      appVersion: environment.appVersion,
-      updateChannel: settings.updateChannel,
-      isDevelopment: environment.isDevelopment,
-    }),
-    nodeEngineRange: serverPackageJson.engines.node,
-  };
+const CONTENT_TYPES: Readonly<Record<string, string>> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
 
-const desktopSshEnvironmentLayer = Layer.unwrap(
-  Effect.gen(function* () {
-    const environment = yield* DesktopEnvironment.DesktopEnvironment;
-    const settings = yield* DesktopAppSettings.DesktopAppSettings;
-    return DesktopSshEnvironment.layer({
-      resolveCliRunner: settings.get.pipe(
-        Effect.map((currentSettings) => resolveDesktopSshCliRunner(environment, currentSettings)),
-      ),
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
+app.setName("T3 Codex");
+
+function rendererRoot(): string {
+  return NodePath.resolve(__dirname, "../../web/dist");
+}
+
+async function existingAsset(root: string, pathname: string): Promise<string> {
+  const relativePath = decodeURIComponent(pathname).replace(/^\/+/, "");
+  const candidate = NodePath.resolve(root, relativePath || "index.html");
+  const rootPrefix = `${root}${NodePath.sep}`;
+
+  if (candidate !== root && !candidate.startsWith(rootPrefix)) {
+    return NodePath.join(root, "index.html");
+  }
+
+  try {
+    const stats = await NodeFS.stat(candidate);
+    if (stats.isFile()) return candidate;
+  } catch {
+    // Client-side routes fall back to the renderer entry point.
+  }
+  return NodePath.join(root, "index.html");
+}
+
+async function serveRenderer(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.host !== APP_HOST || (request.method !== "GET" && request.method !== "HEAD")) {
+    return new Response(null, { status: 404 });
+  }
+
+  const assetPath = await existingAsset(rendererRoot(), url.pathname);
+  try {
+    const body = request.method === "HEAD" ? null : await NodeFS.readFile(assetPath);
+    return new Response(body, {
+      headers: {
+        "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+        "Content-Type":
+          CONTENT_TYPES[NodePath.extname(assetPath).toLowerCase()] ?? "application/octet-stream",
+      },
     });
-  }),
-);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return new Response(`T3 Codex renderer is unavailable: ${message}`, {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+}
 
-const electronLayer = Layer.mergeAll(
-  ElectronApp.layer,
-  ElectronDialog.layer,
-  ElectronMenu.layer,
-  ElectronPowerMonitor.layer,
-  ElectronProtocol.layer,
-  ElectronSafeStorage.layer,
-  ElectronShell.layer,
-  ElectronTheme.layer,
-  ElectronUpdater.layer,
-  ElectronWindow.layer,
-  DesktopIpc.layer(Electron.ipcMain),
-);
+function createWindow(): BrowserWindow {
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 840,
+    minWidth: 720,
+    minHeight: 520,
+    title: "T3 Codex",
+    backgroundColor: "#111210",
+    webPreferences: {
+      preload: NodePath.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
 
-const desktopFoundationLayer = Layer.mergeAll(
-  DesktopState.layer,
-  DesktopShutdown.layer,
-  DesktopAppSettings.layer,
-  DesktopClientSettings.layer,
-  DesktopConnectionCatalogStore.layer.pipe(Layer.provideMerge(DesktopSavedEnvironments.layer)),
-  DesktopAssets.layer,
-  DesktopObservability.layer,
-).pipe(Layer.provideMerge(desktopEnvironmentLayer));
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event, url) => {
+    const developmentUrl = process.env.VITE_DEV_SERVER_URL?.trim();
+    const allowedOrigin = developmentUrl
+      ? new URL(developmentUrl).origin
+      : `${APP_SCHEME}://${APP_HOST}`;
+    if (new URL(url).origin !== allowedOrigin) event.preventDefault();
+  });
 
-const desktopSshLayer = desktopSshEnvironmentLayer.pipe(
-  Layer.provideMerge(DesktopSshPasswordPrompts.layer()),
-);
+  const developmentUrl = process.env.VITE_DEV_SERVER_URL?.trim();
+  if (developmentUrl) {
+    void window.loadURL(developmentUrl);
+  } else {
+    void window.loadURL(`${APP_SCHEME}://${APP_HOST}/`);
+  }
+  return window;
+}
 
-const desktopServerExposureLayer = DesktopServerExposure.layer.pipe(
-  Layer.provideMerge(DesktopNetworkInterfaces.layer),
-  Layer.provideMerge(desktopFoundationLayer),
-);
+let mainWindow: BrowserWindow | undefined;
+let closeAppServerBridge: (() => void) | undefined;
 
-const desktopPreviewLayer = PreviewManager.layer.pipe(
-  Layer.provideMerge(BrowserSession.layer),
-  Layer.provideMerge(desktopFoundationLayer),
-);
+void app
+  .whenReady()
+  .then(() => {
+    if (!process.env.VITE_DEV_SERVER_URL?.trim()) {
+      protocol.handle(APP_SCHEME, serveRenderer);
+    }
+    closeAppServerBridge = registerAppServerBridge(ipcMain);
+    mainWindow = createWindow();
 
-const desktopWindowLayer = DesktopWindow.layer.pipe(
-  Layer.provideMerge(desktopServerExposureLayer),
-  Layer.provideMerge(desktopPreviewLayer),
-);
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+    });
+  })
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    dialog.showErrorBox("T3 Codex failed to start", message);
+    app.quit();
+  });
 
-// Pool layer instantiates the backend factory once for the Windows
-// primary instance and exposes it via pool.primary. Consumers go through
-// the pool now; the legacy DesktopBackendManager service is gone. The
-// WSL second instance gets registered later in the migration. See
-// DesktopBackendPool.ts header for the full rollout plan.
-const desktopBackendLayer = DesktopBackendPool.layer.pipe(
-  Layer.provideMerge(DesktopAppIdentity.layer),
-  Layer.provideMerge(DesktopBackendConfiguration.layer),
-  Layer.provideMerge(DesktopWslEnvironment.layer),
-  Layer.provideMerge(DesktopTelemetryPublisher.layer),
-  Layer.provideMerge(desktopWindowLayer),
-);
+app.once("will-quit", () => {
+  closeAppServerBridge?.();
+  if (protocol.isProtocolHandled(APP_SCHEME)) {
+    void protocol.unhandle(APP_SCHEME);
+  }
+});
 
-// WSL orchestrator hangs off the backend layer because it needs the
-// pool + configuration + serverExposure; it pulls NetService and the
-// foundation services through the same provideMerge chain.
-const desktopWslBackendLayer = DesktopWslBackend.layer.pipe(
-  Layer.provideMerge(desktopBackendLayer),
-);
-
-const desktopLocalEnvironmentAuthLayer = DesktopLocalEnvironmentAuth.layer.pipe(
-  Layer.provideMerge(desktopBackendLayer),
-);
-
-const desktopApplicationLayer = Layer.mergeAll(
-  DesktopLifecycle.layer,
-  DesktopApplicationMenu.layer,
-  DesktopLinuxUrlHandler.layer,
-  DesktopShellEnvironment.layer,
-  desktopSshLayer,
-).pipe(
-  Layer.provideMerge(DesktopUpdates.layer),
-  Layer.provideMerge(desktopWslBackendLayer),
-  Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
-);
-
-const desktopClerkLayer = DesktopClerk.layer.pipe(
-  Layer.provideMerge(desktopEnvironmentLayer),
-  Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(ElectronApp.layer),
-);
-
-const desktopApplicationRuntimeLayer = desktopApplicationLayer.pipe(
-  Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(NodeHttpClient.layerUndici),
-  Layer.provideMerge(NetService.layer),
-  Layer.provideMerge(electronLayer),
-);
-
-// Acquire strict pre-ready setup before Clerk, whose userData resolution can
-// yield and let Electron emit ready.
-const desktopRuntimeLayer = desktopClerkLayer.pipe(
-  Layer.flatMap((clerkContext) =>
-    desktopApplicationRuntimeLayer.pipe(Layer.provideMerge(Layer.succeedContext(clerkContext))),
-  ),
-  Layer.provideMerge(DesktopPreReadyPlatform.layer),
-);
-
-DesktopApp.program.pipe(Effect.provide(desktopRuntimeLayer), NodeRuntime.runMain);
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
