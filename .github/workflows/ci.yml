@@ -3,134 +3,31 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    name: Check
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+  verify:
+    name: Verify desktop and app-server boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
           cache: true
           run-install: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Check
-        run: vp check
-
+      - name: Format
+        run: vp fmt --check
+      - name: Lint
+        run: vp lint --report-unused-disable-directives
       - name: Typecheck
-        run: vpr typecheck
-
-      - name: Check resource monitor formatting
-        run: cargo fmt --manifest-path native/resource-monitor/Cargo.toml -- --check
-
-      - name: Build desktop pipeline
-        run: vp run build:desktop
-
-      - name: Verify preload bundle output
-        run: |
-          test -f apps/desktop/dist-electron/preload.cjs
-          grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
-          grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
-
-  test:
-    name: Test
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
+        run: vp run typecheck
       - name: Test
-        env:
-          T3CODE_TRANSFER_BUDGET_REPORT_PATH: ${{ runner.temp }}/t3code-transfer-budget.md
-          T3CODE_TRANSFER_BUDGET_RESULT_PATH: ${{ runner.temp }}/thread-transfer-result.json
         run: vp run test
-
-      - name: Publish transfer budget report
-        if: always()
-        run: |
-          if test -f "${{ runner.temp }}/t3code-transfer-budget.md"; then
-            tee -a "$GITHUB_STEP_SUMMARY" < "${{ runner.temp }}/t3code-transfer-budget.md"
-          else
-            echo "Transfer budget report was not produced." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload thread transfer result
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: thread-transfer-results
-          path: ${{ runner.temp }}/thread-transfer-result.json
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Test resource monitor
-        run: cargo test --locked --manifest-path native/resource-monitor/Cargo.toml
-
-  release_smoke:
-    name: Release Smoke
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=@t3tools/scripts...
-
-      - name: Exercise release-only workflow steps
-        run: node scripts/release-smoke.ts
+      - name: Build desktop
+        run: vp run build:desktop

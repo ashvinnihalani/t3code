@@ -28,11 +28,10 @@ body:
       description: Which part of the project would this change affect?
       options:
         - apps/web
-        - apps/server
         - apps/desktop
-        - apps/mobile
-        - packages/contracts or packages/shared
-        - Build, CI, or release tooling
+        - effect-codex-app-server
+        - app-server conformance harness
+        - Build or CI tooling
         - Docs
         - Not sure
     validations:
@@ -43,7 +42,7 @@ body:
     attributes:
       label: Problem or use case
       description: What are you trying to do? What is hard, slow, or impossible today?
-      placeholder: I want to reconnect to an existing provider session after a browser refresh without losing the current thread state.
+      placeholder: I want to reconnect to app-server after an SSH interruption without losing the last thread presentation.
     validations:
       required: true
 
@@ -52,7 +51,7 @@ body:
     attributes:
       label: Proposed solution
       description: Describe the behavior, API, or UX you want.
-      placeholder: Persist enough session metadata so the client can discover and reattach to the active provider session on load.
+      placeholder: Reinitialize app-server and restore the authoritative thread after the connection returns.
     validations:
       required: true
 
@@ -79,7 +78,7 @@ body:
     attributes:
       label: Alternatives considered
       description: Workarounds, prior art, or other approaches you considered.
-      placeholder: I currently work around this by manually restarting the provider session, but that loses in-flight context.
+      placeholder: I currently restart the desktop and wait for app-server to reload the thread.
 
   - type: textarea
     id: tradeoffs

@@ -1,33 +1,20 @@
-<!--
-⚠️ READ BEFORE OPENING ⚠️
+## What changed
 
-We are not actively accepting contributions right now.
-
-You can still open a PR, but please do so knowing there is a high chance
-we may close it without merging it, or never review it.
-
-- Small, focused PRs are strongly preferred. Bug fixes are most likely to be merged.
-- New features will most likely just annoy us.
-- 1,000+ line PRs with a bunch of new features will probably get you banned from the repo.
--->
-
-## What Changed
-
-<!-- Describe the change clearly and keep scope tight. -->
+<!-- Keep the scope focused. -->
 
 ## Why
 
-<!-- Explain the problem being solved and why this approach is the right one. -->
+<!-- Explain the user or protocol problem. -->
 
-## UI Changes
+## Verification
 
-<!-- If this PR changes UI, include clear before/after screenshots.
-     If the change involves motion or interaction, include a short video.
-     Delete this section if not applicable. -->
+<!-- List focused tests, typechecks, builds, and compatible harnesses exercised. -->
 
-## Checklist
+## UI evidence
 
-- [ ] This PR is small and focused
-- [ ] I explained what changed and why
-- [ ] I included before/after screenshots for any UI changes
-- [ ] I included a video for animation/interaction changes
+<!-- Include before/after images for UI changes; remove when not applicable. -->
+
+- [ ] The app-server remains authoritative for canonical agent state
+- [ ] Remote pairing presentation comes from app-server
+- [ ] Relevant docs are updated
+- [ ] Commits use conventional titles
