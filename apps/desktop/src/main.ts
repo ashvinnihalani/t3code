@@ -21,6 +21,7 @@ import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
+import { registerAppServerBridge } from "./appServer/bridge.ts";
 import * as ElectronApp from "./electron/ElectronApp.ts";
 import * as ElectronDialog from "./electron/ElectronDialog.ts";
 import * as ElectronMenu from "./electron/ElectronMenu.ts";
@@ -62,6 +63,9 @@ import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
+
+const closeAppServerBridge = registerAppServerBridge(Electron.ipcMain);
+Electron.app.once("will-quit", closeAppServerBridge);
 
 const desktopEnvironmentLayer = Layer.unwrap(
   Effect.gen(function* () {

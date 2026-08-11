@@ -995,6 +995,10 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 });
 
 export interface DesktopBridge {
+  connectAppServer: (
+    onPort: (port: MessagePort) => void,
+    onError: (message: string) => void,
+  ) => () => void;
   getAppBranding: () => DesktopAppBranding | null;
   // One bootstrap per pool instance currently registered with bootstrap
   // info (omits instances whose backend hasn't produced a config yet).
