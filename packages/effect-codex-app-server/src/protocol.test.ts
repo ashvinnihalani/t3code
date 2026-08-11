@@ -12,7 +12,7 @@ import * as CodexError from "./errors.ts";
 import * as CodexProtocol from "./protocol.ts";
 import * as CodexRpc from "./rpc.ts";
 import * as CodexSchema from "./schema.ts";
-import { makeInMemoryWireTransport } from "./_internal/stdio.ts";
+import { makeInMemory } from "./transport.ts";
 const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const encoder = new TextEncoder();
@@ -132,7 +132,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
     "encodes requests without a jsonrpc field and routes inbound requests and notifications",
     () =>
       Effect.gen(function* () {
-        const { transport: wireTransport, input, output } = yield* makeInMemoryWireTransport();
+        const { transport: wireTransport, input, output } = yield* makeInMemory();
         const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
           transport: wireTransport,
         });
@@ -294,7 +294,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
 
   it.effect("surfaces JSON encoding failures as protocol parse errors", () =>
     Effect.gen(function* () {
-      const { transport: wireTransport } = yield* makeInMemoryWireTransport();
+      const { transport: wireTransport } = yield* makeInMemory();
       const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
         transport: wireTransport,
       });
@@ -334,7 +334,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
 
   it.effect("correlates response errors with the originating request", () =>
     Effect.gen(function* () {
-      const { transport: wireTransport, input, output } = yield* makeInMemoryWireTransport();
+      const { transport: wireTransport, input, output } = yield* makeInMemory();
       const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
         transport: wireTransport,
       });
@@ -373,7 +373,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
   it.effect("logs decode failures without copying the cause or wire payload", () =>
     Effect.gen(function* () {
       const secret = "codex-wire-secret-sentinel";
-      const { transport, input } = yield* makeInMemoryWireTransport();
+      const { transport, input } = yield* makeInMemory();
       const events: Array<CodexProtocol.CodexAppServerProtocolLogEvent> = [];
       const termination = yield* Deferred.make<CodexError.CodexAppServerError>();
       yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
@@ -406,7 +406,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
   it.effect("describes unroutable messages with safe structural diagnostics", () =>
     Effect.gen(function* () {
       const secret = "codex-unroutable-secret-sentinel";
-      const { transport, input } = yield* makeInMemoryWireTransport();
+      const { transport, input } = yield* makeInMemory();
       const termination = yield* Deferred.make<CodexError.CodexAppServerError>();
       yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
         transport,
@@ -435,7 +435,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
 
   it.effect("classifies an input stream ending without inventing a cause", () =>
     Effect.gen(function* () {
-      const { transport, input } = yield* makeInMemoryWireTransport();
+      const { transport, input } = yield* makeInMemory();
       const termination = yield* Deferred.make<CodexError.CodexAppServerError>();
       yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
         transport,

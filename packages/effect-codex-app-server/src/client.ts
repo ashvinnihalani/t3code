@@ -15,8 +15,8 @@ import {
   encodeOptionalPayload,
   runHandler,
 } from "./_internal/shared.ts";
-import { makeChildWireTransport, makeTerminationError } from "./_internal/stdio.ts";
-import type { CodexAppServerWireTransport } from "./transport.ts";
+import { makeTerminationError } from "./_internal/childProcess.ts";
+import { fromChildProcess, type CodexAppServerWireTransport } from "./transport.ts";
 
 export interface CodexAppServerClientOptions {
   readonly logIncoming?: boolean;
@@ -266,5 +266,5 @@ const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
   yield* Stream.runDrain(handle.stderr).pipe(Effect.ignore, Effect.forkScoped);
-  return yield* make(makeChildWireTransport(handle), options, makeTerminationError(handle));
+  return yield* make(fromChildProcess(handle), options, makeTerminationError(handle));
 });

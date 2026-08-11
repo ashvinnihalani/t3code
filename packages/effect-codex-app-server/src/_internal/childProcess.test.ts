@@ -4,7 +4,7 @@ import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as CodexError from "../errors.ts";
-import { makeTerminationError } from "./stdio.ts";
+import { makeTerminationError } from "./childProcess.ts";
 
 describe("Codex App Server child process termination", () => {
   it.effect("retains the process identifier with the exit code", () =>
