@@ -19,14 +19,14 @@ licenses remain with their respective owners.
 
 ## Current status
 
-> [!WARNING]
-> The app-server extraction is in progress. The generic conformance client is usable now, but the
-> inherited desktop runtime has not yet been fully disconnected from the T3 backend. There is no
-> packaged T3 Codex release yet.
+The desktop production path no longer launches or packages the inherited T3 server. Electron serves
+the renderer build directly, starts a runtime-configured app-server-compatible process, and carries
+JSONL traffic over a MessagePort. The current desktop screen verifies initialization and displays
+account, model, skill, and canonical thread diagnostics from that process.
 
-The initial milestone pins the app-server protocol, validates raw JSON-RPC messages, normalizes
-traces, checks lifecycle ordering, and can run the same client scenario against any executable
-selected at runtime. Pi integration and Remote protocol work are intentionally outside this scope.
+The richer thread timeline and mutating controls are still being migrated. The protocol and
+conformance tooling remain pinned so the same path can be tested against any compatible executable.
+Pi integration and Remote protocol work are intentionally outside this scope.
 
 ## Startup
 
@@ -36,16 +36,29 @@ Install Node.js 24.13.1 and [Vite+](https://viteplus.dev/guide/), then install t
 vp i
 ```
 
-Start the inherited desktop development stack:
+By default, the desktop launches `codex app-server` in the repository workspace:
 
 ```bash
 vp run dev:desktop
 ```
 
-For the server and web client without Electron, run:
+Choose a different compatible harness entirely at runtime:
 
 ```bash
-vp run dev
+T3CODE_APP_SERVER_EXECUTABLE=/path/to/generic-harness \
+T3CODE_APP_SERVER_ARGS='["serve","--stdio"]' \
+T3CODE_APP_SERVER_ENV='{"HARNESS_MODE":"development"}' \
+T3CODE_APP_SERVER_WORKSPACE=/path/to/project \
+vp run dev:desktop
+```
+
+`T3CODE_APP_SERVER_ARGS` must be a JSON string array. `T3CODE_APP_SERVER_ENV` is an optional JSON
+object whose string values are merged over the desktop process environment.
+
+Build the renderer and Electron shell without building `apps/server`:
+
+```bash
+vp run build:desktop
 ```
 
 ### Test an app-server-compatible harness
