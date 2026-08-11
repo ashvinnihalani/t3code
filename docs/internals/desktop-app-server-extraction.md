@@ -6,10 +6,10 @@
 
 The fork freezes both sides of its initial compatibility boundary:
 
-| Boundary | Pin |
-| --- | --- |
+| Boundary                      | Pin                                                    |
+| ----------------------------- | ------------------------------------------------------ |
 | T3 renderer and desktop shell | `v0.0.32` (`be1a836745395286cbd392512179ab5816f538ba`) |
-| Codex app-server protocol | `678157acaa819d5510adfe359abb5d0392cfe461` |
+| Codex app-server protocol     | `678157acaa819d5510adfe359abb5d0392cfe461`             |
 
 The generated schemas and method tables in `effect-codex-app-server` already use the protocol pin.
 Changing that pin requires a schema diff, refreshed conformance goldens, candidate conformance, and

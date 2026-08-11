@@ -1,7 +1,7 @@
 # Client Runtime
 
-Shared client behavior for web and mobile. Public APIs are organized by package
-subpath. The package intentionally has no root export.
+Shared non-visual behavior for the web renderer. Public APIs are organized by package subpath. The
+package intentionally has no root export.
 
 ## Public subpaths
 
