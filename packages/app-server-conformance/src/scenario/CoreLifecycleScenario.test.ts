@@ -13,7 +13,7 @@ const fixturePath = NodePath.resolve(
 );
 const goldenPath = NodePath.resolve(
   import.meta.dirname,
-  "../../goldens/678157acaa819d5510adfe359abb5d0392cfe461/core-lifecycle.json",
+  "../../goldens/be6e8eac029b183056b7e4402879f15d2c85f61b/core-lifecycle.json",
 );
 
 describe("runCoreLifecycleScenario", () => {
