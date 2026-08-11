@@ -13,7 +13,6 @@ const workspaceFiles = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
-  "apps/server/package.json",
   "apps/desktop/package.json",
   "apps/web/package.json",
   "oxlint-plugin-t3code/package.json",
@@ -208,7 +207,6 @@ try {
   assertContains(lockfile, "lockfileVersion:", "Expected pnpm-lock.yaml to be regenerated.");
 
   for (const relativePath of [
-    "apps/server/package.json",
     "apps/desktop/package.json",
     "apps/web/package.json",
     "packages/contracts/package.json",

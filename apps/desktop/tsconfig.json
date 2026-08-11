@@ -5,5 +5,12 @@
     "types": ["node", "electron"],
     "lib": ["ESNext", "DOM", "esnext.disposable"]
   },
-  "include": ["src", "vite.config.ts", "../../scripts/lib"]
+  "include": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/appServer",
+    "src/ipc/channels.ts",
+    "vite.config.ts",
+    "../../scripts/lib"
+  ]
 }
