@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import * as IpcChannels from "./ipc/channels.ts";
 
 export interface AppServerDesktopBridge {
+  readonly appServerPortMessage: string;
   readonly getAppServerSettings: () => Promise<AppServerDesktopSettings>;
   readonly saveAppServerSettings: (
     settings: AppServerDesktopSettings,
@@ -14,20 +15,22 @@ export interface AppServerDesktopBridge {
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
   readonly connectAppServer: (
     settings: AppServerDesktopSettings,
-    onPort: (port: MessagePort) => void,
     onError: (message: string) => void,
   ) => () => void;
 }
 
 const bridge: AppServerDesktopBridge = {
+  appServerPortMessage: IpcChannels.APP_SERVER_PORT_CHANNEL,
   getAppServerSettings: () => ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_GET_CHANNEL),
   saveAppServerSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_SET_CHANNEL, settings),
   discoverSshHosts: () => ipcRenderer.invoke(IpcChannels.SSH_HOSTS_DISCOVER_CHANNEL),
-  connectAppServer: (settings, onPort, onError) => {
+  connectAppServer: (settings, onError) => {
     const handlePort = (event: Electron.IpcRendererEvent) => {
       const port = event.ports[0];
-      if (port !== undefined) onPort(port);
+      if (port !== undefined) {
+        window.postMessage(IpcChannels.APP_SERVER_PORT_CHANNEL, "*", [port]);
+      }
     };
     const handleError = (_event: Electron.IpcRendererEvent, message: unknown) => {
       onError(typeof message === "string" ? message : "The app-server process failed.");

@@ -317,6 +317,50 @@ export function AppServerRoot() {
       }, delay);
     };
 
+    const handlePortMessage = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || event.data !== bridge.appServerPortMessage) return;
+      const connectedPort = event.ports[0];
+      if (connectedPort === undefined) return;
+      if (!active) {
+        connectedPort.close();
+        return;
+      }
+      port = connectedPort;
+      connectedPort.addEventListener("close", () =>
+        scheduleReconnect("The app-server transport disconnected."),
+      );
+      Effect.runPromise(
+        connectAndLoad(connectedPort, (remote) => {
+          if (active) setConnection((current) => ({ ...current, remote }));
+        }),
+      ).then(
+        (loaded) => {
+          if (!active) {
+            Effect.runFork(Scope.close(loaded.scope, Exit.void));
+            return;
+          }
+          scope = loaded.scope;
+          clientRef.current = loaded.client;
+          attempt = 0;
+          const snapshot = { updatedAt: Date.now(), threads: loaded.threads };
+          writeCache(settings, snapshot);
+          setConnection({
+            phase: "ready",
+            attempt: 1,
+            error: null,
+            retryAt: null,
+            snapshot,
+            account: loaded.account,
+            models: loaded.models,
+            remote: loaded.remote,
+          });
+        },
+        (error: unknown) => scheduleReconnect(errorMessage(error)),
+      );
+    };
+
+    window.addEventListener("message", handlePortMessage);
+
     const connect = () => {
       if (!active) return;
       setConnection((current) => ({
@@ -326,53 +370,13 @@ export function AppServerRoot() {
         error: attempt === 0 ? null : current.error,
         retryAt: null,
       }));
-      unsubscribe = bridge.connectAppServer(
-        settings,
-        (connectedPort) => {
-          if (!active) {
-            connectedPort.close();
-            return;
-          }
-          port = connectedPort;
-          connectedPort.addEventListener("close", () =>
-            scheduleReconnect("The app-server transport disconnected."),
-          );
-          Effect.runPromise(
-            connectAndLoad(connectedPort, (remote) => {
-              if (active) setConnection((current) => ({ ...current, remote }));
-            }),
-          ).then(
-            (loaded) => {
-              if (!active) {
-                Effect.runFork(Scope.close(loaded.scope, Exit.void));
-                return;
-              }
-              scope = loaded.scope;
-              clientRef.current = loaded.client;
-              attempt = 0;
-              const snapshot = { updatedAt: Date.now(), threads: loaded.threads };
-              writeCache(settings, snapshot);
-              setConnection({
-                phase: "ready",
-                attempt: 1,
-                error: null,
-                retryAt: null,
-                snapshot,
-                account: loaded.account,
-                models: loaded.models,
-                remote: loaded.remote,
-              });
-            },
-            (error: unknown) => scheduleReconnect(errorMessage(error)),
-          );
-        },
-        scheduleReconnect,
-      );
+      unsubscribe = bridge.connectAppServer(settings, scheduleReconnect);
     };
 
     connect();
     return () => {
       active = false;
+      window.removeEventListener("message", handlePortMessage);
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       closeCurrent();
     };

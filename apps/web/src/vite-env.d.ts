@@ -14,6 +14,7 @@ interface ImportMeta {
 }
 
 interface AppServerDesktopBridge {
+  readonly appServerPortMessage: string;
   readonly getAppServerSettings: () => Promise<AppServerDesktopSettings>;
   readonly saveAppServerSettings: (
     settings: AppServerDesktopSettings,
@@ -21,7 +22,6 @@ interface AppServerDesktopBridge {
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
   readonly connectAppServer: (
     settings: AppServerDesktopSettings,
-    onPort: (port: MessagePort) => void,
     onError: (message: string) => void,
   ) => () => void;
 }

@@ -28,6 +28,7 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      deps: { neverBundle: ["electron"] },
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/main.ts"],
@@ -37,6 +38,7 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      deps: { neverBundle: ["electron"] },
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/preload.ts"],
