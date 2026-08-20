@@ -35,6 +35,18 @@ export interface ModelOption {
   readonly model: string;
   readonly displayName: string;
   readonly isDefault: boolean;
+  readonly description: string;
+  readonly defaultReasoningEffort: string;
+  readonly supportedReasoningEfforts: ReadonlyArray<{
+    readonly reasoningEffort: string;
+    readonly description: string;
+  }>;
+  readonly defaultServiceTier: string | null;
+  readonly serviceTiers: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly description: string;
+  }>;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -236,7 +248,40 @@ export function projectModels(value: unknown): ReadonlyArray<ModelOption> {
     const model = stringValue(entry.model);
     const displayName = stringValue(entry.displayName);
     if (id === null || model === null || displayName === null || entry.hidden === true) return [];
-    return [{ id, model, displayName, isDefault: entry.isDefault === true }];
+    const supportedReasoningEfforts = Array.isArray(entry.supportedReasoningEfforts)
+      ? entry.supportedReasoningEfforts.flatMap((option) => {
+          if (!isRecord(option)) return [];
+          const reasoningEffort = stringValue(option.reasoningEffort);
+          const description = stringValue(option.description);
+          return reasoningEffort === null || description === null
+            ? []
+            : [{ reasoningEffort, description }];
+        })
+      : [];
+    const serviceTiers = Array.isArray(entry.serviceTiers)
+      ? entry.serviceTiers.flatMap((tier) => {
+          if (!isRecord(tier)) return [];
+          const tierId = stringValue(tier.id);
+          const name = stringValue(tier.name);
+          const description = stringValue(tier.description);
+          return tierId === null || name === null || description === null
+            ? []
+            : [{ id: tierId, name, description }];
+        })
+      : [];
+    return [
+      {
+        id,
+        model,
+        displayName,
+        isDefault: entry.isDefault === true,
+        description: stringValue(entry.description) ?? "",
+        defaultReasoningEffort: stringValue(entry.defaultReasoningEffort) ?? "medium",
+        supportedReasoningEfforts,
+        defaultServiceTier: stringValue(entry.defaultServiceTier),
+        serviceTiers,
+      },
+    ];
   });
 }
 

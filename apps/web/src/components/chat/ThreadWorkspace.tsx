@@ -1,6 +1,7 @@
 import { RefreshCwIcon, SmartphoneIcon } from "lucide-react";
 
 import type { ModelOption, ThreadDetail, ThreadSummary } from "../../appServer/presentation";
+import type { ComposerOptions } from "../../appServer/composerOptions";
 import type { ConnectionState, PendingApproval } from "../../appServer/useAppServerController";
 import { ChatComposer } from "./ChatComposer";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -41,8 +42,8 @@ export function ThreadWorkspace({
   readonly pendingApproval: PendingApproval | null;
   readonly onRetry: () => void;
   readonly onRemote: () => void;
-  readonly onStart: (prompt: string, model: string | null) => Promise<void> | void;
-  readonly onSend: (prompt: string, model: string | null) => Promise<void> | void;
+  readonly onStart: (prompt: string, options: ComposerOptions) => Promise<void> | void;
+  readonly onSend: (prompt: string, options: ComposerOptions) => Promise<void> | void;
   readonly onInterrupt: () => Promise<void> | void;
 }) {
   const isNew = summary === null;

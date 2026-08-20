@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   appendAgentMessageDelta,
+  projectModels,
   projectThreadDetail,
   projectThreadSummary,
   upsertTimelineItem,
@@ -56,5 +57,44 @@ describe("app-server presentation projection", () => {
     });
     const streamed = appendAgentMessageDelta(started, "turn-1", "agent-1", " now");
     expect(streamed.turns[0]?.items[1]?.text).toBe("Starting now");
+  });
+
+  it("preserves app-server model traits for composer controls", () => {
+    expect(
+      projectModels({
+        data: [
+          {
+            id: "gpt-5.6",
+            model: "gpt-5.6",
+            displayName: "GPT-5.6",
+            description: "Latest model",
+            hidden: false,
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "low", description: "Faster" },
+              { reasoningEffort: "medium", description: "Balanced" },
+            ],
+            defaultServiceTier: "standard",
+            serviceTiers: [{ id: "standard", name: "Standard", description: "Standard priority" }],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "gpt-5.6",
+        model: "gpt-5.6",
+        displayName: "GPT-5.6",
+        description: "Latest model",
+        isDefault: true,
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", description: "Faster" },
+          { reasoningEffort: "medium", description: "Balanced" },
+        ],
+        defaultServiceTier: "standard",
+        serviceTiers: [{ id: "standard", name: "Standard", description: "Standard priority" }],
+      },
+    ]);
   });
 });

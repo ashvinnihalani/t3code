@@ -26,6 +26,11 @@ import {
   type ThreadDetail,
   type ThreadSummary,
 } from "./presentation";
+import {
+  threadAccessOverrides,
+  turnAccessOverrides,
+  type ComposerOptions,
+} from "./composerOptions";
 
 const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000] as const;
 const CACHE_PREFIX = "t3-codex:app-server-cache:v3:";
@@ -793,7 +798,7 @@ export function useAppServerController() {
   ]);
 
   const startThread = useCallback(
-    async (prompt: string, model: string | null) => {
+    async (prompt: string, options: ComposerOptions) => {
       if (selectedEnvironmentId === null || prompt.trim().length === 0) return;
       const client = clientsRef.current.get(selectedEnvironmentId);
       const profile = environmentStates[selectedEnvironmentId]?.profile;
@@ -804,7 +809,9 @@ export function useAppServerController() {
         const started = await Effect.runPromise(
           client.request("thread/start", {
             cwd: profile.connection.workspace,
-            ...(model ? { model } : {}),
+            ...(options.model ? { model: options.model } : {}),
+            ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
+            ...threadAccessOverrides(options.access),
           }),
         );
         const projected = projectThreadDetail(started.thread);
@@ -818,7 +825,10 @@ export function useAppServerController() {
           client.request("turn/start", {
             threadId: projected.id,
             input: [{ type: "text", text: prompt.trim() }],
-            ...(model ? { model } : {}),
+            ...(options.model ? { model: options.model } : {}),
+            ...(options.effort ? { effort: options.effort } : {}),
+            ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
+            ...turnAccessOverrides(options.access),
           }),
         );
         setThread((current) => (current ? upsertTurn(current, response.turn) : current));
@@ -832,7 +842,7 @@ export function useAppServerController() {
   );
 
   const sendTurn = useCallback(
-    async (prompt: string, model: string | null) => {
+    async (prompt: string, options: ComposerOptions) => {
       if (selectedEnvironmentId === null || thread === null || prompt.trim().length === 0) return;
       const client = clientsRef.current.get(selectedEnvironmentId);
       if (client === undefined) return;
@@ -852,7 +862,10 @@ export function useAppServerController() {
             client.request("turn/start", {
               threadId: thread.id,
               input: [{ type: "text", text: prompt.trim() }],
-              ...(model ? { model } : {}),
+              ...(options.model ? { model: options.model } : {}),
+              ...(options.effort ? { effort: options.effort } : {}),
+              ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
+              ...turnAccessOverrides(options.access),
             }),
           );
           setThread((current) => (current ? upsertTurn(current, response.turn) : current));
