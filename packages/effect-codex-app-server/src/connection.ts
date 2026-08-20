@@ -36,3 +36,22 @@ export interface DiscoveredSshHost {
   readonly alias: string;
   readonly source: "ssh-config" | "known-hosts";
 }
+
+export const WORKSPACE_OPENER_IDS = ["cursor", "vscode", "zed", "file-manager"] as const;
+export type WorkspaceOpenerId = (typeof WORKSPACE_OPENER_IDS)[number];
+
+export interface WorkspaceOpener {
+  readonly id: WorkspaceOpenerId;
+  readonly label: string;
+}
+
+export interface WorkspaceOpenRequest {
+  readonly connection: AppServerConnectionSettings;
+  readonly cwd: string;
+  readonly opener: WorkspaceOpenerId;
+}
+
+export interface WorkspaceOpenResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}

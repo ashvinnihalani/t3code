@@ -10,6 +10,8 @@
     "src/preload.ts",
     "src/appServer",
     "src/ipc/channels.ts",
+    "src/projectDirectoryIpc.ts",
+    "src/workspaceLauncher.ts",
     "vite.config.ts",
     "../../packages/effect-codex-app-server/src/connection.ts"
   ]

@@ -7,6 +7,7 @@ import { registerAppServerBridge } from "./appServer/bridge.ts";
 import { registerAppServerSettingsIpc } from "./appServer/settingsIpc.ts";
 import { makeAppServerSettingsStore } from "./appServer/settingsStore.ts";
 import { registerProjectDirectoryIpc } from "./projectDirectoryIpc.ts";
+import { registerWorkspaceLauncherIpc } from "./workspaceLauncher.ts";
 
 const APP_SCHEME = "t3codex";
 const APP_HOST = "app";
@@ -136,6 +137,7 @@ let mainWindow: BrowserWindow | undefined;
 let closeAppServerBridge: (() => void) | undefined;
 let closeSettingsIpc: (() => void) | undefined;
 let closeProjectDirectoryIpc: (() => void) | undefined;
+let closeWorkspaceLauncherIpc: (() => void) | undefined;
 
 void app
   .whenReady()
@@ -150,6 +152,7 @@ void app
     );
     closeSettingsIpc = registerAppServerSettingsIpc(ipcMain, settingsStore);
     closeProjectDirectoryIpc = registerProjectDirectoryIpc(ipcMain);
+    closeWorkspaceLauncherIpc = registerWorkspaceLauncherIpc(ipcMain);
     closeAppServerBridge = registerAppServerBridge(ipcMain);
     mainWindow = createWindow();
 
@@ -167,6 +170,7 @@ app.once("will-quit", () => {
   closeAppServerBridge?.();
   closeSettingsIpc?.();
   closeProjectDirectoryIpc?.();
+  closeWorkspaceLauncherIpc?.();
   if (protocol.isProtocolHandled(APP_SCHEME)) {
     void protocol.unhandle(APP_SCHEME);
   }

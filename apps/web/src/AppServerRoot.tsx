@@ -148,7 +148,7 @@ export function AppServerRoot() {
         <ThreadWorkspace
           actionError={controller.actionError}
           connection={controller.connection}
-          environmentName={selectedEnvironment.profile.name}
+          environment={selectedEnvironment.profile}
           loading={controller.threadLoading}
           models={controller.models}
           pendingApproval={controller.pendingApproval}
@@ -158,7 +158,6 @@ export function AppServerRoot() {
             controller.selectedWorkspace ?? selectedEnvironment.profile.connection.workspace
           }
           onInterrupt={controller.interruptTurn}
-          onRemote={() => openRemote(selectedEnvironment.profile.id)}
           onRetry={() => controller.retry(selectedEnvironment.profile.id)}
           onSend={controller.sendTurn}
           onStart={controller.startThread}

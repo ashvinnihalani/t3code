@@ -2,6 +2,9 @@ import type {
   AppServerConnectionProfile,
   AppServerDesktopSettings,
   DiscoveredSshHost,
+  WorkspaceOpenRequest,
+  WorkspaceOpenResult,
+  WorkspaceOpener,
 } from "../../../packages/effect-codex-app-server/src/connection.ts";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -15,6 +18,10 @@ export interface AppServerDesktopBridge {
   ) => Promise<AppServerDesktopSettings>;
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
   readonly selectProjectDirectory: (defaultPath: string) => Promise<string | null>;
+  readonly listWorkspaceOpeners: (
+    profile: AppServerConnectionProfile,
+  ) => Promise<ReadonlyArray<WorkspaceOpener>>;
+  readonly openWorkspace: (request: WorkspaceOpenRequest) => Promise<WorkspaceOpenResult>;
   readonly connectAppServer: (
     profile: AppServerConnectionProfile,
     onError: (message: string) => void,
@@ -29,6 +36,9 @@ const bridge: AppServerDesktopBridge = {
   discoverSshHosts: () => ipcRenderer.invoke(IpcChannels.SSH_HOSTS_DISCOVER_CHANNEL),
   selectProjectDirectory: (defaultPath) =>
     ipcRenderer.invoke(IpcChannels.PROJECT_DIRECTORY_SELECT_CHANNEL, defaultPath),
+  listWorkspaceOpeners: (profile) =>
+    ipcRenderer.invoke(IpcChannels.WORKSPACE_OPENERS_LIST_CHANNEL, profile),
+  openWorkspace: (request) => ipcRenderer.invoke(IpcChannels.WORKSPACE_OPEN_CHANNEL, request),
   connectAppServer: (profile, onError) => {
     const handlePort = (event: Electron.IpcRendererEvent, value: unknown) => {
       if (

@@ -1,10 +1,13 @@
-import { RefreshCwIcon, SmartphoneIcon } from "lucide-react";
+import type { AppServerConnectionProfile } from "effect-codex-app-server/connection";
+import { RefreshCwIcon } from "lucide-react";
+import { useCallback, useState } from "react";
 
 import type { ModelOption, ThreadDetail, ThreadSummary } from "../../appServer/presentation";
 import type { ComposerOptions } from "../../appServer/composerOptions";
 import type { ConnectionState, PendingApproval } from "../../appServer/useAppServerController";
 import { ChatComposer } from "./ChatComposer";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
+import { OpenInPicker } from "./OpenInPicker";
 import { ThreadTimeline } from "./ThreadTimeline";
 
 function title(thread: ThreadSummary | ThreadDetail | null): string {
@@ -19,14 +22,13 @@ export function ThreadWorkspace({
   summary,
   thread,
   workspace,
-  environmentName,
+  environment,
   models,
   connection,
   loading,
   actionError,
   pendingApproval,
   onRetry,
-  onRemote,
   onStart,
   onSend,
   onInterrupt,
@@ -34,27 +36,30 @@ export function ThreadWorkspace({
   readonly summary: ThreadSummary | null;
   readonly thread: ThreadDetail | null;
   readonly workspace: string;
-  readonly environmentName: string;
+  readonly environment: AppServerConnectionProfile;
   readonly models: ReadonlyArray<ModelOption>;
   readonly connection: ConnectionState;
   readonly loading: boolean;
   readonly actionError: string | null;
   readonly pendingApproval: PendingApproval | null;
   readonly onRetry: () => void;
-  readonly onRemote: () => void;
   readonly onStart: (prompt: string, options: ComposerOptions) => Promise<void> | void;
   readonly onSend: (prompt: string, options: ComposerOptions) => Promise<void> | void;
   readonly onInterrupt: () => Promise<void> | void;
 }) {
+  const [workspaceOpenError, setWorkspaceOpenError] = useState<string | null>(null);
+  const updateWorkspaceOpenError = useCallback((message: string | null) => {
+    setWorkspaceOpenError(message);
+  }, []);
   const isNew = summary === null;
   const running = thread?.turns.some((turn) => turn.status === "inProgress") ?? false;
   const cwd = thread?.cwd ?? summary?.cwd ?? workspace;
 
   return (
     <>
-      <header className="drag-region flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3 border-b border-border px-5">
+      <header className="drag-region @container/header-actions flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3 border-b border-border px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-          <span className="truncate text-muted-foreground">{environmentName}</span>
+          <span className="truncate text-muted-foreground">{environment.name}</span>
           <span className="text-muted-foreground/50">/</span>
           <span className="truncate text-muted-foreground">{projectLabel(cwd)}</span>
           <span className="text-muted-foreground/50">/</span>
@@ -70,13 +75,7 @@ export function ThreadWorkspace({
             <RefreshCwIcon className="size-3.5" /> Retry
           </button>
         ) : null}
-        <button
-          className="no-drag-region inline-flex h-8 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs font-medium hover:bg-accent disabled:opacity-40"
-          disabled={connection.phase !== "connected"}
-          onClick={onRemote}
-        >
-          <SmartphoneIcon className="size-3.5" /> Remote
-        </button>
+        <OpenInPicker cwd={cwd} profile={environment} onError={updateWorkspaceOpenError} />
       </header>
 
       {connection.error ? (
@@ -109,9 +108,9 @@ export function ThreadWorkspace({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background to-transparent px-6 pb-6 pt-16">
           <div className="pointer-events-auto mx-auto max-w-3xl">
             {pendingApproval ? <ComposerPendingApprovalPanel approval={pendingApproval} /> : null}
-            {actionError ? (
+            {actionError || workspaceOpenError ? (
               <p className="mb-2 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
-                {actionError}
+                {actionError ?? workspaceOpenError}
               </p>
             ) : null}
             <ChatComposer

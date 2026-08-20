@@ -23,6 +23,8 @@ environment so recent project/thread lists remain visible while any connection i
 - Add local or SSH projects by working directory and keep empty projects cached locally.
 - Initialize a generic compatible harness and show its account, model, skill, and thread data.
 - Use app-server-advertised models, reasoning efforts, and service tiers from the composer.
+- Open a local project in an installed editor or Finder, and open SSH projects through supported
+  editors' Remote SSH targets.
 - Cache the last thread projection locally and refresh it from app-server after reconnecting.
 - Retry each dropped connection independently with bounded backoff.
 - Present Remote status and pairing payloads returned by the official app-server

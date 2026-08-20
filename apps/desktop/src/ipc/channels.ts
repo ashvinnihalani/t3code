@@ -5,3 +5,5 @@ export const APP_SERVER_SETTINGS_GET_CHANNEL = "desktop:app-server-settings-get"
 export const APP_SERVER_SETTINGS_SET_CHANNEL = "desktop:app-server-settings-set";
 export const SSH_HOSTS_DISCOVER_CHANNEL = "desktop:ssh-hosts-discover";
 export const PROJECT_DIRECTORY_SELECT_CHANNEL = "desktop:project-directory-select";
+export const WORKSPACE_OPENERS_LIST_CHANNEL = "desktop:workspace-openers-list";
+export const WORKSPACE_OPEN_CHANNEL = "desktop:workspace-open";

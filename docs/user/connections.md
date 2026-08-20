@@ -35,6 +35,18 @@ thread, turn, or item identities.
 Project working directories are cached alongside thread summaries. This lets an added project stay
 visible before it has any threads and while its environment is reconnecting.
 
+## Open a project
+
+The workspace header's **Open** split button follows the upstream T3 Code interaction. Its primary
+action reuses the last selected destination, while the menu lists compatible applications detected
+on this Mac. Local projects can open in Cursor, VS Code, Zed, or Finder. SSH projects can open in
+the installed editors that support Remote SSH targets; Finder is omitted because the project path
+exists on the remote machine.
+
+Remote editor launches use the SSH host from the selected connection. Named hosts should keep
+custom ports and identities in `~/.ssh/config` so the editor's Remote SSH extension resolves the
+same machine as T3 Codex.
+
 ## Pair a phone with Remote
 
 Each environment's Pair button calls that app-server's official experimental `remoteControl/*`
