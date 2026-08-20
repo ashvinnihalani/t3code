@@ -346,10 +346,11 @@ function ConnectionsSettingsPanel({
                     <button
                       className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
                       disabled={environment.phase !== "connected"}
+                      aria-label={`Pair a phone with ${profile.name}`}
                       type="button"
                       onClick={() => onOpenRemote(profile.id)}
                     >
-                      <SmartphoneIcon className="size-3.5" /> Pair phone
+                      <SmartphoneIcon className="size-3.5" /> Pair
                     </button>
                   </div>
                 </div>

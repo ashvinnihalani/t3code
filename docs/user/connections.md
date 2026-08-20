@@ -34,7 +34,7 @@ thread, turn, or item identities.
 
 ## Pair a phone with Remote
 
-Each environment's Pair phone or Remote button calls that app-server's official experimental `remoteControl/*`
+Each environment's Pair button calls that app-server's official experimental `remoteControl/*`
 methods. Enabling Remote, status, pairing payloads, expiry, claim state, and paired clients all come
 from app-server.
 

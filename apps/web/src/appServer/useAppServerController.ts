@@ -77,6 +77,7 @@ export interface EnvironmentProject {
 
 export interface RemoteDialogState {
   readonly connectionId: string | null;
+  readonly connectionName: string | null;
   readonly pairing: Remote.RemoteControlPairing | null;
   readonly clients: ReadonlyArray<Remote.RemoteControlClient>;
   readonly error: string | null;
@@ -311,6 +312,7 @@ export function useAppServerController() {
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlyArray<PendingApproval>>([]);
   const [remote, setRemote] = useState<RemoteDialogState>({
     connectionId: null,
+    connectionName: null,
     pairing: null,
     clients: [],
     error: null,
@@ -959,6 +961,7 @@ export function useAppServerController() {
       if (client === undefined || environment === undefined) return;
       setRemote({
         connectionId: environmentId,
+        connectionName: environment.profile.name,
         pairing: null,
         clients: [],
         error: null,
@@ -974,7 +977,14 @@ export function useAppServerController() {
           ? (await Effect.runPromise(Remote.listClients(client, status.environmentId))).data
           : [];
         updateEnvironment(environmentId, (current) => ({ ...current, remote: status }));
-        setRemote({ connectionId: environmentId, pairing, clients, error: null, busy: false });
+        setRemote({
+          connectionId: environmentId,
+          connectionName: environment.profile.name,
+          pairing,
+          clients,
+          error: null,
+          busy: false,
+        });
       } catch (error) {
         setRemote((current) => ({ ...current, busy: false, error: errorMessage(error) }));
       }

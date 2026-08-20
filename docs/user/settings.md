@@ -19,7 +19,8 @@ are stored on this device and never sent to app-server.
 
 Connections presents the upstream-style environment list. Local is always present; each saved SSH
 host is an additional simultaneous environment with its own status, executable, arguments,
-workspace, environment variables, reconnect lifecycle, and local thread cache. Pair phone starts
+workspace, environment variables, reconnect lifecycle, and local thread cache. Each connection's
+**Pair** button starts
 pairing through the selected environment's official app-server Remote service.
 
 Upstream sections for Providers and provider updates are omitted because app-server owns provider,

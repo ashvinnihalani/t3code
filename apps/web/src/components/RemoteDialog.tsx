@@ -21,14 +21,18 @@ export function RemoteDialog({
         className="w-full max-w-lg overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl"
         role="dialog"
         aria-modal="true"
-        aria-label="Remote pairing"
+        aria-label={
+          state.connectionName ? `Remote pairing for ${state.connectionName}` : "Remote pairing"
+        }
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold">Pair your phone</h2>
+            <h2 className="text-base font-semibold">
+              Pair your phone{state.connectionName ? ` with ${state.connectionName}` : ""}
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Pair through the official app-server Remote service.
+              Pair through this connection's official app-server Remote service.
             </p>
           </div>
           <button
