@@ -49,6 +49,7 @@ export function ChatComposer({
     <div className="w-full rounded-[22px] border border-input bg-card p-3 shadow-[0_10px_40px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_48px_rgba(0,0,0,0.28)]">
       <textarea
         ref={textarea}
+        data-composer-input=""
         aria-label="Message"
         className="block min-h-20 max-h-52 w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
         disabled={disabled}

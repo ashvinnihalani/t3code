@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 
 import type { ThreadSummary } from "../appServer/presentation";
 import type { ConnectionState } from "../appServer/useAppServerController";
+import type { TimestampFormat } from "../settings/presentationPreferences";
 import { T3Wordmark } from "./T3Wordmark";
 
 interface ProjectGroup {
@@ -26,14 +27,19 @@ function threadLabel(thread: ThreadSummary): string {
   return (thread.name ?? thread.preview) || "Untitled thread";
 }
 
-function threadTime(updatedAt: number): string {
+function threadTime(updatedAt: number, format: TimestampFormat): string {
   if (updatedAt <= 0) return "";
-  const elapsed = Math.max(0, Date.now() / 1_000 - updatedAt);
-  if (elapsed < 60) return "now";
-  if (elapsed < 3_600) return `${Math.round(elapsed / 60)}m`;
-  if (elapsed < 86_400) return `${Math.round(elapsed / 3_600)}h`;
-  if (elapsed < 604_800) return `${Math.round(elapsed / 86_400)}d`;
-  return new Date(updatedAt * 1_000).toLocaleDateString(undefined, {
+  const date = new Date(updatedAt * 1_000);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      ...(format === "12-hour" ? { hour12: true } : {}),
+      ...(format === "24-hour" ? { hour12: false } : {}),
+    });
+  }
+  return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
@@ -44,6 +50,8 @@ export function SidebarV2({
   connection,
   selectedThreadId,
   settingsActive,
+  groupProjects,
+  timestampFormat,
   onSelectThread,
   onNewThread,
   onOpenSettings,
@@ -52,6 +60,8 @@ export function SidebarV2({
   readonly connection: ConnectionState;
   readonly selectedThreadId: string | null;
   readonly settingsActive: boolean;
+  readonly groupProjects: boolean;
+  readonly timestampFormat: TimestampFormat;
   readonly onSelectThread: (threadId: string) => void;
   readonly onNewThread: () => void;
   readonly onOpenSettings: () => void;
@@ -59,8 +69,11 @@ export function SidebarV2({
   const [query, setQuery] = useState("");
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return projects;
-    return projects
+    const source = groupProjects
+      ? projects
+      : [{ cwd: "", threads: projects.flatMap((project) => project.threads) }];
+    if (!normalized) return source;
+    return source
       .map((project) => ({
         ...project,
         threads: project.threads.filter((thread) =>
@@ -68,7 +81,7 @@ export function SidebarV2({
         ),
       }))
       .filter((project) => project.threads.length > 0);
-  }, [projects, query]);
+  }, [groupProjects, projects, query]);
 
   return (
     <aside
@@ -112,12 +125,14 @@ export function SidebarV2({
 
         {filteredProjects.map((project) => (
           <section className="mb-4" key={project.cwd}>
-            <div className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium">
-              <ChevronDownIcon className="size-3.5 text-sidebar-muted-foreground" />
-              <FolderIcon className="size-4 text-sidebar-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{projectLabel(project.cwd)}</span>
-            </div>
-            <div className="grid gap-0.5 pl-4">
+            {groupProjects ? (
+              <div className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium">
+                <ChevronDownIcon className="size-3.5 text-sidebar-muted-foreground" />
+                <FolderIcon className="size-4 text-sidebar-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{projectLabel(project.cwd)}</span>
+              </div>
+            ) : null}
+            <div className={`grid gap-0.5 ${groupProjects ? "pl-4" : ""}`}>
               {project.threads.map((thread) => {
                 const active = !settingsActive && selectedThreadId === thread.id;
                 return (
@@ -137,7 +152,7 @@ export function SidebarV2({
                       {threadLabel(thread)}
                     </span>
                     <span className="shrink-0 text-[10px] text-sidebar-muted-foreground/70">
-                      {threadTime(thread.updatedAt)}
+                      {threadTime(thread.updatedAt, timestampFormat)}
                     </span>
                   </button>
                 );
