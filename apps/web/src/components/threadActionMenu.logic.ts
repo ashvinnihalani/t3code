@@ -7,7 +7,6 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  * remains data-driven.
  */
 export type ThreadActionMenuId =
-  | "new-thread-on-branch"
   | "pin"
   | "unpin"
   | "settle"
@@ -16,24 +15,19 @@ export type ThreadActionMenuId =
   | `snooze:${string}`
   | "unsnooze"
   | "rename"
-  | "regenerate-title"
   | "mark-unread"
   | "copy-path"
-  | "copy-branch"
-  | "delete";
+  | "archive";
 
 export interface ThreadActionMenuState {
-  readonly branch: string | null;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
-  readonly isRegeneratingTitle: boolean;
   readonly supports: {
     readonly settlement: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
-    readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
 }
@@ -47,14 +41,6 @@ export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   return [
-    ...(state.branch
-      ? [
-          {
-            id: "new-thread-on-branch" as const,
-            label: `New thread on ${state.branch}`,
-          },
-        ]
-      : []),
     ...(state.supports.pinning
       ? [
           state.isPinned
@@ -88,18 +74,8 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "rename", label: "Rename thread" },
-    ...(state.supports.titleRegeneration
-      ? [
-          {
-            id: "regenerate-title" as const,
-            label: state.isRegeneratingTitle ? "Regenerating…" : "Regenerate title",
-            disabled: state.isRegeneratingTitle,
-          },
-        ]
-      : []),
     { id: "mark-unread", label: "Mark unread" },
     { id: "copy-path", label: "Copy path", icon: "copy" },
-    ...(state.branch ? [{ id: "copy-branch" as const, label: "Copy branch", icon: "copy" }] : []),
-    { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+    { id: "archive", label: "Archive thread" },
   ];
 }

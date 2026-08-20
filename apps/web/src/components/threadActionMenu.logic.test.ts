@@ -3,13 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
-  branch: null,
   isPinned: false,
   isSettled: false,
   isSnoozed: false,
   canSnoozeNow: true,
-  isRegeneratingTitle: false,
-  supports: { settlement: true, snooze: true, pinning: true, titleRegeneration: true },
+  supports: { settlement: true, snooze: true, pinning: true },
   snoozePresets: [
     { id: "hour", label: "In 1 hour", whenLabel: "3:00 PM", snoozedUntil: "2026-08-07T15:00:00Z" },
   ],
@@ -24,17 +22,9 @@ describe("buildThreadActionMenuItems", () => {
     expect(
       ids({
         ...baseState,
-        supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
+        supports: { settlement: false, snooze: false, pinning: false },
       }),
-    ).toEqual(["rename", "mark-unread", "copy-path", "delete"]);
-  });
-
-  it("includes branch items only for threads with a branch", () => {
-    const withBranch = ids({ ...baseState, branch: "feat/menu" });
-    expect(withBranch).toContain("new-thread-on-branch");
-    expect(withBranch).toContain("copy-branch");
-    expect(ids(baseState)).not.toContain("new-thread-on-branch");
-    expect(ids(baseState)).not.toContain("copy-branch");
+    ).toEqual(["rename", "mark-unread", "copy-path", "archive"]);
   });
 
   it("flips lifecycle labels with thread state", () => {
@@ -52,15 +42,8 @@ describe("buildThreadActionMenuItems", () => {
     expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour"]);
   });
 
-  it("disables title regeneration while one is in flight", () => {
-    const item = buildThreadActionMenuItems({ ...baseState, isRegeneratingTitle: true }).find(
-      (candidate) => candidate.id === "regenerate-title",
-    );
-    expect(item).toMatchObject({ label: "Regenerating…", disabled: true });
-  });
-
-  it("marks delete as destructive and keeps it last", () => {
-    const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
-    expect(items.at(-1)).toMatchObject({ id: "delete", destructive: true });
+  it("keeps archive as the final lifecycle action", () => {
+    const items = buildThreadActionMenuItems(baseState);
+    expect(items.at(-1)).toMatchObject({ id: "archive", label: "Archive thread" });
   });
 });

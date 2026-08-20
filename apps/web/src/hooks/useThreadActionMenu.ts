@@ -1,4 +1,4 @@
-import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -20,19 +20,15 @@ import {
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import { threadEnvironment } from "../state/threads";
-import { useAtomCommand } from "../state/use-atom-command";
 import {
   readEnvironmentSupportsPinning,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
-  readEnvironmentSupportsTitleRegeneration,
   readThreadShell,
 } from "../state/entities";
 import { readLocalApi } from "../localApi";
 import { useUiStateStore } from "../uiStateStore";
 import { useCopyToClipboard } from "./useCopyToClipboard";
-import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
 
@@ -47,7 +43,7 @@ function failureToast(title: string, error: unknown) {
 }
 
 /**
- * The per-thread action menu (pin, settle, snooze, rename, copy, delete…) as
+ * The per-thread action menu (pin, settle, snooze, rename, copy, archive) as
  * a self-contained hook, for surfaces other than the sidebar row — today the
  * chat header. Renders through the native context-menu bridge and dispatches
  * through the same mutations the sidebar uses.
@@ -72,28 +68,16 @@ export function useThreadActionMenu(input: {
     unsnoozeThread,
     pinThread,
     unpinThread,
-    deleteThread,
+    archiveThread,
   } = useThreadActions();
-  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
-    reportFailure: false,
-  });
-  const handleNewThread = useNewThreadHandler();
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
-  const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({ type: "success", title: "Path copied", description: path });
     },
     onError: (error) => failureToast("Failed to copy path", error),
-  });
-  const { copyToClipboard: copyBranchToClipboard } = useCopyToClipboard<{ branch: string }>({
-    target: "branch name",
-    onCopy: ({ branch }) => {
-      toastManager.add({ type: "success", title: "Branch copied", description: branch });
-    },
-    onError: (error) => failureToast("Failed to copy branch", error),
   });
 
   const openMenu = useCallback(
@@ -111,12 +95,9 @@ export function useThreadActionMenu(input: {
           settlement: readEnvironmentSupportsSettlement(threadRef.environmentId),
           snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
           pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
-          titleRegeneration: readEnvironmentSupportsTitleRegeneration(threadRef.environmentId),
         };
-        const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
         const items = buildThreadActionMenuItems({
-          branch: thread.branch ?? null,
           isPinned: thread.pinnedAt != null,
           isSettled:
             supports.settlement &&
@@ -130,7 +111,6 @@ export function useThreadActionMenu(input: {
             }),
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
-          isRegeneratingTitle,
           supports,
           snoozePresets,
         });
@@ -176,22 +156,6 @@ export function useThreadActionMenu(input: {
           }
         };
         switch (action) {
-          case "new-thread-on-branch": {
-            // Explicit branch carry-over: reuse the thread's worktree when it
-            // has one, otherwise its branch on the local checkout.
-            const result = await settlePromise(() =>
-              handleNewThread(scopeProjectRef(threadRef.environmentId, thread.projectId), {
-                branch: thread.branch,
-                worktreePath: thread.worktreePath,
-                envMode: thread.worktreePath ? "worktree" : "local",
-                startFromOrigin: false,
-              }),
-            );
-            if (result._tag === "Failure") {
-              failureToast("Could not create thread", squashAtomCommandFailure(result));
-            }
-            return;
-          }
           case "settle":
             await reportFailure("Failed to settle thread", () => settleThread(threadRef));
             return;
@@ -209,15 +173,6 @@ export function useThreadActionMenu(input: {
             return;
           case "rename":
             onStartRename();
-            return;
-          case "regenerate-title":
-            if (isRegeneratingTitle) return;
-            await reportFailure("Failed to regenerate thread title", () =>
-              updateThreadMetadata({
-                environmentId: threadRef.environmentId,
-                input: { threadId: threadRef.threadId, regenerateTitle: true },
-              }),
-            );
             return;
           case "mark-unread":
             markThreadUnread(scopedThreadKey(threadRef), thread.latestTurn?.completedAt);
@@ -237,35 +192,8 @@ export function useThreadActionMenu(input: {
             copyPathToClipboard(workspacePath, { path: workspacePath });
             return;
           }
-          case "copy-branch":
-            if (thread.branch) {
-              copyBranchToClipboard(thread.branch, { branch: thread.branch });
-            }
-            return;
-          case "delete": {
-            if (confirmThreadDelete) {
-              const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(
-                  [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
-                  ].join("\n"),
-                  { variant: "destructive" },
-                ),
-              );
-              if (confirmed._tag === "Failure" || !confirmed.value) return;
-            }
-            const deleted = await deleteThread(threadRef);
-            if (
-              deleted._tag === "Failure" &&
-              !isAtomCommandInterrupted(deleted) &&
-              // A failure with the thread already gone is worktree cleanup
-              // failing after a successful delete — deleteThread has toasted
-              // that itself, and "Failed to delete thread" would be a lie.
-              readThreadShell(threadRef) !== null
-            ) {
-              failureToast("Failed to delete thread", squashAtomCommandFailure(deleted));
-            }
+          case "archive": {
+            await reportFailure("Failed to archive thread", () => archiveThread(threadRef));
             return;
           }
           default:
@@ -276,11 +204,8 @@ export function useThreadActionMenu(input: {
     [
       autoSettleAfterDays,
       changeRequestState,
-      confirmThreadDelete,
-      copyBranchToClipboard,
+      archiveThread,
       copyPathToClipboard,
-      deleteThread,
-      handleNewThread,
       markThreadUnread,
       onStartRename,
       pinThread,
@@ -292,7 +217,6 @@ export function useThreadActionMenu(input: {
       unpinThread,
       unsettleThread,
       unsnoozeThread,
-      updateThreadMetadata,
     ],
   );
 
