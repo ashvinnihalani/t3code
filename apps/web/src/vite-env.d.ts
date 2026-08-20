@@ -21,6 +21,7 @@ interface AppServerDesktopBridge {
     settings: AppServerDesktopSettings,
   ) => Promise<AppServerDesktopSettings>;
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
+  readonly selectProjectDirectory: (defaultPath: string) => Promise<string | null>;
   readonly connectAppServer: (
     profile: AppServerConnectionProfile,
     onError: (message: string) => void,

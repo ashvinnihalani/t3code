@@ -14,6 +14,7 @@ export interface AppServerDesktopBridge {
     settings: AppServerDesktopSettings,
   ) => Promise<AppServerDesktopSettings>;
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
+  readonly selectProjectDirectory: (defaultPath: string) => Promise<string | null>;
   readonly connectAppServer: (
     profile: AppServerConnectionProfile,
     onError: (message: string) => void,
@@ -26,6 +27,8 @@ const bridge: AppServerDesktopBridge = {
   saveAppServerSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_SET_CHANNEL, settings),
   discoverSshHosts: () => ipcRenderer.invoke(IpcChannels.SSH_HOSTS_DISCOVER_CHANNEL),
+  selectProjectDirectory: (defaultPath) =>
+    ipcRenderer.invoke(IpcChannels.PROJECT_DIRECTORY_SELECT_CHANNEL, defaultPath),
   connectAppServer: (profile, onError) => {
     const handlePort = (event: Electron.IpcRendererEvent, value: unknown) => {
       if (

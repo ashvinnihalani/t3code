@@ -27,3 +27,9 @@ Upstream sections for Providers and provider updates are omitted because app-ser
 account, and model configuration. Source Control, Archive, configurable Keybindings, and Beta are
 omitted until the stripped client exposes corresponding behavior; showing inert controls would
 misrepresent what the app can do.
+
+## Composer controls
+
+The model picker uses the catalog returned by each environment's `model/list` response. The
+adjacent options menu exposes only the reasoning efforts and service tiers advertised by the
+selected model, plus access presets translated into app-server approval and sandbox fields.

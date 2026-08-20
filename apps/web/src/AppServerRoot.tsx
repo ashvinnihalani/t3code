@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppServerController } from "./appServer/useAppServerController";
 import { AppSidebarLayout } from "./components/AppSidebarLayout";
+import { AddProjectDialog } from "./components/AddProjectDialog";
 import { RemoteDialog } from "./components/RemoteDialog";
 import { SidebarV2 } from "./components/SidebarV2";
 import { ThreadWorkspace } from "./components/chat/ThreadWorkspace";
@@ -23,6 +24,7 @@ export function AppServerRoot() {
   const [page, setPage] = useState<Page>("threads");
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("general");
   const [remoteOpen, setRemoteOpen] = useState(false);
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
 
   const selectedSummary = useMemo(
     () =>
@@ -62,7 +64,16 @@ export function AppServerRoot() {
   const openNewThread = (environmentId: string | null = controller.selectedEnvironmentId) => {
     setPage("threads");
     const target = environmentId ?? controller.environments[0]?.profile.id;
-    if (target !== undefined) void controller.selectThread(target, null);
+    if (target === undefined) return;
+    const environment = controller.environments.find(
+      (candidate) => candidate.profile.id === target,
+    );
+    if (environment === undefined) return;
+    const workspace =
+      target === controller.selectedEnvironmentId && controller.selectedWorkspace
+        ? controller.selectedWorkspace
+        : environment.profile.connection.workspace;
+    controller.selectProject(target, workspace);
   };
 
   const openRemote = (environmentId: string = selectedEnvironment.profile.id) => {
@@ -89,7 +100,12 @@ export function AppServerRoot() {
             settingsActive={false}
             timestampFormat={preferences.timestampFormat}
             onNewThread={openNewThread}
+            onAddProject={() => setAddProjectOpen(true)}
             onOpenSettings={() => setPage("settings")}
+            onSelectProject={(environmentId, workspace) => {
+              setPage("threads");
+              controller.selectProject(environmentId, workspace);
+            }}
             onSelectThread={(environmentId, threadId) => {
               setPage("threads");
               void controller.selectThread(environmentId, threadId);
@@ -138,7 +154,9 @@ export function AppServerRoot() {
           pendingApproval={controller.pendingApproval}
           summary={selectedSummary}
           thread={controller.thread}
-          workspace={selectedEnvironment.profile.connection.workspace}
+          workspace={
+            controller.selectedWorkspace ?? selectedEnvironment.profile.connection.workspace
+          }
           onInterrupt={controller.interruptTurn}
           onRemote={() => openRemote(selectedEnvironment.profile.id)}
           onRetry={() => controller.retry(selectedEnvironment.profile.id)}
@@ -151,6 +169,18 @@ export function AppServerRoot() {
           state={controller.remote}
           onCheck={() => void controller.checkRemotePairing()}
           onClose={() => setRemoteOpen(false)}
+        />
+      ) : null}
+      {addProjectOpen ? (
+        <AddProjectDialog
+          environments={controller.environments}
+          initialEnvironmentId={controller.selectedEnvironmentId}
+          onAdd={(environmentId, workspace) => {
+            controller.selectProject(environmentId, workspace);
+            setPage("threads");
+            setAddProjectOpen(false);
+          }}
+          onClose={() => setAddProjectOpen(false)}
         />
       ) : null}
     </AppSidebarLayout>

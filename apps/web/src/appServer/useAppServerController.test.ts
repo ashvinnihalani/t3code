@@ -66,7 +66,7 @@ describe("app-server environment controller", () => {
       attempt: 1,
       error: null,
       retryAt: null,
-      snapshot: { updatedAt: 1, threads: [thread] },
+      snapshot: { updatedAt: 1, threads: [thread], workspaces: ["/workspace"] },
       account: null,
       remote: null,
       models: [],
@@ -77,6 +77,24 @@ describe("app-server environment controller", () => {
     ).toMatchObject([
       { key: "local:/workspace", environmentId: "local", threads: [{ id: "thread-1" }] },
       { key: "ssh:/workspace", environmentId: "ssh", threads: [{ id: "thread-1" }] },
+    ]);
+  });
+
+  it("keeps an added project visible before it has threads", () => {
+    const environment: EnvironmentState = {
+      profile: localProfile,
+      phase: "connected",
+      attempt: 1,
+      error: null,
+      retryAt: null,
+      snapshot: { updatedAt: 1, threads: [], workspaces: ["/workspace", "/new-project"] },
+      account: null,
+      remote: null,
+      models: [],
+    };
+    expect(projectEnvironmentProjects([environment])).toMatchObject([
+      { key: "local:/workspace", threads: [] },
+      { key: "local:/new-project", threads: [] },
     ]);
   });
 });

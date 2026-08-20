@@ -55,6 +55,7 @@ export interface SettingsDraft {
 export interface CachedSnapshot {
   readonly updatedAt: number;
   readonly threads: ReadonlyArray<ThreadSummary>;
+  readonly workspaces: ReadonlyArray<string>;
 }
 
 export interface ConnectionState {
@@ -128,7 +129,17 @@ function readCache(profile: AppServerConnectionProfile): CachedSnapshot | null {
     const threads = value.threads
       .map(projectThreadSummary)
       .filter((thread): thread is ThreadSummary => thread !== null);
-    return { updatedAt: value.updatedAt, threads };
+    const cachedWorkspaces = Array.isArray(value.workspaces)
+      ? value.workspaces.filter((workspace): workspace is string => typeof workspace === "string")
+      : [];
+    const workspaces = [
+      ...new Set([
+        profile.connection.workspace,
+        ...cachedWorkspaces,
+        ...threads.map((thread) => thread.cwd),
+      ]),
+    ];
+    return { updatedAt: value.updatedAt, threads, workspaces };
   } catch {
     return null;
   }
@@ -143,13 +154,18 @@ function writeCache(profile: AppServerConnectionProfile, snapshot: CachedSnapsho
 }
 
 function initialEnvironmentState(profile: AppServerConnectionProfile): EnvironmentState {
+  const cached = readCache(profile);
   return {
     profile,
     phase: "connecting",
     attempt: 1,
     error: null,
     retryAt: null,
-    snapshot: readCache(profile),
+    snapshot: cached ?? {
+      updatedAt: 0,
+      threads: [],
+      workspaces: [profile.connection.workspace],
+    },
     account: null,
     remote: null,
     models: [],
@@ -282,7 +298,11 @@ export function projectEnvironmentProjects(
 ): ReadonlyArray<EnvironmentProject> {
   const result: EnvironmentProject[] = [];
   for (const environment of environments) {
-    const grouped = new Map<string, ThreadSummary[]>();
+    const grouped = new Map(
+      (environment.snapshot?.workspaces ?? [environment.profile.connection.workspace]).map(
+        (workspace) => [workspace, [] as ThreadSummary[]],
+      ),
+    );
     for (const item of environment.snapshot?.threads ?? []) {
       const current = grouped.get(item.cwd) ?? [];
       current.push(item);
@@ -310,6 +330,7 @@ export function useAppServerController() {
   >({});
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
   const [threadEnvironmentId, setThreadEnvironmentId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -341,9 +362,21 @@ export function useAppServerController() {
 
   const replaceThreads = useCallback(
     (profile: AppServerConnectionProfile, threads: ReadonlyArray<ThreadSummary>) => {
-      const snapshot = { updatedAt: Date.now(), threads };
-      writeCache(profile, snapshot);
-      updateEnvironment(profile.id, (current) => ({ ...current, snapshot }));
+      updateEnvironment(profile.id, (current) => {
+        const snapshot = {
+          updatedAt: Date.now(),
+          threads,
+          workspaces: [
+            ...new Set([
+              profile.connection.workspace,
+              ...(current.snapshot?.workspaces ?? []),
+              ...threads.map((thread) => thread.cwd),
+            ]),
+          ],
+        };
+        writeCache(profile, snapshot);
+        return { ...current, snapshot };
+      });
     },
     [updateEnvironment],
   );
@@ -354,9 +387,16 @@ export function useAppServerController() {
       update: (threads: ReadonlyArray<ThreadSummary>) => ReadonlyArray<ThreadSummary>,
     ) => {
       updateEnvironment(profile.id, (current) => {
+        const threads = update(current.snapshot?.threads ?? []);
         const snapshot = {
           updatedAt: Date.now(),
-          threads: update(current.snapshot?.threads ?? []),
+          threads,
+          workspaces: [
+            ...new Set([
+              ...(current.snapshot?.workspaces ?? [profile.connection.workspace]),
+              ...threads.map((thread) => thread.cwd),
+            ]),
+          ],
         };
         writeCache(profile, snapshot);
         return { ...current, snapshot };
@@ -395,6 +435,9 @@ export function useAppServerController() {
           current !== null && loaded.connections.some((profile) => profile.id === current)
             ? current
             : (loaded.connections[0]?.id ?? null),
+        );
+        setSelectedWorkspace(
+          (current) => current ?? loaded.connections[0]?.connection.workspace ?? null,
         );
       },
       (error: unknown) => setSettingsError(errorMessage(error)),
@@ -745,6 +788,10 @@ export function useAppServerController() {
         setThreadEnvironmentId(null);
         return;
       }
+      const summary = environmentStates[environmentId]?.snapshot?.threads.find(
+        (candidate) => candidate.id === threadId,
+      );
+      if (summary !== undefined) setSelectedWorkspace(summary.cwd);
       const client = clientsRef.current.get(environmentId);
       if (client === undefined) {
         setThread(null);
@@ -768,7 +815,32 @@ export function useAppServerController() {
         setThreadLoading(false);
       }
     },
-    [settings?.connections, upsertThreadSummary],
+    [environmentStates, settings?.connections, upsertThreadSummary],
+  );
+
+  const selectProject = useCallback(
+    (environmentId: string, workspace: string) => {
+      const normalized = workspace.trim();
+      const environment = environmentStates[environmentId];
+      if (!normalized || environment === undefined) return;
+      setSelectedEnvironmentId(environmentId);
+      setSelectedWorkspace(normalized);
+      setSelectedThreadId(null);
+      selectionRef.current = { environmentId, threadId: null };
+      setThread(null);
+      setThreadEnvironmentId(null);
+      setActionError(null);
+      updateEnvironment(environmentId, (current) => {
+        const snapshot = {
+          updatedAt: Date.now(),
+          threads: current.snapshot?.threads ?? [],
+          workspaces: [...new Set([...(current.snapshot?.workspaces ?? []), normalized])],
+        };
+        writeCache(current.profile, snapshot);
+        return { ...current, snapshot };
+      });
+    },
+    [environmentStates, updateEnvironment],
   );
 
   const selectedEnvironment =
@@ -808,7 +880,7 @@ export function useAppServerController() {
       try {
         const started = await Effect.runPromise(
           client.request("thread/start", {
-            cwd: profile.connection.workspace,
+            cwd: selectedWorkspace ?? profile.connection.workspace,
             ...(options.model ? { model: options.model } : {}),
             ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
             ...threadAccessOverrides(options.access),
@@ -838,7 +910,7 @@ export function useAppServerController() {
         setThreadLoading(false);
       }
     },
-    [environmentStates, selectedEnvironmentId, upsertThreadSummary],
+    [environmentStates, selectedEnvironmentId, selectedWorkspace, upsertThreadSummary],
   );
 
   const sendTurn = useCallback(
@@ -1054,6 +1126,7 @@ export function useAppServerController() {
     models: selectedEnvironment?.models ?? [],
     projects,
     selectedEnvironmentId,
+    selectedWorkspace,
     selectedThreadId,
     thread,
     threadLoading,
@@ -1061,6 +1134,7 @@ export function useAppServerController() {
     pendingApproval,
     remote,
     selectThread,
+    selectProject,
     startThread,
     sendTurn,
     interruptTurn,

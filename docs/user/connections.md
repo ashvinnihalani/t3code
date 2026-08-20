@@ -32,6 +32,9 @@ data with authoritative `thread/list` results.
 The cache is presentation data only. It is not a conversation database and is never used to create
 thread, turn, or item identities.
 
+Project working directories are cached alongside thread summaries. This lets an added project stay
+visible before it has any threads and while its environment is reconnecting.
+
 ## Pair a phone with Remote
 
 Each environment's Pair button calls that app-server's official experimental `remoteControl/*`

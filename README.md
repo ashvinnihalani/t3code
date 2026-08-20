@@ -20,7 +20,9 @@ environment so recent project/thread lists remain visible while any connection i
 
 - Launch a local app-server over stdio. The default command is `codex app-server`.
 - Keep the local app-server and multiple OpenSSH-hosted app-servers available at the same time.
+- Add local or SSH projects by working directory and keep empty projects cached locally.
 - Initialize a generic compatible harness and show its account, model, skill, and thread data.
+- Use app-server-advertised models, reasoning efforts, and service tiers from the composer.
 - Cache the last thread projection locally and refresh it from app-server after reconnecting.
 - Retry each dropped connection independently with bounded backoff.
 - Present Remote status and pairing payloads returned by the official app-server

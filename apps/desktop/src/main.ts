@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
 import { registerAppServerBridge } from "./appServer/bridge.ts";
 import { registerAppServerSettingsIpc } from "./appServer/settingsIpc.ts";
 import { makeAppServerSettingsStore } from "./appServer/settingsStore.ts";
+import { registerProjectDirectoryIpc } from "./projectDirectoryIpc.ts";
 
 const APP_SCHEME = "t3codex";
 const APP_HOST = "app";
@@ -134,6 +135,7 @@ function createWindow(): BrowserWindow {
 let mainWindow: BrowserWindow | undefined;
 let closeAppServerBridge: (() => void) | undefined;
 let closeSettingsIpc: (() => void) | undefined;
+let closeProjectDirectoryIpc: (() => void) | undefined;
 
 void app
   .whenReady()
@@ -147,6 +149,7 @@ void app
       app.getPath("home"),
     );
     closeSettingsIpc = registerAppServerSettingsIpc(ipcMain, settingsStore);
+    closeProjectDirectoryIpc = registerProjectDirectoryIpc(ipcMain);
     closeAppServerBridge = registerAppServerBridge(ipcMain);
     mainWindow = createWindow();
 
@@ -163,6 +166,7 @@ void app
 app.once("will-quit", () => {
   closeAppServerBridge?.();
   closeSettingsIpc?.();
+  closeProjectDirectoryIpc?.();
   if (protocol.isProtocolHandled(APP_SCHEME)) {
     void protocol.unhandle(APP_SCHEME);
   }

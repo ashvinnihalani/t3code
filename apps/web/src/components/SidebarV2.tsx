@@ -49,7 +49,9 @@ export function SidebarV2({
   groupProjects,
   timestampFormat,
   onSelectThread,
+  onSelectProject,
   onNewThread,
+  onAddProject,
   onOpenSettings,
 }: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
@@ -60,7 +62,9 @@ export function SidebarV2({
   readonly groupProjects: boolean;
   readonly timestampFormat: TimestampFormat;
   readonly onSelectThread: (environmentId: string, threadId: string) => void;
+  readonly onSelectProject: (environmentId: string, workspace: string) => void;
   readonly onNewThread: (environmentId: string | null) => void;
+  readonly onAddProject: () => void;
   readonly onOpenSettings: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -124,8 +128,8 @@ export function SidebarV2({
           <span className="flex-1">Projects</span>
           <button
             className="grid size-6 place-items-center rounded hover:bg-sidebar-row-hover"
-            aria-label="New thread"
-            onClick={() => onNewThread(selectedEnvironmentId)}
+            aria-label="Add project"
+            onClick={onAddProject}
           >
             <PlusIcon className="size-3.5" />
           </button>
@@ -154,9 +158,11 @@ export function SidebarV2({
         {filteredProjects.map((project) => (
           <section className="mb-4" key={project.key}>
             {groupProjects ? (
-              <div
-                className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium"
+              <button
+                className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left text-sm font-medium hover:bg-sidebar-row-hover"
                 title={project.cwd}
+                type="button"
+                onClick={() => onSelectProject(project.environmentId, project.cwd)}
               >
                 <ChevronDownIcon className="size-3.5 text-sidebar-muted-foreground" />
                 <FolderIcon className="size-4 text-sidebar-muted-foreground" />
@@ -166,7 +172,7 @@ export function SidebarV2({
                     {project.environmentName}
                   </span>
                 ) : null}
-              </div>
+              </button>
             ) : environments.length > 1 ? (
               <div className="h-7 truncate px-2 text-[11px] font-medium text-sidebar-muted-foreground">
                 {project.environmentName}

@@ -37,5 +37,10 @@ environment, or workspace, and to add SSH environments. Local and every saved SS
 connect concurrently. T3 Codex sends a separate app-server initialization handshake to each and
 keeps their account, model, Remote, project, and thread state scoped independently.
 
+Use the **+** beside Projects to add a working directory. Local environments open the native
+directory picker. For an SSH environment, enter a directory on that remote machine. Selecting a
+project opens a new-thread composer rooted at that directory; the project remains in the sidebar
+even before its first thread is sent.
+
 T3 Codex does not run an inherited T3 backend. The renderer is served directly by Electron and all
 agent operations cross the app-server JSONL connection.
