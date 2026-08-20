@@ -9,6 +9,7 @@ import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 
 import * as CodexError from "./errors.ts";
+import { fromStdio, type CodexAppServerWireTransport } from "./transport.ts";
 import { JsonRpcId, JsonRpcResponseEnvelope } from "./_internal/shared.ts";
 const isJsonRpcId = Schema.is(JsonRpcId);
 const isJsonRpcResponseEnvelope = Schema.is(JsonRpcResponseEnvelope);
@@ -31,8 +32,7 @@ export interface CodexAppServerIncomingRequest {
   readonly params?: unknown;
 }
 
-export interface CodexAppServerPatchedProtocolOptions {
-  readonly stdio: Stdio.Stdio;
+interface CodexAppServerPatchedProtocolBaseOptions {
   readonly terminationError?: Effect.Effect<CodexError.CodexAppServerError>;
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
@@ -45,6 +45,12 @@ export interface CodexAppServerPatchedProtocolOptions {
   ) => Effect.Effect<unknown, CodexError.CodexAppServerError>;
   readonly onTermination?: (error: CodexError.CodexAppServerError) => Effect.Effect<void, never>;
 }
+
+export type CodexAppServerPatchedProtocolOptions = CodexAppServerPatchedProtocolBaseOptions &
+  (
+    | { readonly stdio: Stdio.Stdio; readonly transport?: never }
+    | { readonly transport: CodexAppServerWireTransport; readonly stdio?: never }
+  );
 
 export interface CodexAppServerPatchedProtocol {
   readonly incomingNotifications: Stream.Stream<CodexAppServerIncomingNotification>;
@@ -152,6 +158,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
   function* (
     options: CodexAppServerPatchedProtocolOptions,
   ): Effect.fn.Return<CodexAppServerPatchedProtocol, never, Scope.Scope> {
+    const wireTransport = options.transport ?? fromStdio(options.stdio);
     const outgoing = yield* Queue.unbounded<string, Cause.Done<void>>();
     const incomingNotifications = yield* Queue.unbounded<CodexAppServerIncomingNotification>();
     const incomingRequests = yield* Queue.unbounded<CodexAppServerIncomingRequest>();
@@ -351,7 +358,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       );
     };
 
-    yield* options.stdio.stdin.pipe(
+    yield* wireTransport.incoming.pipe(
       Stream.decodeText(),
       Stream.runForEach((chunk) =>
         Ref.modify(remainder, (current) => {
@@ -383,7 +390,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       Effect.forkScoped,
     );
 
-    yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
+    yield* Stream.fromQueue(outgoing).pipe(Stream.run(wireTransport.outgoing), Effect.forkScoped);
 
     const request = (method: string, payload?: unknown) =>
       Effect.gen(function* () {

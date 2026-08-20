@@ -16,7 +16,8 @@ import {
   encodeOptionalPayload,
   runHandler,
 } from "./_internal/shared.ts";
-import { makeChildStdio, makeTerminationError } from "./_internal/stdio.ts";
+import { makeTerminationError } from "./_internal/stdio.ts";
+import { fromChildProcess, fromStdio, type CodexAppServerWireTransport } from "./transport.ts";
 
 export interface CodexAppServerClientOptions {
   readonly logIncoming?: boolean;
@@ -84,8 +85,10 @@ type ServerNotificationHandler = (
   payload: unknown,
 ) => Effect.Effect<void, CodexError.CodexAppServerError>;
 
-export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make")(function* (
-  stdio: Stdio.Stdio,
+export const makeTransport = Effect.fn(
+  "effect-codex-app-server/CodexAppServerClient.makeTransport",
+)(function* (
+  wireTransport: CodexAppServerWireTransport,
   options: CodexAppServerClientOptions = {},
   terminationError?: Effect.Effect<CodexError.CodexAppServerError>,
 ): Effect.fn.Return<CodexAppServerClient["Service"], never, Scope.Scope> {
@@ -185,7 +188,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   };
 
   const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
-    stdio,
+    transport: wireTransport,
     ...(terminationError ? { terminationError } : {}),
     ...(options.logIncoming !== undefined ? { logIncoming: options.logIncoming } : {}),
     ...(options.logOutgoing !== undefined ? { logOutgoing: options.logOutgoing } : {}),
@@ -250,6 +253,14 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   });
 });
 
+export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make")(function* (
+  stdio: Stdio.Stdio,
+  options: CodexAppServerClientOptions = {},
+  terminationError?: Effect.Effect<CodexError.CodexAppServerError>,
+) {
+  return yield* makeTransport(fromStdio(stdio), options, terminationError);
+});
+
 export const layer = (
   stdio: Stdio.Stdio,
   options: CodexAppServerClientOptions = {},
@@ -265,5 +276,5 @@ const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
   yield* Stream.runDrain(handle.stderr).pipe(Effect.ignore, Effect.forkScoped);
-  return yield* make(makeChildStdio(handle), options, makeTerminationError(handle));
+  return yield* makeTransport(fromChildProcess(handle), options, makeTerminationError(handle));
 });

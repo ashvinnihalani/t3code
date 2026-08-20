@@ -19,6 +19,10 @@
       "types": "./src/protocol.ts",
       "import": "./src/protocol.ts"
     },
+    "./transport": {
+      "types": "./src/transport.ts",
+      "import": "./src/transport.ts"
+    },
     "./errors": {
       "types": "./src/errors.ts",
       "import": "./src/errors.ts"
