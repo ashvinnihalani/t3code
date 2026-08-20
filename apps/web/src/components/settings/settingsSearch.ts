@@ -208,6 +208,25 @@ export const SETTINGS_SEARCH_ITEMS = [
 
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 
+const SETTINGS_NAV_SEARCH_ITEM_IDS: ReadonlySet<SettingsSearchItemId> = new Set([
+  "color-scheme",
+  "theme",
+  "setting-glass-opacity",
+  "environment-identification",
+  "interface-font",
+  "prompt-font",
+  "code-font",
+  "font-smoothing",
+  "word-wrap",
+  "project-grouping",
+  "auto-settle-inactive-threads",
+  "time-format",
+  "archive-confirmation",
+  "keybindings",
+  "remote-environments",
+  "archive",
+]);
+
 const SEARCH_ITEMS_BY_ID = Object.fromEntries(
   SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item]),
 ) as Readonly<Record<SettingsSearchItemId, SettingsSearchItem>>;
@@ -239,7 +258,10 @@ export function searchSettings(
   items?: ReadonlyArray<SettingsSearchItem>,
 ): ReadonlyArray<SettingsSearchItem> {
   const candidates =
-    items ?? SETTINGS_SEARCH_ITEMS.filter((item) => SETTINGS_NAV_PATH_SET.has(item.to));
+    items ??
+    SETTINGS_SEARCH_ITEMS.filter(
+      (item) => SETTINGS_NAV_PATH_SET.has(item.to) && SETTINGS_NAV_SEARCH_ITEM_IDS.has(item.id),
+    );
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length === 0) return [];
 

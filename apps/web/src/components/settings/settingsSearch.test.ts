@@ -63,6 +63,9 @@ describe("searchSettings", () => {
   it("excludes settings sections that are not part of the desktop harness", () => {
     expect(searchSettings("providers")).toEqual([]);
     expect(searchSettings("source control")).toEqual([]);
+    expect(searchSettings("provider update checks")).toEqual([]);
+    expect(searchSettings("terminal font")).toEqual([]);
+    expect(searchSettings("delete confirmation")).toEqual([]);
   });
 
   it("keeps catalog result ids unique", () => {
