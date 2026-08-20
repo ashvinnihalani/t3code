@@ -12,10 +12,11 @@ React renderer environment catalog
 
 ## Ownership
 
-T3 Codex owns the window, environment settings, SSH host discovery, reconnect scheduling, and local
-presentation caches. The app-server owns initialization, account state, model and skill catalogs,
-Remote, thread/turn/item identities, canonical history, and agent coordination. The agent harness
-behind app-server owns tools, execution, context, and provider behavior.
+T3 Codex owns the window, environment settings, SSH host discovery, native local project selection,
+installed-editor discovery, local and Remote SSH workspace launching, reconnect scheduling, and
+local presentation caches. The app-server owns initialization, account state, model and skill
+catalogs, Remote, thread/turn/item identities, canonical history, and agent coordination. The agent
+harness behind app-server owns tools, execution, context, and provider behavior.
 
 There is no T3 HTTP/WebSocket server, Effect-RPC contract, provider adapter, event-sourced SQLite
 store, checkpoint reactor, terminal runtime, relay, Tailscale service, WSL backend, or resource

@@ -2,20 +2,20 @@
 
 ## Local
 
-The Local environment is always available. It starts the configured executable directly, without a shell, and exchanges newline-
-delimited JSON through stdin/stdout. The default is `codex app-server`. Arguments and environment
-values are stored in the desktop settings file; the app-server remains responsible for its own
-authentication and agent runtime.
+The Local environment is always available. It starts the configured executable directly, without
+a shell, and exchanges newline-delimited JSON through stdin/stdout. The default is
+`codex app-server`. Arguments and environment values are stored in the desktop settings file; the
+app-server remains responsible for its own authentication and agent runtime.
 
 ## SSH
 
 Add as many SSH environments as needed. They remain available alongside Local and alongside one
 another; adding a host does not switch off or replace another environment.
 
-Each SSH environment reuses the operating system's OpenSSH client, SSH config, agent, known hosts, and identity
-files. T3 Codex discovers named hosts from `~/.ssh/config` (including configured `Include` files)
-and unhashed entries from `known_hosts`. It launches one remote command whose stdin/stdout remain
-the app-server JSONL transport.
+Each SSH environment reuses the operating system's OpenSSH client, SSH config, agent, known hosts,
+and identity files. T3 Codex discovers named hosts from `~/.ssh/config` (including configured
+`Include` files) and unhashed entries from `known_hosts`. It launches one remote command whose
+stdin/stdout remain the app-server JSONL transport.
 
 Configure the remote executable and workspace for the remote machine. T3 Codex does not copy a
 binary, forward a T3 server port, install credentials, or maintain a separate SSH tunnel service.

@@ -8,7 +8,7 @@ mobile client, or T3 Connect stack.
 
 - [Getting started](./user/getting-started.md)
 - [Settings](./user/settings.md)
-- [Local, SSH, reconnect, cache, and Remote connections](./user/connections.md)
+- [Local, SSH, reconnect, cache, Open, and Remote connections](./user/connections.md)
 
 ## Understand and test the fork
 

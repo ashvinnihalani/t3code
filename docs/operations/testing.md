@@ -3,17 +3,21 @@
 Run the focused unit and integration suite:
 
 ```bash
-vp test run \
+mise exec -- pnpm exec vp test run \
   packages/effect-codex-app-server/src \
   packages/app-server-conformance/src \
   packages/app-server-conformance/test \
-  apps/desktop/src/appServer
+  apps/desktop/src/appServer \
+  apps/desktop/src/projectDirectoryIpc.test.ts \
+  apps/desktop/src/workspaceLauncher.test.ts \
+  apps/web/src/appServer \
+  apps/web/src/settings
 ```
 
 Verify a concrete app-server-compatible executable:
 
 ```bash
-vp run harness:verify -- \
+mise exec -- pnpm exec vp run harness:verify -- \
   --executable /path/to/harness \
   --arg=app-server \
   --workspace /path/to/project \
@@ -29,12 +33,12 @@ ordering. Configuration can also be supplied with `T3_APP_SERVER_EXECUTABLE`,
 Build the desktop boundary separately:
 
 ```bash
-vp run build:desktop
+mise exec -- pnpm exec vp run build:desktop
 ```
 
 The Electron smoke test opens a GUI and may download the Electron runtime, so run it only in an
 environment where GUI and network access are explicitly available:
 
 ```bash
-vp run test:desktop-smoke
+mise exec -- pnpm exec vp run test:desktop-smoke
 ```
