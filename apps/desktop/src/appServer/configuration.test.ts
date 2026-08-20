@@ -13,7 +13,7 @@ describe("resolveAppServerProcessConfiguration", () => {
       executable: "codex",
       args: ["app-server"],
       cwd: "/workspace",
-      env: {},
+      env: { PATH: "/opt/homebrew/bin:/usr/local/bin" },
     });
   });
 
@@ -89,12 +89,49 @@ describe("resolveAppServerProcessConfiguration", () => {
       env: {
         EXISTING: "preserved",
         HARNESS_MODE: "test",
+        PATH: "/opt/homebrew/bin:/usr/local/bin",
         T3CODE_APP_SERVER_ARGS: '["serve","--stdio"]',
         T3CODE_APP_SERVER_ENV: '{"HARNESS_MODE":"test"}',
         T3CODE_APP_SERVER_EXECUTABLE: "generic-harness",
         T3CODE_APP_SERVER_WORKSPACE: "/project",
       },
     });
+  });
+
+  it("adds common GUI executable directories without overriding an explicit PATH", () => {
+    const inherited = resolveConfiguredAppServerProcess(
+      {
+        connection: {
+          kind: "local",
+          executable: "codex",
+          args: ["app-server"],
+          workspace: "/workspace",
+          env: {},
+        },
+      },
+      { HOME: "/Users/tester", PATH: "/usr/bin:/bin" },
+      "/workspace",
+      "darwin",
+    );
+    expect(inherited.env.PATH).toBe(
+      "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/Users/tester/.local/bin:/Users/tester/bin:/Users/tester/.npm-global/bin",
+    );
+
+    const explicit = resolveConfiguredAppServerProcess(
+      {
+        connection: {
+          kind: "local",
+          executable: "codex",
+          args: ["app-server"],
+          workspace: "/workspace",
+          env: { PATH: "/custom/bin" },
+        },
+      },
+      { PATH: "/usr/bin" },
+      "/workspace",
+      "darwin",
+    );
+    expect(explicit.env.PATH).toBe("/custom/bin");
   });
 
   it("rejects malformed process configuration", () => {

@@ -1,4 +1,5 @@
 import * as NodeChildProcess from "node:child_process";
+import { homedir } from "node:os";
 
 import type { IpcMain, IpcMainEvent, MessagePortMain } from "electron";
 import { MessageChannelMain } from "electron";
@@ -42,7 +43,7 @@ function openConnection(
   settings: AppServerDesktopSettings,
   onClosed: () => void,
 ): AppServerConnection {
-  const configuration = resolveConfiguredAppServerProcess(settings, process.env, process.cwd());
+  const configuration = resolveConfiguredAppServerProcess(settings, process.env, homedir());
   const child = NodeChildProcess.spawn(configuration.executable, [...configuration.args], {
     cwd: configuration.cwd,
     env: configuration.env,

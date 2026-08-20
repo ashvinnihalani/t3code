@@ -144,7 +144,7 @@ void app
     const settingsStore = makeAppServerSettingsStore(
       app.getPath("userData"),
       process.env,
-      process.cwd(),
+      app.getPath("home"),
     );
     closeSettingsIpc = registerAppServerSettingsIpc(ipcMain, settingsStore);
     closeAppServerBridge = registerAppServerBridge(ipcMain);

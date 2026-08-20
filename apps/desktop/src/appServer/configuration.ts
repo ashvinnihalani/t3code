@@ -164,12 +164,36 @@ export function buildRemoteAppServerCommand(connection: SshAppServerConnectionSe
 function resolveLocalConfiguration(
   connection: LocalAppServerConnectionSettings,
   environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
 ): AppServerProcessConfiguration {
+  const configuredEnvironment = { ...environment, ...connection.env };
   return {
     executable: connection.executable,
     args: connection.args,
     cwd: connection.workspace,
-    env: { ...environment, ...connection.env },
+    env:
+      connection.env.PATH === undefined
+        ? withDesktopExecutablePath(configuredEnvironment, platform)
+        : configuredEnvironment,
+  };
+}
+
+function withDesktopExecutablePath(
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  if (platform === "win32") return environment;
+
+  const home = environment.HOME?.trim();
+  const candidates = [
+    ...(platform === "darwin" ? ["/opt/homebrew/bin"] : []),
+    "/usr/local/bin",
+    ...(home ? [`${home}/.local/bin`, `${home}/bin`, `${home}/.npm-global/bin`] : []),
+  ];
+  const current = environment.PATH?.split(":").filter(Boolean) ?? [];
+  return {
+    ...environment,
+    PATH: [...new Set([...current, ...candidates])].join(":"),
   };
 }
 
@@ -208,7 +232,7 @@ export function resolveConfiguredAppServerProcess(
 ): AppServerProcessConfiguration {
   const connection: AppServerConnectionSettings = settings.connection;
   return connection.kind === "local"
-    ? resolveLocalConfiguration(connection, environment)
+    ? resolveLocalConfiguration(connection, environment, platform)
     : resolveSshConfiguration(connection, environment, defaultCwd, platform);
 }
 
