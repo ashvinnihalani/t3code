@@ -79,6 +79,7 @@ export function AppServerRoot() {
           connection={controller.connection}
           loading={controller.threadLoading}
           models={controller.models}
+          pendingApproval={controller.pendingApproval}
           summary={selectedSummary}
           thread={controller.thread}
           workspace={controller.settings.connection.workspace}

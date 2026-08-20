@@ -65,6 +65,17 @@ export interface RemoteDialogState {
   readonly busy: boolean;
 }
 
+export type ApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+export interface PendingApproval {
+  readonly id: string;
+  readonly kind: "command" | "fileChange";
+  readonly title: string;
+  readonly detail: string | null;
+  readonly reason: string | null;
+  readonly respond: (decision: ApprovalDecision) => void;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -208,6 +219,7 @@ export function useAppServerController() {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [remote, setRemote] = useState<RemoteDialogState>({
     pairing: null,
     clients: [],
@@ -282,6 +294,8 @@ export function useAppServerController() {
     const scheduleReconnect = (message: string) => {
       if (!active || retryTimer !== undefined) return;
       closeCurrent();
+      setThread(null);
+      setPendingApproval(null);
       const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] ?? 16_000;
       attempt += 1;
       setConnection((current) => ({
@@ -334,6 +348,61 @@ export function useAppServerController() {
                   }
                 : null,
             }));
+          }),
+        );
+        yield* client.handleServerNotification("thread/status/changed", ({ threadId, status }) =>
+          Effect.sync(() => {
+            setConnection((current) => ({
+              ...current,
+              snapshot: current.snapshot
+                ? {
+                    ...current.snapshot,
+                    threads: current.snapshot.threads.map((item) =>
+                      item.id === threadId ? { ...item, status: status.type } : item,
+                    ),
+                  }
+                : null,
+            }));
+          }),
+        );
+        yield* client.handleServerRequest("item/commandExecution/requestApproval", (request) =>
+          Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
+            const id = `${request.turnId}:${request.approvalId ?? request.itemId}`;
+            setPendingApproval({
+              id,
+              kind: "command",
+              title: request.command ?? "Run command",
+              detail: request.cwd ?? null,
+              reason: request.reason ?? null,
+              respond: (decision) => {
+                setPendingApproval((current) => (current?.id === id ? null : current));
+                resume(Effect.succeed({ decision }));
+              },
+            });
+            return Effect.sync(() => {
+              setPendingApproval((current) => (current?.id === id ? null : current));
+            });
+          }),
+        );
+        yield* client.handleServerRequest("item/fileChange/requestApproval", (request) =>
+          Effect.callback<CodexSchema.FileChangeRequestApprovalResponse>((resume) => {
+            const id = `${request.turnId}:${request.itemId}`;
+            setPendingApproval({
+              id,
+              kind: "fileChange",
+              title: request.grantRoot
+                ? `Write files under ${request.grantRoot}`
+                : "Apply file changes",
+              detail: request.grantRoot ?? null,
+              reason: request.reason ?? null,
+              respond: (decision) => {
+                setPendingApproval((current) => (current?.id === id ? null : current));
+                resume(Effect.succeed({ decision }));
+              },
+            });
+            return Effect.sync(() => {
+              setPendingApproval((current) => (current?.id === id ? null : current));
+            });
           }),
         );
         yield* client.handleServerNotification("turn/started", ({ threadId, turn }) =>
@@ -659,6 +728,7 @@ export function useAppServerController() {
     thread,
     threadLoading,
     actionError,
+    pendingApproval,
     remote,
     selectThread,
     startThread,

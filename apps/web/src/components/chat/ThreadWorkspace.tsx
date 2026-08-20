@@ -1,8 +1,9 @@
 import { RefreshCwIcon, SmartphoneIcon } from "lucide-react";
 
 import type { ModelOption, ThreadDetail, ThreadSummary } from "../../appServer/presentation";
-import type { ConnectionState } from "../../appServer/useAppServerController";
+import type { ConnectionState, PendingApproval } from "../../appServer/useAppServerController";
 import { ChatComposer } from "./ChatComposer";
+import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ThreadTimeline } from "./ThreadTimeline";
 
 function title(thread: ThreadSummary | ThreadDetail | null): string {
@@ -21,6 +22,7 @@ export function ThreadWorkspace({
   connection,
   loading,
   actionError,
+  pendingApproval,
   onRetry,
   onRemote,
   onStart,
@@ -34,6 +36,7 @@ export function ThreadWorkspace({
   readonly connection: ConnectionState;
   readonly loading: boolean;
   readonly actionError: string | null;
+  readonly pendingApproval: PendingApproval | null;
   readonly onRetry: () => void;
   readonly onRemote: () => void;
   readonly onStart: (prompt: string, model: string | null) => Promise<void> | void;
@@ -100,6 +103,7 @@ export function ThreadWorkspace({
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background to-transparent px-6 pb-6 pt-16">
           <div className="pointer-events-auto mx-auto max-w-3xl">
+            {pendingApproval ? <ComposerPendingApprovalPanel approval={pendingApproval} /> : null}
             {actionError ? (
               <p className="mb-2 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
                 {actionError}
