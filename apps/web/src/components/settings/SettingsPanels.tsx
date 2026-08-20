@@ -1,8 +1,24 @@
 import type { DiscoveredSshHost } from "effect-codex-app-server/connection";
-import { CheckIcon, LaptopIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import {
+  CheckIcon,
+  LaptopIcon,
+  MonitorIcon,
+  MoonIcon,
+  PlusIcon,
+  SmartphoneIcon,
+  SunIcon,
+  Trash2Icon,
+} from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
-import type { SettingsDraft } from "../../appServer/useAppServerController";
+import {
+  connectionLabel,
+  connectionStatusText,
+  newSshSettingsDraft,
+  toSettingsDraft,
+  type EnvironmentState,
+  type SettingsDraft,
+} from "../../appServer/useAppServerController";
 import type {
   ColorScheme,
   PresentationPreferences,
@@ -68,8 +84,8 @@ function GeneralSettingsPanel({
         />
         <SettingsRow
           title="Automatic reconnection"
-          description="Reconnect to the selected local or SSH app-server after its transport disconnects."
-          status="Retries use a bounded backoff and resume the selected thread after reconnecting."
+          description="Reconnect every configured local and SSH app-server independently after its transport disconnects."
+          status="Retries use a bounded backoff and preserve each environment's cached projects and threads."
           control={<StatusPill>Automatic</StatusPill>}
         />
       </SettingsSection>
@@ -213,189 +229,328 @@ function AppearanceSettingsPanel({
 }
 
 function ConnectionsSettingsPanel({
-  initialDraft,
+  environments,
   sshHosts,
   error,
-  remoteStatus,
   onOpenRemote,
   onSave,
+  onRemove,
 }: {
-  readonly initialDraft: SettingsDraft;
+  readonly environments: ReadonlyArray<EnvironmentState>;
   readonly sshHosts: ReadonlyArray<DiscoveredSshHost>;
   readonly error: string | null;
-  readonly remoteStatus: string | null;
-  readonly onOpenRemote: () => void;
+  readonly onOpenRemote: (environmentId: string) => void;
   readonly onSave: (draft: SettingsDraft) => Promise<boolean>;
+  readonly onRemove: (environmentId: string) => Promise<boolean>;
 }) {
-  const [draft, setDraft] = useState(initialDraft);
+  const localEnvironment =
+    environments.find((environment) => environment.profile.id === "local") ?? environments[0];
+  const [selectedId, setSelectedId] = useState(localEnvironment?.profile.id ?? "local");
+  const selectedEnvironment = environments.find(
+    (environment) => environment.profile.id === selectedId,
+  );
+  const [draft, setDraft] = useState<SettingsDraft | null>(
+    selectedEnvironment ? toSettingsDraft(selectedEnvironment.profile) : null,
+  );
+  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    if (adding) return;
+    if (selectedEnvironment !== undefined) setDraft(toSettingsDraft(selectedEnvironment.profile));
+  }, [adding, selectedEnvironment?.profile]);
+
+  const suggestedHosts = useMemo(
+    () =>
+      sshHosts.filter(
+        (host) =>
+          !environments.some(
+            (environment) =>
+              environment.profile.connection.kind === "ssh" &&
+              environment.profile.connection.host === host.alias,
+          ),
+      ),
+    [environments, sshHosts],
+  );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (draft === null) return;
     setSaving(true);
-    await onSave(draft);
+    const saved = await onSave(draft);
+    if (saved) {
+      setAdding(false);
+      setSelectedId(draft.id);
+    }
     setSaving(false);
+  };
+
+  const beginAdd = (host = "") => {
+    if (localEnvironment === undefined) return;
+    setAdding(true);
+    setSelectedId("");
+    setDraft(newSshSettingsDraft(localEnvironment.profile, host));
+  };
+
+  const removeSelected = async () => {
+    if (draft === null || draft.id === "local") return;
+    setRemoving(true);
+    const removed = await onRemove(draft.id);
+    if (removed && localEnvironment !== undefined) {
+      setAdding(false);
+      setSelectedId(localEnvironment.profile.id);
+      setDraft(toSettingsDraft(localEnvironment.profile));
+    }
+    setRemoving(false);
   };
 
   return (
     <form className="min-h-0 flex flex-1 flex-col" onSubmit={(event) => void submit(event)}>
       <SettingsPageContainer>
-        <SettingsSection title="Connections">
-          <SettingsRow
-            title="App-server location"
-            description="Launch Codex on this Mac or connect through an existing OpenSSH host."
-            control={
-              <div className="flex rounded-lg border border-input bg-muted p-1">
-                {(["local", "ssh"] as const).map((kind) => (
+        <SettingsSection title="Environments">
+          <div className="space-y-1">
+            {environments.map((environment) => {
+              const profile = environment.profile;
+              const active = !adding && selectedId === profile.id;
+              const dotClass =
+                environment.phase === "connected" ? "bg-emerald-500" : "bg-amber-500";
+              return (
+                <div
+                  className={`flex flex-col gap-3 rounded-xl px-4 py-3 sm:flex-row sm:items-center ${active ? "bg-accent/60" : "hover:bg-accent/30"}`}
+                  key={profile.id}
+                >
                   <button
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium ${draft.kind === kind ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                    key={kind}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
                     type="button"
-                    onClick={() => setDraft({ ...draft, kind })}
+                    onClick={() => {
+                      setAdding(false);
+                      setSelectedId(profile.id);
+                      setDraft(toSettingsDraft(profile));
+                    }}
                   >
-                    {kind === "local" ? "Local" : "Remote SSH"}
+                    <span className={`mt-1.5 size-2 shrink-0 rounded-full ${dotClass}`} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">
+                        {profile.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {connectionLabel(profile.connection)}
+                      </span>
+                      <span className="mt-1 block text-[11px] text-muted-foreground/80">
+                        {connectionStatusText(environment)}
+                      </span>
+                    </span>
                   </button>
-                ))}
-              </div>
-            }
-          />
-          {draft.kind === "ssh" ? (
-            <>
-              <SettingsRow
-                title="SSH host"
-                description="An alias from ~/.ssh/config or a reachable hostname."
-                control={
-                  <>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
+                      disabled={environment.phase !== "connected"}
+                      type="button"
+                      onClick={() => onOpenRemote(profile.id)}
+                    >
+                      <SmartphoneIcon className="size-3.5" /> Pair phone
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-4 pt-2">
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs font-medium hover:bg-accent"
+              type="button"
+              onClick={() => beginAdd()}
+            >
+              <PlusIcon className="size-3.5" /> Add SSH environment
+            </button>
+          </div>
+        </SettingsSection>
+
+        {draft ? (
+          <SettingsSection title={adding ? "Add SSH environment" : `Edit ${draft.name}`}>
+            <SettingsRow
+              title="Name"
+              description="A local label used to identify this environment throughout T3 Codex."
+              control={
+                <input
+                  className={inputClass}
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                />
+              }
+            />
+            <SettingsRow
+              title="Connection"
+              description={
+                draft.kind === "local"
+                  ? "The primary app-server launched on this Mac."
+                  : "An app-server launched over an existing OpenSSH host."
+              }
+              control={<StatusPill>{draft.kind === "local" ? "Local" : "Remote SSH"}</StatusPill>}
+            />
+            {draft.kind === "ssh" ? (
+              <>
+                <SettingsRow
+                  title="SSH host"
+                  description="An alias from ~/.ssh/config or a reachable hostname."
+                  control={
+                    <>
+                      <input
+                        className={inputClass}
+                        list="ssh-hosts"
+                        value={draft.host}
+                        onChange={(event) => setDraft({ ...draft, host: event.target.value })}
+                      />
+                      <datalist id="ssh-hosts">
+                        {sshHosts.map((host) => (
+                          <option value={host.alias} key={host.alias} />
+                        ))}
+                      </datalist>
+                    </>
+                  }
+                />
+                <SettingsRow
+                  title="Username"
+                  description="Leave blank to use the username from OpenSSH configuration."
+                  control={
                     <input
                       className={inputClass}
-                      list="ssh-hosts"
-                      value={draft.host}
-                      onChange={(event) => setDraft({ ...draft, host: event.target.value })}
+                      placeholder="From SSH config"
+                      value={draft.username}
+                      onChange={(event) => setDraft({ ...draft, username: event.target.value })}
                     />
-                    <datalist id="ssh-hosts">
-                      {sshHosts.map((host) => (
-                        <option value={host.alias} key={host.alias} />
-                      ))}
-                    </datalist>
-                  </>
-                }
-              />
+                  }
+                />
+                <SettingsRow
+                  title="Port"
+                  description="Leave blank to use port 22 or the value from OpenSSH configuration."
+                  control={
+                    <input
+                      className={inputClass}
+                      inputMode="numeric"
+                      placeholder="22"
+                      value={draft.port}
+                      onChange={(event) => setDraft({ ...draft, port: event.target.value })}
+                    />
+                  }
+                />
+                <SettingsRow
+                  title="Identity file"
+                  description="Optional private key path. OpenSSH agents and config continue to work."
+                  control={
+                    <input
+                      className={inputClass}
+                      placeholder="From SSH config or agent"
+                      value={draft.identityFile}
+                      onChange={(event) => setDraft({ ...draft, identityFile: event.target.value })}
+                    />
+                  }
+                />
+              </>
+            ) : null}
+            <SettingsRow
+              title="Executable"
+              description="The local or remote executable that implements the Codex app-server protocol."
+              control={
+                <input
+                  className={inputClass}
+                  value={draft.executable}
+                  onChange={(event) => setDraft({ ...draft, executable: event.target.value })}
+                />
+              }
+            />
+            <SettingsRow
+              title="Workspace"
+              description="Default working directory for new threads and the app-server process."
+              control={
+                <input
+                  className={inputClass}
+                  value={draft.workspace}
+                  onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
+                />
+              }
+            />
+            <SettingsRow
+              title="Arguments"
+              description="JSON array passed to the executable. Codex normally uses app-server."
+              control={
+                <textarea
+                  className={textareaClass}
+                  value={draft.args}
+                  onChange={(event) => setDraft({ ...draft, args: event.target.value })}
+                />
+              }
+            />
+            <SettingsRow
+              title="Environment"
+              description="JSON object merged into the app-server process environment."
+              control={
+                <textarea
+                  className={textareaClass}
+                  value={draft.env}
+                  onChange={(event) => setDraft({ ...draft, env: event.target.value })}
+                />
+              }
+            />
+            {adding && suggestedHosts.length > 0 ? (
               <SettingsRow
-                title="Username"
-                description="Leave blank to use the username from OpenSSH configuration."
+                title="Suggested hosts"
+                description="Discovered from your OpenSSH config and known hosts."
                 control={
-                  <input
-                    className={inputClass}
-                    placeholder="From SSH config"
-                    value={draft.username}
-                    onChange={(event) => setDraft({ ...draft, username: event.target.value })}
-                  />
+                  <div className="flex max-w-72 flex-wrap justify-end gap-1.5">
+                    {suggestedHosts.slice(0, 8).map((host) => (
+                      <button
+                        className="rounded-md border border-input bg-card px-2 py-1 text-xs hover:bg-accent"
+                        key={host.alias}
+                        type="button"
+                        onClick={() =>
+                          setDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  host: host.alias,
+                                  name:
+                                    current.name === "Remote environment"
+                                      ? host.alias
+                                      : current.name,
+                                }
+                              : current,
+                          )
+                        }
+                      >
+                        {host.alias}
+                      </button>
+                    ))}
+                  </div>
                 }
               />
-              <SettingsRow
-                title="Port"
-                description="Leave blank to use port 22 or the value from OpenSSH configuration."
-                control={
-                  <input
-                    className={inputClass}
-                    inputMode="numeric"
-                    placeholder="22"
-                    value={draft.port}
-                    onChange={(event) => setDraft({ ...draft, port: event.target.value })}
-                  />
-                }
-              />
-              <SettingsRow
-                title="Identity file"
-                description="Optional private key path. OpenSSH agents and config continue to work."
-                control={
-                  <input
-                    className={inputClass}
-                    placeholder="From SSH config or agent"
-                    value={draft.identityFile}
-                    onChange={(event) => setDraft({ ...draft, identityFile: event.target.value })}
-                  />
-                }
-              />
-            </>
-          ) : null}
-          <SettingsRow
-            title="Executable"
-            description="The local or remote executable that implements the Codex app-server protocol."
-            control={
-              <input
-                className={inputClass}
-                value={draft.executable}
-                onChange={(event) => setDraft({ ...draft, executable: event.target.value })}
-              />
-            }
-          />
-          <SettingsRow
-            title="Workspace"
-            description="Default working directory for new threads and the app-server process."
-            control={
-              <input
-                className={inputClass}
-                value={draft.workspace}
-                onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
-              />
-            }
-          />
-          <SettingsRow
-            title="Arguments"
-            description="JSON array passed to the executable. Codex normally uses app-server."
-            control={
-              <textarea
-                className={textareaClass}
-                value={draft.args}
-                onChange={(event) => setDraft({ ...draft, args: event.target.value })}
-              />
-            }
-          />
-          <SettingsRow
-            title="Environment"
-            description="JSON object merged into the app-server process environment."
-            control={
-              <textarea
-                className={textareaClass}
-                value={draft.env}
-                onChange={(event) => setDraft({ ...draft, env: event.target.value })}
-              />
-            }
-          />
-        </SettingsSection>
-        <SettingsSection title="Remote">
-          <SettingsRow
-            title="Pair a phone"
-            description="Use the connected app-server's official Remote service to control this environment from another device."
-            status={
-              remoteStatus === null
-                ? "Remote status is unavailable until app-server connects."
-                : `App-server reports Remote as ${remoteStatus}.`
-            }
-            control={
-              <button
-                className="h-9 rounded-lg border border-input bg-card px-3 text-xs font-medium hover:bg-accent"
-                type="button"
-                onClick={onOpenRemote}
-              >
-                Pair phone
-              </button>
-            }
-          />
-        </SettingsSection>
+            ) : null}
+          </SettingsSection>
+        ) : null}
         {error ? (
           <p className="mx-4 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
             {error}
           </p>
         ) : null}
-        <div className="flex justify-end border-t border-border px-4 pt-5">
+        <div className="flex justify-end gap-2 border-t border-border px-4 pt-5">
+          {!adding && draft?.id !== "local" ? (
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/30 bg-card px-3 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              disabled={removing}
+              type="button"
+              onClick={() => void removeSelected()}
+            >
+              <Trash2Icon className="size-3.5" /> {removing ? "Removing…" : "Remove"}
+            </button>
+          ) : null}
           <button
             className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             disabled={saving}
             type="submit"
           >
-            <CheckIcon className="size-3.5" /> {saving ? "Saving…" : "Save and reconnect"}
+            <CheckIcon className="size-3.5" />{" "}
+            {saving ? "Saving…" : adding ? "Add environment" : "Save changes"}
           </button>
         </div>
       </SettingsPageContainer>
@@ -406,23 +561,23 @@ function ConnectionsSettingsPanel({
 export function SettingsPanels({
   section,
   preferences,
-  initialDraft,
+  environments,
   sshHosts,
   error,
-  remoteStatus,
   onOpenRemote,
   onUpdatePreferences,
   onSave,
+  onRemove,
 }: {
   readonly section: SettingsSectionId;
   readonly preferences: PresentationPreferences;
-  readonly initialDraft: SettingsDraft;
+  readonly environments: ReadonlyArray<EnvironmentState>;
   readonly sshHosts: ReadonlyArray<DiscoveredSshHost>;
   readonly error: string | null;
-  readonly remoteStatus: string | null;
-  readonly onOpenRemote: () => void;
+  readonly onOpenRemote: (environmentId: string) => void;
   readonly onUpdatePreferences: (change: Partial<PresentationPreferences>) => void;
   readonly onSave: (draft: SettingsDraft) => Promise<boolean>;
+  readonly onRemove: (environmentId: string) => Promise<boolean>;
 }) {
   if (section === "appearance") {
     return (
@@ -436,11 +591,11 @@ export function SettingsPanels({
     return (
       <ConnectionsSettingsPanel
         error={error}
-        initialDraft={initialDraft}
-        remoteStatus={remoteStatus}
+        environments={environments}
         sshHosts={sshHosts}
         onOpenRemote={onOpenRemote}
         onSave={onSave}
+        onRemove={onRemove}
       />
     );
   }

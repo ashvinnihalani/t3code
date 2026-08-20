@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   AppServerConfigurationError,
   buildRemoteAppServerCommand,
+  parseAppServerDesktopSettings,
   resolveConfiguredAppServerProcess,
   resolveAppServerProcessConfiguration,
 } from "./configuration.ts";
@@ -33,7 +34,7 @@ describe("resolveAppServerProcessConfiguration", () => {
       "cd -- '/work/project with spaces' && exec env 'HARNESS_MODE=remote' '/opt/codex/bin/codex' 'app-server' '--stdio'",
     );
     expect(
-      resolveConfiguredAppServerProcess({ connection }, { PATH: "/usr/bin" }, "/local", "darwin"),
+      resolveConfiguredAppServerProcess(connection, { PATH: "/usr/bin" }, "/local", "darwin"),
     ).toEqual({
       executable: "ssh",
       args: [
@@ -101,13 +102,11 @@ describe("resolveAppServerProcessConfiguration", () => {
   it("adds common GUI executable directories without overriding an explicit PATH", () => {
     const inherited = resolveConfiguredAppServerProcess(
       {
-        connection: {
-          kind: "local",
-          executable: "codex",
-          args: ["app-server"],
-          workspace: "/workspace",
-          env: {},
-        },
+        kind: "local",
+        executable: "codex",
+        args: ["app-server"],
+        workspace: "/workspace",
+        env: {},
       },
       { HOME: "/Users/tester", PATH: "/usr/bin:/bin" },
       "/workspace",
@@ -119,13 +118,11 @@ describe("resolveAppServerProcessConfiguration", () => {
 
     const explicit = resolveConfiguredAppServerProcess(
       {
-        connection: {
-          kind: "local",
-          executable: "codex",
-          args: ["app-server"],
-          workspace: "/workspace",
-          env: { PATH: "/custom/bin" },
-        },
+        kind: "local",
+        executable: "codex",
+        args: ["app-server"],
+        workspace: "/workspace",
+        env: { PATH: "/custom/bin" },
       },
       { PATH: "/usr/bin" },
       "/workspace",
@@ -141,5 +138,56 @@ describe("resolveAppServerProcessConfiguration", () => {
     expect(() =>
       resolveAppServerProcessConfiguration({ T3CODE_APP_SERVER_ENV: '{"PORT":42}' }, "/workspace"),
     ).toThrow(AppServerConfigurationError);
+  });
+
+  it("migrates the legacy single connection and validates concurrent environments", () => {
+    const local = {
+      kind: "local" as const,
+      executable: "codex",
+      args: ["app-server"],
+      workspace: "/workspace",
+      env: {},
+    };
+    expect(parseAppServerDesktopSettings({ connection: local })).toEqual({
+      connections: [{ id: "local", name: "Local", connection: local }],
+    });
+
+    const remote = {
+      kind: "ssh" as const,
+      host: "build-box",
+      username: "",
+      port: null,
+      identityFile: "",
+      executable: "codex",
+      args: ["app-server"],
+      workspace: "/work/project",
+      env: {},
+    };
+    expect(
+      parseAppServerDesktopSettings({
+        connections: [
+          { id: "local", name: "Local", connection: local },
+          { id: "build-box", name: "Build box", connection: remote },
+        ],
+      }),
+    ).toEqual({
+      connections: [
+        { id: "local", name: "Local", connection: local },
+        { id: "build-box", name: "Build box", connection: remote },
+      ],
+    });
+    expect(() =>
+      parseAppServerDesktopSettings({
+        connections: [
+          { id: "duplicate", name: "One", connection: local },
+          { id: "duplicate", name: "Two", connection: remote },
+        ],
+      }),
+    ).toThrow("Connection profile ids must be unique.");
+    expect(() =>
+      parseAppServerDesktopSettings({
+        connections: [{ id: "remote", name: "Remote", connection: remote }],
+      }),
+    ).toThrow("Desktop settings must contain a local app-server environment.");
   });
 });

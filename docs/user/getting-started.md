@@ -24,17 +24,18 @@ vp run build:desktop
 vp run start:desktop
 ```
 
-## First connection
+## First environments
 
-The default connection launches:
+The default Local environment launches:
 
 ```text
 codex app-server
 ```
 
-with the repository root as its workspace. Open Settings to select another executable, argument
-list, environment, or workspace. T3 Codex sends the app-server initialization handshake and then
-loads account, model, skill, and thread data.
+with the repository root as its workspace. Open Settings to change its executable, argument list,
+environment, or workspace, and to add SSH environments. Local and every saved SSH environment
+connect concurrently. T3 Codex sends a separate app-server initialization handshake to each and
+keeps their account, model, Remote, project, and thread state scoped independently.
 
 T3 Codex does not run an inherited T3 backend. The renderer is served directly by Electron and all
 agent operations cross the app-server JSONL connection.

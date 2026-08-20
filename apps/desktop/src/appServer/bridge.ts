@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 
 import type { IpcMain, IpcMainEvent, MessagePortMain } from "electron";
 import { MessageChannelMain } from "electron";
-import type { AppServerDesktopSettings } from "../../../../packages/effect-codex-app-server/src/connection.ts";
+import type { AppServerConnectionProfile } from "../../../../packages/effect-codex-app-server/src/connection.ts";
 
 import {
   APP_SERVER_CONNECT_CHANNEL,
@@ -11,7 +11,7 @@ import {
   APP_SERVER_PORT_CHANNEL,
 } from "../ipc/channels.ts";
 import {
-  parseAppServerDesktopSettings,
+  parseAppServerConnectionProfile,
   resolveConfiguredAppServerProcess,
 } from "./configuration.ts";
 
@@ -40,10 +40,14 @@ function forwardOutput(port: MessagePortMain, chunk: Buffer): void {
 
 function openConnection(
   event: IpcMainEvent,
-  settings: AppServerDesktopSettings,
+  profile: AppServerConnectionProfile,
   onClosed: () => void,
 ): AppServerConnection {
-  const configuration = resolveConfiguredAppServerProcess(settings, process.env, homedir());
+  const configuration = resolveConfiguredAppServerProcess(
+    profile.connection,
+    process.env,
+    homedir(),
+  );
   const child = NodeChildProcess.spawn(configuration.executable, [...configuration.args], {
     cwd: configuration.cwd,
     env: configuration.env,
@@ -69,13 +73,19 @@ function openConnection(
     if (error.code !== "EPIPE") writeDiagnostic(error.message);
   });
   child.on("error", (error) => {
-    event.sender.send(APP_SERVER_ERROR_CHANNEL, error.message);
+    event.sender.send(APP_SERVER_ERROR_CHANNEL, {
+      connectionId: profile.id,
+      message: error.message,
+    });
     close();
   });
   child.on("close", (code, signal) => {
     if (!closed) {
       const detail = signal === null ? `exit code ${String(code)}` : `signal ${signal}`;
-      event.sender.send(APP_SERVER_ERROR_CHANNEL, `App-server connection closed with ${detail}.`);
+      event.sender.send(APP_SERVER_ERROR_CHANNEL, {
+        connectionId: profile.id,
+        message: `App-server connection closed with ${detail}.`,
+      });
     }
     close();
   });
@@ -88,35 +98,43 @@ function openConnection(
   port1.on("close", close);
   port1.start();
 
-  event.sender.postMessage(APP_SERVER_PORT_CHANNEL, null, [port2]);
+  event.sender.postMessage(APP_SERVER_PORT_CHANNEL, { connectionId: profile.id }, [port2]);
   return { close };
 }
 
 export function registerAppServerBridge(ipcMain: IpcMain): () => void {
-  const connections = new Set<AppServerConnection>();
+  const connections = new Map<string, AppServerConnection>();
 
   const handleConnect = (event: IpcMainEvent, value: unknown) => {
     try {
-      const settings = parseAppServerDesktopSettings(value);
+      const profile = parseAppServerConnectionProfile(value);
+      const key = `${event.sender.id}:${profile.id}`;
+      connections.get(key)?.close();
       let connection: AppServerConnection | undefined;
-      connection = openConnection(event, settings, () => {
-        if (connection !== undefined) connections.delete(connection);
+      connection = openConnection(event, profile, () => {
+        if (connection !== undefined && connections.get(key) === connection) {
+          connections.delete(key);
+        }
       });
-      connections.add(connection);
+      connections.set(key, connection);
       event.sender.once("destroyed", () => {
         connection.close();
-        connections.delete(connection);
+        if (connections.get(key) === connection) connections.delete(key);
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      event.sender.send(APP_SERVER_ERROR_CHANNEL, message);
+      const connectionId =
+        typeof value === "object" && value !== null && "id" in value && typeof value.id === "string"
+          ? value.id
+          : null;
+      event.sender.send(APP_SERVER_ERROR_CHANNEL, { connectionId, message });
     }
   };
 
   ipcMain.on(APP_SERVER_CONNECT_CHANNEL, handleConnect);
   return () => {
     ipcMain.removeListener(APP_SERVER_CONNECT_CHANNEL, handleConnect);
-    for (const connection of connections) connection.close();
+    for (const connection of connections.values()) connection.close();
     connections.clear();
   };
 }

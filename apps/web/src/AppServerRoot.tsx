@@ -1,7 +1,7 @@
 import { RotateCcwIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { toSettingsDraft, useAppServerController } from "./appServer/useAppServerController";
+import { useAppServerController } from "./appServer/useAppServerController";
 import { AppSidebarLayout } from "./components/AppSidebarLayout";
 import { RemoteDialog } from "./components/RemoteDialog";
 import { SidebarV2 } from "./components/SidebarV2";
@@ -26,10 +26,10 @@ export function AppServerRoot() {
 
   const selectedSummary = useMemo(
     () =>
-      controller.connection.snapshot?.threads.find(
+      controller.selectedEnvironment?.snapshot?.threads.find(
         (thread) => thread.id === controller.selectedThreadId,
       ) ?? null,
-    [controller.connection.snapshot, controller.selectedThreadId],
+    [controller.selectedEnvironment?.snapshot, controller.selectedThreadId],
   );
   const settingsSectionLabel =
     SETTINGS_SECTIONS.find((section) => section.id === settingsSection)?.label ?? "General";
@@ -46,22 +46,28 @@ export function AppServerRoot() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [page]);
 
-  if (controller.settings === null) {
+  if (
+    controller.settings === null ||
+    controller.connection === null ||
+    controller.selectedEnvironment === null
+  ) {
     return (
       <main className="grid h-dvh place-items-center bg-background text-sm text-muted-foreground">
         <p>{controller.settingsError ?? "Loading T3 Codex…"}</p>
       </main>
     );
   }
+  const selectedEnvironment = controller.selectedEnvironment;
 
-  const openNewThread = () => {
+  const openNewThread = (environmentId: string | null = controller.selectedEnvironmentId) => {
     setPage("threads");
-    void controller.selectThread(null);
+    const target = environmentId ?? controller.environments[0]?.profile.id;
+    if (target !== undefined) void controller.selectThread(target, null);
   };
 
-  const openRemote = () => {
+  const openRemote = (environmentId: string = selectedEnvironment.profile.id) => {
     setRemoteOpen(true);
-    void controller.beginRemotePairing();
+    void controller.beginRemotePairing(environmentId);
   };
 
   return (
@@ -75,17 +81,18 @@ export function AppServerRoot() {
           />
         ) : (
           <SidebarV2
-            connection={controller.connection}
+            environments={controller.environments}
             groupProjects={preferences.groupProjects}
             projects={controller.projects}
+            selectedEnvironmentId={controller.selectedEnvironmentId}
             selectedThreadId={controller.selectedThreadId}
             settingsActive={false}
             timestampFormat={preferences.timestampFormat}
             onNewThread={openNewThread}
             onOpenSettings={() => setPage("settings")}
-            onSelectThread={(threadId) => {
+            onSelectThread={(environmentId, threadId) => {
               setPage("threads");
-              void controller.selectThread(threadId);
+              void controller.selectThread(environmentId, threadId);
             }}
           />
         )
@@ -111,13 +118,13 @@ export function AppServerRoot() {
           </header>
           <SettingsPanels
             error={controller.settingsError}
-            initialDraft={toSettingsDraft(controller.settings)}
+            environments={controller.environments}
             preferences={preferences}
-            remoteStatus={controller.connection.remote?.status ?? null}
             section={settingsSection}
             sshHosts={controller.sshHosts}
             onOpenRemote={openRemote}
-            onSave={controller.saveSettings}
+            onRemove={controller.removeEnvironment}
+            onSave={controller.saveEnvironment}
             onUpdatePreferences={updatePreferences}
           />
         </>
@@ -125,15 +132,16 @@ export function AppServerRoot() {
         <ThreadWorkspace
           actionError={controller.actionError}
           connection={controller.connection}
+          environmentName={selectedEnvironment.profile.name}
           loading={controller.threadLoading}
           models={controller.models}
           pendingApproval={controller.pendingApproval}
           summary={selectedSummary}
           thread={controller.thread}
-          workspace={controller.settings.connection.workspace}
+          workspace={selectedEnvironment.profile.connection.workspace}
           onInterrupt={controller.interruptTurn}
-          onRemote={openRemote}
-          onRetry={controller.retry}
+          onRemote={() => openRemote(selectedEnvironment.profile.id)}
+          onRetry={() => controller.retry(selectedEnvironment.profile.id)}
           onSend={controller.sendTurn}
           onStart={controller.startThread}
         />

@@ -1,6 +1,7 @@
 import * as CodexClient from "effect-codex-app-server/client";
 import type * as CodexError from "effect-codex-app-server/errors";
 import type {
+  AppServerConnectionProfile,
   AppServerConnectionSettings,
   AppServerDesktopSettings,
   DiscoveredSshHost,
@@ -27,11 +28,14 @@ import {
 } from "./presentation";
 
 const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000] as const;
-const CACHE_PREFIX = "t3-codex:app-server-cache:v2:";
+const CACHE_PREFIX = "t3-codex:app-server-cache:v3:";
+let nextDraftId = 0;
 
 type Client = CodexClient.CodexAppServerClient["Service"];
 
 export interface SettingsDraft {
+  readonly id: string;
+  readonly name: string;
   readonly kind: "local" | "ssh";
   readonly executable: string;
   readonly args: string;
@@ -49,7 +53,7 @@ export interface CachedSnapshot {
 }
 
 export interface ConnectionState {
-  readonly phase: "connecting" | "reconnecting" | "ready";
+  readonly phase: "connecting" | "reconnecting" | "connected";
   readonly attempt: number;
   readonly error: string | null;
   readonly retryAt: number | null;
@@ -58,7 +62,21 @@ export interface ConnectionState {
   readonly remote: Remote.RemoteControlStatus | null;
 }
 
+export interface EnvironmentState extends ConnectionState {
+  readonly profile: AppServerConnectionProfile;
+  readonly models: ReadonlyArray<ModelOption>;
+}
+
+export interface EnvironmentProject {
+  readonly key: string;
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly cwd: string;
+  readonly threads: ReadonlyArray<ThreadSummary>;
+}
+
 export interface RemoteDialogState {
+  readonly connectionId: string | null;
   readonly pairing: Remote.RemoteControlPairing | null;
   readonly clients: ReadonlyArray<Remote.RemoteControlClient>;
   readonly error: string | null;
@@ -69,6 +87,8 @@ export type ApprovalDecision = "accept" | "acceptForSession" | "decline" | "canc
 
 export interface PendingApproval {
   readonly id: string;
+  readonly environmentId: string;
+  readonly threadId: string;
   readonly kind: "command" | "fileChange";
   readonly title: string;
   readonly detail: string | null;
@@ -76,19 +96,24 @@ export interface PendingApproval {
   readonly respond: (decision: ApprovalDecision) => void;
 }
 
+interface EnvironmentRuntime {
+  readonly close: () => void;
+  readonly retry: () => void;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function cacheKey(settings: AppServerDesktopSettings): string {
-  const connection = settings.connection;
+function cacheKey(profile: AppServerConnectionProfile): string {
+  const connection = profile.connection;
   const location = connection.kind === "ssh" ? connection.host : "local";
-  return `${CACHE_PREFIX}${encodeURIComponent(`${connection.kind}:${location}:${connection.workspace}`)}`;
+  return `${CACHE_PREFIX}${encodeURIComponent(`${profile.id}:${connection.kind}:${location}:${connection.workspace}`)}`;
 }
 
-function readCache(settings: AppServerDesktopSettings): CachedSnapshot | null {
+function readCache(profile: AppServerConnectionProfile): CachedSnapshot | null {
   try {
-    const raw = window.localStorage.getItem(cacheKey(settings));
+    const raw = window.localStorage.getItem(cacheKey(profile));
     if (raw === null) return null;
     const value: unknown = JSON.parse(raw);
     if (!isRecord(value) || typeof value.updatedAt !== "number" || !Array.isArray(value.threads)) {
@@ -103,17 +128,33 @@ function readCache(settings: AppServerDesktopSettings): CachedSnapshot | null {
   }
 }
 
-function writeCache(settings: AppServerDesktopSettings, snapshot: CachedSnapshot): void {
+function writeCache(profile: AppServerConnectionProfile, snapshot: CachedSnapshot): void {
   try {
-    window.localStorage.setItem(cacheKey(settings), JSON.stringify(snapshot));
+    window.localStorage.setItem(cacheKey(profile), JSON.stringify(snapshot));
   } catch {
     // A full or disabled presentation cache must never break a live connection.
   }
 }
 
-export function toSettingsDraft(settings: AppServerDesktopSettings): SettingsDraft {
-  const connection = settings.connection;
+function initialEnvironmentState(profile: AppServerConnectionProfile): EnvironmentState {
   return {
+    profile,
+    phase: "connecting",
+    attempt: 1,
+    error: null,
+    retryAt: null,
+    snapshot: readCache(profile),
+    account: null,
+    remote: null,
+    models: [],
+  };
+}
+
+export function toSettingsDraft(profile: AppServerConnectionProfile): SettingsDraft {
+  const connection = profile.connection;
+  return {
+    id: profile.id,
+    name: profile.name,
     kind: connection.kind,
     executable: connection.executable,
     args: JSON.stringify(connection.args, null, 2),
@@ -123,6 +164,23 @@ export function toSettingsDraft(settings: AppServerDesktopSettings): SettingsDra
     username: connection.kind === "ssh" ? connection.username : "",
     port: connection.kind === "ssh" && connection.port !== null ? String(connection.port) : "",
     identityFile: connection.kind === "ssh" ? connection.identityFile : "",
+  };
+}
+
+export function newSshSettingsDraft(
+  localProfile: AppServerConnectionProfile,
+  host = "",
+): SettingsDraft {
+  const base = toSettingsDraft(localProfile);
+  return {
+    ...base,
+    id: `ssh-${Date.now().toString(36)}-${(nextDraftId += 1).toString(36)}`,
+    name: host || "Remote environment",
+    kind: "ssh",
+    host,
+    username: "",
+    port: "",
+    identityFile: "",
   };
 }
 
@@ -142,17 +200,20 @@ function parseEnvironment(value: string): Readonly<Record<string, string>> {
   return parsed as Record<string, string>;
 }
 
-export function fromSettingsDraft(draft: SettingsDraft): AppServerDesktopSettings {
+export function fromSettingsDraft(draft: SettingsDraft): AppServerConnectionProfile {
+  const name = draft.name.trim();
   const common = {
     executable: draft.executable.trim(),
     args: parseStringArray(draft.args),
     workspace: draft.workspace.trim(),
     env: parseEnvironment(draft.env),
   };
-  if (!common.executable || !common.workspace) {
-    throw new Error("Executable and workspace are required.");
+  if (!name || !common.executable || !common.workspace) {
+    throw new Error("Name, executable, and workspace are required.");
   }
-  if (draft.kind === "local") return { connection: { kind: "local", ...common } };
+  if (draft.kind === "local") {
+    return { id: draft.id, name, connection: { kind: "local", ...common } };
+  }
   if (!draft.host.trim()) throw new Error("SSH host is required.");
   const parsedPort = draft.port.trim() ? Number(draft.port) : null;
   if (
@@ -162,6 +223,8 @@ export function fromSettingsDraft(draft: SettingsDraft): AppServerDesktopSetting
     throw new Error("SSH port must be an integer from 1 to 65535.");
   }
   return {
+    id: draft.id,
+    name,
     connection: {
       kind: "ssh",
       ...common,
@@ -200,57 +263,111 @@ export function connectionLabel(connection: AppServerConnectionSettings): string
     : `SSH · ${connection.username ? `${connection.username}@` : ""}${connection.host}`;
 }
 
+export function connectionStatusText(connection: ConnectionState): string {
+  if (connection.phase === "connected") return "Connected";
+  if (connection.phase === "connecting") return "Connecting…";
+  return connection.error
+    ? `Failed to connect. Reconnecting… ${connection.error}`
+    : "Reconnecting…";
+}
+
+export function projectEnvironmentProjects(
+  environments: ReadonlyArray<EnvironmentState>,
+): ReadonlyArray<EnvironmentProject> {
+  const result: EnvironmentProject[] = [];
+  for (const environment of environments) {
+    const grouped = new Map<string, ThreadSummary[]>();
+    for (const item of environment.snapshot?.threads ?? []) {
+      const current = grouped.get(item.cwd) ?? [];
+      current.push(item);
+      grouped.set(item.cwd, current);
+    }
+    for (const [cwd, threads] of grouped) {
+      result.push({
+        key: `${environment.profile.id}:${cwd}`,
+        environmentId: environment.profile.id,
+        environmentName: environment.profile.name,
+        cwd,
+        threads,
+      });
+    }
+  }
+  return result;
+}
+
 export function useAppServerController() {
   const [settings, setSettings] = useState<AppServerDesktopSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [sshHosts, setSshHosts] = useState<ReadonlyArray<DiscoveredSshHost>>([]);
-  const [connectionGeneration, setConnectionGeneration] = useState(0);
-  const [connection, setConnection] = useState<ConnectionState>({
-    phase: "connecting",
-    attempt: 1,
-    error: null,
-    retryAt: null,
-    snapshot: null,
-    account: null,
-    remote: null,
-  });
-  const [models, setModels] = useState<ReadonlyArray<ModelOption>>([]);
+  const [environmentStates, setEnvironmentStates] = useState<
+    Readonly<Record<string, EnvironmentState>>
+  >({});
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [threadEnvironmentId, setThreadEnvironmentId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<ReadonlyArray<PendingApproval>>([]);
   const [remote, setRemote] = useState<RemoteDialogState>({
+    connectionId: null,
     pairing: null,
     clients: [],
     error: null,
     busy: false,
   });
-  const clientRef = useRef<Client | null>(null);
+  const clientsRef = useRef(new Map<string, Client>());
+  const runtimesRef = useRef(new Map<string, EnvironmentRuntime>());
+  const selectionRef = useRef({ environmentId: selectedEnvironmentId, threadId: selectedThreadId });
+  selectionRef.current = { environmentId: selectedEnvironmentId, threadId: selectedThreadId };
 
-  const replaceThreads = useCallback(
-    (threads: ReadonlyArray<ThreadSummary>) => {
-      if (settings === null) return;
-      const snapshot = { updatedAt: Date.now(), threads };
-      writeCache(settings, snapshot);
-      setConnection((current) => ({ ...current, snapshot }));
+  const updateEnvironment = useCallback(
+    (environmentId: string, update: (current: EnvironmentState) => EnvironmentState) => {
+      setEnvironmentStates((current) => {
+        const environment = current[environmentId];
+        if (environment === undefined) return current;
+        return { ...current, [environmentId]: update(environment) };
+      });
     },
-    [settings],
+    [],
   );
 
-  const upsertThreadSummary = useCallback(
-    (value: unknown) => {
-      const summary = projectThreadSummary(value);
-      if (summary === null) return;
-      setConnection((current) => {
-        const existing = current.snapshot?.threads ?? [];
-        const threads = [summary, ...existing.filter((candidate) => candidate.id !== summary.id)];
-        const snapshot = { updatedAt: Date.now(), threads };
-        if (settings !== null) writeCache(settings, snapshot);
+  const replaceThreads = useCallback(
+    (profile: AppServerConnectionProfile, threads: ReadonlyArray<ThreadSummary>) => {
+      const snapshot = { updatedAt: Date.now(), threads };
+      writeCache(profile, snapshot);
+      updateEnvironment(profile.id, (current) => ({ ...current, snapshot }));
+    },
+    [updateEnvironment],
+  );
+
+  const updateThreadSnapshot = useCallback(
+    (
+      profile: AppServerConnectionProfile,
+      update: (threads: ReadonlyArray<ThreadSummary>) => ReadonlyArray<ThreadSummary>,
+    ) => {
+      updateEnvironment(profile.id, (current) => {
+        const snapshot = {
+          updatedAt: Date.now(),
+          threads: update(current.snapshot?.threads ?? []),
+        };
+        writeCache(profile, snapshot);
         return { ...current, snapshot };
       });
     },
-    [settings],
+    [updateEnvironment],
+  );
+
+  const upsertThreadSummary = useCallback(
+    (profile: AppServerConnectionProfile, value: unknown) => {
+      const summary = projectThreadSummary(value);
+      if (summary === null) return;
+      updateThreadSnapshot(profile, (threads) => [
+        summary,
+        ...threads.filter((candidate) => candidate.id !== summary.id),
+      ]);
+    },
+    [updateThreadSnapshot],
   );
 
   useEffect(() => {
@@ -262,7 +379,16 @@ export function useAppServerController() {
     void bridge.getAppServerSettings().then(
       (loaded) => {
         setSettings(loaded);
-        setConnection((current) => ({ ...current, snapshot: readCache(loaded) }));
+        setEnvironmentStates(
+          Object.fromEntries(
+            loaded.connections.map((profile) => [profile.id, initialEnvironmentState(profile)]),
+          ),
+        );
+        setSelectedEnvironmentId((current) =>
+          current !== null && loaded.connections.some((profile) => profile.id === current)
+            ? current
+            : (loaded.connections[0]?.id ?? null),
+        );
       },
       (error: unknown) => setSettingsError(errorMessage(error)),
     );
@@ -274,315 +400,418 @@ export function useAppServerController() {
     const bridge = window.desktopBridge;
     if (bridge === undefined) return;
 
-    let active = true;
-    let attempt = 0;
-    let port: MessagePort | undefined;
-    let scope: Scope.Closeable | undefined;
-    let unsubscribe: (() => void) | undefined;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    for (const runtime of runtimesRef.current.values()) runtime.close();
+    runtimesRef.current.clear();
+    clientsRef.current.clear();
 
-    const closeCurrent = () => {
-      unsubscribe?.();
-      unsubscribe = undefined;
-      port?.close();
-      port = undefined;
-      if (scope !== undefined) Effect.runFork(Scope.close(scope, Exit.void));
-      scope = undefined;
-      clientRef.current = null;
-    };
+    setEnvironmentStates((current) =>
+      Object.fromEntries(
+        settings.connections.map((profile) => {
+          const previous = current[profile.id];
+          return [
+            profile.id,
+            previous === undefined
+              ? initialEnvironmentState(profile)
+              : {
+                  ...previous,
+                  profile,
+                  phase: "connecting",
+                  attempt: 1,
+                  error: null,
+                  retryAt: null,
+                },
+          ];
+        }),
+      ),
+    );
 
-    const scheduleReconnect = (message: string) => {
-      if (!active || retryTimer !== undefined) return;
-      closeCurrent();
-      setThread(null);
-      setPendingApproval(null);
-      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] ?? 16_000;
-      attempt += 1;
-      setConnection((current) => ({
-        ...current,
-        phase: "reconnecting",
-        attempt: attempt + 1,
-        error: message,
-        retryAt: Date.now() + delay,
-      }));
-      retryTimer = setTimeout(() => {
-        retryTimer = undefined;
-        connect();
-      }, delay);
-    };
+    for (const profile of settings.connections) {
+      let active = true;
+      let attempt = 0;
+      let port: MessagePort | undefined;
+      let scope: Scope.Closeable | undefined;
+      let unsubscribe: (() => void) | undefined;
+      let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connectClient = (connectedPort: MessagePort) =>
-      Effect.gen(function* () {
-        const nextScope = yield* Scope.make();
-        const client = yield* CodexClient.make(fromMessagePort(connectedPort)).pipe(
-          Effect.provideService(Scope.Scope, nextScope),
-        );
+      const closeCurrent = () => {
+        unsubscribe?.();
+        unsubscribe = undefined;
+        const currentPort = port;
+        port = undefined;
+        currentPort?.close();
+        if (scope !== undefined) Effect.runFork(Scope.close(scope, Exit.void));
+        scope = undefined;
+        clientsRef.current.delete(profile.id);
+      };
 
-        yield* client.handleServerNotification("remoteControl/status/changed", (status) =>
-          Effect.sync(() => {
-            if (!active) return;
-            setConnection((current) => ({
-              ...current,
-              remote: {
-                environmentId: status.environmentId ?? null,
-                installationId: status.installationId ?? "",
-                serverName: status.serverName ?? "",
-                status: status.status,
-              },
-            }));
-          }),
-        );
-        yield* client.handleServerNotification("thread/started", ({ thread: started }) =>
-          Effect.sync(() => upsertThreadSummary(started)),
-        );
-        yield* client.handleServerNotification("thread/name/updated", ({ threadId, threadName }) =>
-          Effect.sync(() => {
-            setConnection((current) => ({
-              ...current,
-              snapshot: current.snapshot
-                ? {
-                    ...current.snapshot,
-                    threads: current.snapshot.threads.map((item) =>
-                      item.id === threadId ? { ...item, name: threadName ?? null } : item,
-                    ),
-                  }
-                : null,
-            }));
-          }),
-        );
-        yield* client.handleServerNotification("thread/status/changed", ({ threadId, status }) =>
-          Effect.sync(() => {
-            setConnection((current) => ({
-              ...current,
-              snapshot: current.snapshot
-                ? {
-                    ...current.snapshot,
-                    threads: current.snapshot.threads.map((item) =>
-                      item.id === threadId ? { ...item, status: status.type } : item,
-                    ),
-                  }
-                : null,
-            }));
-          }),
-        );
-        yield* client.handleServerRequest("item/commandExecution/requestApproval", (request) =>
-          Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
-            const id = `${request.turnId}:${request.approvalId ?? request.itemId}`;
-            setPendingApproval({
-              id,
-              kind: "command",
-              title: request.command ?? "Run command",
-              detail: request.cwd ?? null,
-              reason: request.reason ?? null,
-              respond: (decision) => {
-                setPendingApproval((current) => (current?.id === id ? null : current));
-                resume(Effect.succeed({ decision }));
-              },
-            });
-            return Effect.sync(() => {
-              setPendingApproval((current) => (current?.id === id ? null : current));
-            });
-          }),
-        );
-        yield* client.handleServerRequest("item/fileChange/requestApproval", (request) =>
-          Effect.callback<CodexSchema.FileChangeRequestApprovalResponse>((resume) => {
-            const id = `${request.turnId}:${request.itemId}`;
-            setPendingApproval({
-              id,
-              kind: "fileChange",
-              title: request.grantRoot
-                ? `Write files under ${request.grantRoot}`
-                : "Apply file changes",
-              detail: request.grantRoot ?? null,
-              reason: request.reason ?? null,
-              respond: (decision) => {
-                setPendingApproval((current) => (current?.id === id ? null : current));
-                resume(Effect.succeed({ decision }));
-              },
-            });
-            return Effect.sync(() => {
-              setPendingApproval((current) => (current?.id === id ? null : current));
-            });
-          }),
-        );
-        yield* client.handleServerNotification("turn/started", ({ threadId, turn }) =>
-          Effect.sync(() => {
-            setThread((current) =>
-              current?.id === threadId ? upsertTurn(current, turn) : current,
-            );
-          }),
-        );
-        yield* client.handleServerNotification("turn/completed", ({ threadId, turn }) =>
-          Effect.sync(() => {
-            setThread((current) =>
-              current?.id === threadId ? upsertTurn(current, turn) : current,
-            );
-          }),
-        );
-        yield* client.handleServerNotification("item/started", ({ item, threadId, turnId }) =>
-          Effect.sync(() => {
-            setThread((current) =>
-              current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
-            );
-          }),
-        );
-        yield* client.handleServerNotification("item/completed", ({ item, threadId, turnId }) =>
-          Effect.sync(() => {
-            setThread((current) =>
-              current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
-            );
-          }),
-        );
-        yield* client.handleServerNotification(
-          "item/agentMessage/delta",
-          ({ delta, itemId, threadId, turnId }) =>
+      const connect = () => {
+        if (!active) return;
+        updateEnvironment(profile.id, (current) => ({
+          ...current,
+          phase: attempt === 0 ? "connecting" : "reconnecting",
+          attempt: attempt + 1,
+          error: attempt === 0 ? null : current.error,
+          retryAt: null,
+        }));
+        unsubscribe = bridge.connectAppServer(profile, scheduleReconnect);
+      };
+
+      const scheduleReconnect = (message: string) => {
+        if (!active || retryTimer !== undefined) return;
+        closeCurrent();
+        if (selectionRef.current.environmentId === profile.id) {
+          setThreadEnvironmentId(null);
+        }
+        const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] ?? 16_000;
+        attempt += 1;
+        updateEnvironment(profile.id, (current) => ({
+          ...current,
+          phase: "reconnecting",
+          attempt: attempt + 1,
+          error: message,
+          retryAt: Date.now() + delay,
+        }));
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          connect();
+        }, delay);
+      };
+
+      const removeApproval = (id: string) => {
+        setPendingApprovals((current) => current.filter((approval) => approval.id !== id));
+      };
+
+      const connectClient = (connectedPort: MessagePort) =>
+        Effect.gen(function* () {
+          const nextScope = yield* Scope.make();
+          const client = yield* CodexClient.make(fromMessagePort(connectedPort)).pipe(
+            Effect.provideService(Scope.Scope, nextScope),
+          );
+
+          yield* client.handleServerNotification("remoteControl/status/changed", (status) =>
             Effect.sync(() => {
+              if (!active) return;
+              updateEnvironment(profile.id, (current) => ({
+                ...current,
+                remote: {
+                  environmentId: status.environmentId ?? null,
+                  installationId: status.installationId ?? "",
+                  serverName: status.serverName ?? "",
+                  status: status.status,
+                },
+              }));
+            }),
+          );
+          yield* client.handleServerNotification("thread/started", ({ thread: started }) =>
+            Effect.sync(() => upsertThreadSummary(profile, started)),
+          );
+          yield* client.handleServerNotification(
+            "thread/name/updated",
+            ({ threadId, threadName }) =>
+              Effect.sync(() =>
+                updateThreadSnapshot(profile, (threads) =>
+                  threads.map((item) =>
+                    item.id === threadId ? { ...item, name: threadName ?? null } : item,
+                  ),
+                ),
+              ),
+          );
+          yield* client.handleServerNotification("thread/status/changed", ({ threadId, status }) =>
+            Effect.sync(() =>
+              updateThreadSnapshot(profile, (threads) =>
+                threads.map((item) =>
+                  item.id === threadId ? { ...item, status: status.type } : item,
+                ),
+              ),
+            ),
+          );
+          yield* client.handleServerRequest("item/commandExecution/requestApproval", (request) =>
+            Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
+              const id = `${profile.id}:${request.turnId}:${request.approvalId ?? request.itemId}`;
+              setPendingApprovals((current) => [
+                ...current.filter((approval) => approval.id !== id),
+                {
+                  id,
+                  environmentId: profile.id,
+                  threadId: request.threadId,
+                  kind: "command",
+                  title: request.command ?? "Run command",
+                  detail: request.cwd ?? null,
+                  reason: request.reason ?? null,
+                  respond: (decision) => {
+                    removeApproval(id);
+                    resume(Effect.succeed({ decision }));
+                  },
+                },
+              ]);
+              return Effect.sync(() => removeApproval(id));
+            }),
+          );
+          yield* client.handleServerRequest("item/fileChange/requestApproval", (request) =>
+            Effect.callback<CodexSchema.FileChangeRequestApprovalResponse>((resume) => {
+              const id = `${profile.id}:${request.turnId}:${request.itemId}`;
+              setPendingApprovals((current) => [
+                ...current.filter((approval) => approval.id !== id),
+                {
+                  id,
+                  environmentId: profile.id,
+                  threadId: request.threadId,
+                  kind: "fileChange",
+                  title: request.grantRoot
+                    ? `Write files under ${request.grantRoot}`
+                    : "Apply file changes",
+                  detail: request.grantRoot ?? null,
+                  reason: request.reason ?? null,
+                  respond: (decision) => {
+                    removeApproval(id);
+                    resume(Effect.succeed({ decision }));
+                  },
+                },
+              ]);
+              return Effect.sync(() => removeApproval(id));
+            }),
+          );
+          yield* client.handleServerNotification("turn/started", ({ threadId, turn }) =>
+            Effect.sync(() => {
+              const selected = selectionRef.current;
+              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
               setThread((current) =>
-                current?.id === threadId
-                  ? appendAgentMessageDelta(current, turnId, itemId, delta)
-                  : current,
+                current?.id === threadId ? upsertTurn(current, turn) : current,
               );
             }),
-        );
-        yield* client.request("initialize", {
-          clientInfo: {
-            name: "t3-codex",
-            title: "T3 Codex",
-            version: import.meta.env.APP_VERSION,
-          },
-          capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+          );
+          yield* client.handleServerNotification("turn/completed", ({ threadId, turn }) =>
+            Effect.sync(() => {
+              const selected = selectionRef.current;
+              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+              setThread((current) =>
+                current?.id === threadId ? upsertTurn(current, turn) : current,
+              );
+            }),
+          );
+          yield* client.handleServerNotification("item/started", ({ item, threadId, turnId }) =>
+            Effect.sync(() => {
+              const selected = selectionRef.current;
+              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+              setThread((current) =>
+                current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
+              );
+            }),
+          );
+          yield* client.handleServerNotification("item/completed", ({ item, threadId, turnId }) =>
+            Effect.sync(() => {
+              const selected = selectionRef.current;
+              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+              setThread((current) =>
+                current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
+              );
+            }),
+          );
+          yield* client.handleServerNotification(
+            "item/agentMessage/delta",
+            ({ delta, itemId, threadId, turnId }) =>
+              Effect.sync(() => {
+                const selected = selectionRef.current;
+                if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+                setThread((current) =>
+                  current?.id === threadId
+                    ? appendAgentMessageDelta(current, turnId, itemId, delta)
+                    : current,
+                );
+              }),
+          );
+          yield* client.request("initialize", {
+            clientInfo: {
+              name: "t3-codex",
+              title: "T3 Codex",
+              version: import.meta.env.APP_VERSION,
+            },
+            capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+          });
+          yield* client.notify("initialized", undefined);
+
+          const [threads, account, modelResponse, remoteStatus] = yield* Effect.all(
+            [
+              readAllThreads(client),
+              client.request("account/read", {}),
+              client.request("model/list", {}),
+              Remote.readStatus(client).pipe(Effect.option),
+            ],
+            { concurrency: "unbounded" },
+          );
+          return {
+            client,
+            scope: nextScope,
+            threads,
+            account,
+            models: projectModels(modelResponse),
+            remote: remoteStatus._tag === "Some" ? remoteStatus.value : null,
+          };
         });
-        yield* client.notify("initialized", undefined);
 
-        const [threads, account, modelResponse, remoteStatus] = yield* Effect.all(
-          [
-            readAllThreads(client),
-            client.request("account/read", {}),
-            client.request("model/list", {}),
-            Remote.readStatus(client).pipe(Effect.option),
-          ],
-          { concurrency: "unbounded" },
-        );
-        return {
-          client,
-          scope: nextScope,
-          threads,
-          account,
-          models: projectModels(modelResponse),
-          remote: remoteStatus._tag === "Some" ? remoteStatus.value : null,
-        };
-      });
-
-    const handlePortMessage = (event: MessageEvent<unknown>) => {
-      if (event.source !== window || event.data !== bridge.appServerPortMessage) return;
-      const connectedPort = event.ports[0];
-      if (connectedPort === undefined) return;
-      if (!active) {
-        connectedPort.close();
-        return;
-      }
-      port = connectedPort;
-      connectedPort.addEventListener("close", () =>
-        scheduleReconnect("The app-server transport disconnected."),
-      );
-      Effect.runPromise(connectClient(connectedPort)).then(
-        (loaded) => {
-          if (!active) {
-            Effect.runFork(Scope.close(loaded.scope, Exit.void));
-            return;
+      const handlePortMessage = (event: MessageEvent<unknown>) => {
+        if (
+          event.source !== window ||
+          !isRecord(event.data) ||
+          event.data.type !== bridge.appServerPortMessage ||
+          event.data.connectionId !== profile.id
+        ) {
+          return;
+        }
+        const connectedPort = event.ports[0];
+        if (connectedPort === undefined) return;
+        if (!active) {
+          connectedPort.close();
+          return;
+        }
+        port = connectedPort;
+        connectedPort.addEventListener("close", () => {
+          if (port === connectedPort) {
+            scheduleReconnect("The app-server transport disconnected.");
           }
-          scope = loaded.scope;
-          clientRef.current = loaded.client;
-          attempt = 0;
-          replaceThreads(loaded.threads);
-          setModels(loaded.models);
-          setConnection((current) => ({
-            ...current,
-            phase: "ready",
-            attempt: 1,
-            error: null,
-            retryAt: null,
-            account: loaded.account,
-            remote: loaded.remote,
-          }));
+        });
+        Effect.runPromise(connectClient(connectedPort)).then(
+          (loaded) => {
+            if (!active) {
+              Effect.runFork(Scope.close(loaded.scope, Exit.void));
+              return;
+            }
+            scope = loaded.scope;
+            clientsRef.current.set(profile.id, loaded.client);
+            attempt = 0;
+            replaceThreads(profile, loaded.threads);
+            updateEnvironment(profile.id, (current) => ({
+              ...current,
+              phase: "connected",
+              attempt: 1,
+              error: null,
+              retryAt: null,
+              account: loaded.account,
+              remote: loaded.remote,
+              models: loaded.models,
+            }));
+          },
+          (error: unknown) => scheduleReconnect(errorMessage(error)),
+        );
+      };
+
+      window.addEventListener("message", handlePortMessage);
+      connect();
+      const runtime: EnvironmentRuntime = {
+        close: () => {
+          if (!active) return;
+          active = false;
+          window.removeEventListener("message", handlePortMessage);
+          if (retryTimer !== undefined) clearTimeout(retryTimer);
+          closeCurrent();
+          setPendingApprovals((current) =>
+            current.filter((approval) => approval.environmentId !== profile.id),
+          );
         },
-        (error: unknown) => scheduleReconnect(errorMessage(error)),
-      );
-    };
+        retry: () => {
+          if (!active) return;
+          if (retryTimer !== undefined) {
+            clearTimeout(retryTimer);
+            retryTimer = undefined;
+          }
+          closeCurrent();
+          connect();
+        },
+      };
+      runtimesRef.current.set(profile.id, runtime);
+    }
 
-    window.addEventListener("message", handlePortMessage);
-
-    const connect = () => {
-      if (!active) return;
-      setConnection((current) => ({
-        ...current,
-        phase: attempt === 0 ? "connecting" : "reconnecting",
-        attempt: attempt + 1,
-        error: attempt === 0 ? null : current.error,
-        retryAt: null,
-      }));
-      unsubscribe = bridge.connectAppServer(settings, scheduleReconnect);
-    };
-
-    connect();
     return () => {
-      active = false;
-      window.removeEventListener("message", handlePortMessage);
-      if (retryTimer !== undefined) clearTimeout(retryTimer);
-      closeCurrent();
+      for (const runtime of runtimesRef.current.values()) runtime.close();
+      runtimesRef.current.clear();
     };
-  }, [connectionGeneration, replaceThreads, settings, upsertThreadSummary]);
+  }, [replaceThreads, settings, updateEnvironment, updateThreadSnapshot, upsertThreadSummary]);
 
   const selectThread = useCallback(
-    async (threadId: string | null) => {
+    async (environmentId: string, threadId: string | null) => {
+      setSelectedEnvironmentId(environmentId);
       setSelectedThreadId(threadId);
+      selectionRef.current = { environmentId, threadId };
       setActionError(null);
       if (threadId === null) {
         setThread(null);
+        setThreadEnvironmentId(null);
         return;
       }
-      const client = clientRef.current;
-      if (client === null) return;
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) {
+        setThread(null);
+        setThreadEnvironmentId(null);
+        return;
+      }
       setThreadLoading(true);
       try {
         const response = await Effect.runPromise(client.request("thread/resume", { threadId }));
         const projected = projectThreadDetail(response.thread);
         if (projected === null) throw new Error("The app-server returned an invalid thread.");
+        const selected = selectionRef.current;
+        if (selected.environmentId !== environmentId || selected.threadId !== threadId) return;
         setThread(projected);
-        upsertThreadSummary(response.thread);
+        setThreadEnvironmentId(environmentId);
+        const profile = settings?.connections.find((candidate) => candidate.id === environmentId);
+        if (profile !== undefined) upsertThreadSummary(profile, response.thread);
       } catch (error) {
         setActionError(errorMessage(error));
       } finally {
         setThreadLoading(false);
       }
     },
-    [upsertThreadSummary],
+    [settings?.connections, upsertThreadSummary],
   );
 
+  const selectedEnvironment =
+    selectedEnvironmentId === null ? null : (environmentStates[selectedEnvironmentId] ?? null);
+  const fallbackEnvironment = settings?.connections[0]
+    ? (environmentStates[settings.connections[0].id] ?? null)
+    : null;
+  const connection = selectedEnvironment ?? fallbackEnvironment;
+
   useEffect(() => {
-    if (connection.phase !== "ready" || selectedThreadId === null) return;
-    if (thread?.id === selectedThreadId) return;
-    void selectThread(selectedThreadId);
-  }, [connection.phase, selectedThreadId, selectThread, thread?.id]);
+    if (
+      connection?.phase !== "connected" ||
+      selectedThreadId === null ||
+      selectedEnvironmentId === null
+    ) {
+      return;
+    }
+    if (thread?.id === selectedThreadId && threadEnvironmentId === selectedEnvironmentId) return;
+    void selectThread(selectedEnvironmentId, selectedThreadId);
+  }, [
+    connection?.phase,
+    selectThread,
+    selectedEnvironmentId,
+    selectedThreadId,
+    thread?.id,
+    threadEnvironmentId,
+  ]);
 
   const startThread = useCallback(
     async (prompt: string, model: string | null) => {
-      const client = clientRef.current;
-      if (client === null || settings === null || prompt.trim().length === 0) return;
+      if (selectedEnvironmentId === null || prompt.trim().length === 0) return;
+      const client = clientsRef.current.get(selectedEnvironmentId);
+      const profile = environmentStates[selectedEnvironmentId]?.profile;
+      if (client === undefined || profile === undefined) return;
       setActionError(null);
       setThreadLoading(true);
       try {
         const started = await Effect.runPromise(
           client.request("thread/start", {
-            cwd: settings.connection.workspace,
+            cwd: profile.connection.workspace,
             ...(model ? { model } : {}),
           }),
         );
         const projected = projectThreadDetail(started.thread);
         if (projected === null) throw new Error("The app-server returned an invalid thread.");
         setSelectedThreadId(projected.id);
+        selectionRef.current = { environmentId: selectedEnvironmentId, threadId: projected.id };
         setThread(projected);
-        upsertThreadSummary(started.thread);
+        setThreadEnvironmentId(selectedEnvironmentId);
+        upsertThreadSummary(profile, started.thread);
         const response = await Effect.runPromise(
           client.request("turn/start", {
             threadId: projected.id,
@@ -597,13 +826,14 @@ export function useAppServerController() {
         setThreadLoading(false);
       }
     },
-    [settings, upsertThreadSummary],
+    [environmentStates, selectedEnvironmentId, upsertThreadSummary],
   );
 
   const sendTurn = useCallback(
     async (prompt: string, model: string | null) => {
-      const client = clientRef.current;
-      if (client === null || thread === null || prompt.trim().length === 0) return;
+      if (selectedEnvironmentId === null || thread === null || prompt.trim().length === 0) return;
+      const client = clientsRef.current.get(selectedEnvironmentId);
+      if (client === undefined) return;
       setActionError(null);
       try {
         const activeTurn = thread.turns.find((turn) => turn.status === "inProgress");
@@ -629,13 +859,14 @@ export function useAppServerController() {
         setActionError(errorMessage(error));
       }
     },
-    [thread],
+    [selectedEnvironmentId, thread],
   );
 
   const interruptTurn = useCallback(async () => {
-    const client = clientRef.current;
+    if (selectedEnvironmentId === null) return;
+    const client = clientsRef.current.get(selectedEnvironmentId);
     const activeTurn = thread?.turns.find((turn) => turn.status === "inProgress");
-    if (client === null || thread === null || activeTurn === undefined) return;
+    if (client === undefined || thread === null || activeTurn === undefined) return;
     try {
       await Effect.runPromise(
         client.request("turn/interrupt", { threadId: thread.id, turnId: activeTurn.id }),
@@ -643,50 +874,118 @@ export function useAppServerController() {
     } catch (error) {
       setActionError(errorMessage(error));
     }
-  }, [thread]);
+  }, [selectedEnvironmentId, thread]);
 
-  const saveSettings = useCallback(async (draft: SettingsDraft) => {
-    if (window.desktopBridge === undefined) return false;
-    setSettingsError(null);
-    try {
-      const saved = await window.desktopBridge.saveAppServerSettings(fromSettingsDraft(draft));
-      setSettings(saved);
-      setThread(null);
-      setSelectedThreadId(null);
-      setConnection((current) => ({ ...current, snapshot: readCache(saved) }));
-      setConnectionGeneration((value) => value + 1);
-      return true;
-    } catch (error) {
-      setSettingsError(errorMessage(error));
-      return false;
-    }
+  const applySavedSettings = useCallback((saved: AppServerDesktopSettings) => {
+    setSettings(saved);
+    setEnvironmentStates((current) =>
+      Object.fromEntries(
+        saved.connections.map((profile) => {
+          const previous = current[profile.id];
+          return [
+            profile.id,
+            previous === undefined ? initialEnvironmentState(profile) : { ...previous, profile },
+          ];
+        }),
+      ),
+    );
+    setSelectedEnvironmentId((current) =>
+      current !== null && saved.connections.some((profile) => profile.id === current)
+        ? current
+        : (saved.connections[0]?.id ?? null),
+    );
   }, []);
 
-  const retry = useCallback(() => setConnectionGeneration((value) => value + 1), []);
+  const saveEnvironment = useCallback(
+    async (draft: SettingsDraft) => {
+      if (window.desktopBridge === undefined || settings === null) return false;
+      setSettingsError(null);
+      try {
+        const profile = fromSettingsDraft(draft);
+        const exists = settings.connections.some((candidate) => candidate.id === profile.id);
+        const connections = exists
+          ? settings.connections.map((candidate) =>
+              candidate.id === profile.id ? profile : candidate,
+            )
+          : [...settings.connections, profile];
+        const saved = await window.desktopBridge.saveAppServerSettings({ connections });
+        applySavedSettings(saved);
+        return true;
+      } catch (error) {
+        setSettingsError(errorMessage(error));
+        return false;
+      }
+    },
+    [applySavedSettings, settings],
+  );
 
-  const beginRemotePairing = useCallback(async () => {
-    const client = clientRef.current;
-    if (client === null) return;
-    setRemote((current) => ({ ...current, busy: true, error: null }));
-    try {
-      const status =
-        connection.remote?.status === "connected"
-          ? connection.remote
-          : await Effect.runPromise(Remote.enable(client));
-      const pairing = await Effect.runPromise(Remote.startPairing(client, { manualCode: true }));
-      const clients = status.environmentId
-        ? (await Effect.runPromise(Remote.listClients(client, status.environmentId))).data
-        : [];
-      setConnection((current) => ({ ...current, remote: status }));
-      setRemote({ pairing, clients, error: null, busy: false });
-    } catch (error) {
-      setRemote((current) => ({ ...current, busy: false, error: errorMessage(error) }));
-    }
-  }, [connection.remote]);
+  const removeEnvironment = useCallback(
+    async (environmentId: string) => {
+      if (window.desktopBridge === undefined || settings === null || environmentId === "local") {
+        return false;
+      }
+      setSettingsError(null);
+      try {
+        const saved = await window.desktopBridge.saveAppServerSettings({
+          connections: settings.connections.filter((profile) => profile.id !== environmentId),
+        });
+        applySavedSettings(saved);
+        if (selectedEnvironmentId === environmentId) {
+          setSelectedThreadId(null);
+          setThread(null);
+          setThreadEnvironmentId(null);
+        }
+        return true;
+      } catch (error) {
+        setSettingsError(errorMessage(error));
+        return false;
+      }
+    },
+    [applySavedSettings, selectedEnvironmentId, settings],
+  );
+
+  const retry = useCallback(
+    (environmentId = selectedEnvironmentId) => {
+      if (environmentId !== null) runtimesRef.current.get(environmentId)?.retry();
+    },
+    [selectedEnvironmentId],
+  );
+
+  const beginRemotePairing = useCallback(
+    async (environmentId = selectedEnvironmentId) => {
+      if (environmentId === null) return;
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStates[environmentId];
+      if (client === undefined || environment === undefined) return;
+      setRemote({
+        connectionId: environmentId,
+        pairing: null,
+        clients: [],
+        error: null,
+        busy: true,
+      });
+      try {
+        const status =
+          environment.remote?.status === "connected"
+            ? environment.remote
+            : await Effect.runPromise(Remote.enable(client));
+        const pairing = await Effect.runPromise(Remote.startPairing(client, { manualCode: true }));
+        const clients = status.environmentId
+          ? (await Effect.runPromise(Remote.listClients(client, status.environmentId))).data
+          : [];
+        updateEnvironment(environmentId, (current) => ({ ...current, remote: status }));
+        setRemote({ connectionId: environmentId, pairing, clients, error: null, busy: false });
+      } catch (error) {
+        setRemote((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+      }
+    },
+    [environmentStates, selectedEnvironmentId, updateEnvironment],
+  );
 
   const checkRemotePairing = useCallback(async () => {
-    const client = clientRef.current;
-    if (client === null || remote.pairing === null) return;
+    if (remote.connectionId === null || remote.pairing === null) return;
+    const client = clientsRef.current.get(remote.connectionId);
+    if (client === undefined) return;
     setRemote((current) => ({ ...current, busy: true }));
     try {
       const claimed = await Effect.runPromise(Remote.readPairingStatus(client, remote.pairing));
@@ -701,29 +1000,37 @@ export function useAppServerController() {
       const clients = (
         await Effect.runPromise(Remote.listClients(client, remote.pairing.environmentId))
       ).data;
-      setRemote({ pairing: null, clients, error: null, busy: false });
+      setRemote((current) => ({ ...current, pairing: null, clients, error: null, busy: false }));
     } catch (error) {
       setRemote((current) => ({ ...current, busy: false, error: errorMessage(error) }));
     }
-  }, [remote.pairing]);
+  }, [remote.connectionId, remote.pairing]);
 
-  const projects = useMemo(() => {
-    const grouped = new Map<string, ThreadSummary[]>();
-    for (const item of connection.snapshot?.threads ?? []) {
-      const current = grouped.get(item.cwd) ?? [];
-      current.push(item);
-      grouped.set(item.cwd, current);
-    }
-    return [...grouped.entries()].map(([cwd, threads]) => ({ cwd, threads }));
-  }, [connection.snapshot]);
+  const environments = useMemo(
+    () =>
+      settings?.connections
+        .map((profile) => environmentStates[profile.id])
+        .filter((environment): environment is EnvironmentState => environment !== undefined) ?? [],
+    [environmentStates, settings?.connections],
+  );
+  const projects = useMemo(() => projectEnvironmentProjects(environments), [environments]);
+  const pendingApproval =
+    pendingApprovals.find(
+      (approval) =>
+        approval.environmentId === selectedEnvironmentId &&
+        (selectedThreadId === null || approval.threadId === selectedThreadId),
+    ) ?? null;
 
   return {
     settings,
     settingsError,
     sshHosts,
+    environments,
     connection,
-    models,
+    selectedEnvironment,
+    models: selectedEnvironment?.models ?? [],
     projects,
+    selectedEnvironmentId,
     selectedThreadId,
     thread,
     threadLoading,
@@ -734,7 +1041,8 @@ export function useAppServerController() {
     startThread,
     sendTurn,
     interruptTurn,
-    saveSettings,
+    saveEnvironment,
+    removeEnvironment,
     retry,
     beginRemotePairing,
     checkRemotePairing,

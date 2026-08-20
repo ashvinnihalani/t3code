@@ -18,6 +18,7 @@ export function ThreadWorkspace({
   summary,
   thread,
   workspace,
+  environmentName,
   models,
   connection,
   loading,
@@ -32,6 +33,7 @@ export function ThreadWorkspace({
   readonly summary: ThreadSummary | null;
   readonly thread: ThreadDetail | null;
   readonly workspace: string;
+  readonly environmentName: string;
   readonly models: ReadonlyArray<ModelOption>;
   readonly connection: ConnectionState;
   readonly loading: boolean;
@@ -51,13 +53,15 @@ export function ThreadWorkspace({
     <>
       <header className="drag-region flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3 border-b border-border px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+          <span className="truncate text-muted-foreground">{environmentName}</span>
+          <span className="text-muted-foreground/50">/</span>
           <span className="truncate text-muted-foreground">{projectLabel(cwd)}</span>
           <span className="text-muted-foreground/50">/</span>
           <strong className="truncate font-medium text-foreground">
             {title(thread ?? summary)}
           </strong>
         </div>
-        {connection.phase !== "ready" ? (
+        {connection.phase !== "connected" ? (
           <button
             className="no-drag-region inline-flex h-8 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs font-medium hover:bg-accent"
             onClick={onRetry}
@@ -67,7 +71,7 @@ export function ThreadWorkspace({
         ) : null}
         <button
           className="no-drag-region inline-flex h-8 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs font-medium hover:bg-accent disabled:opacity-40"
-          disabled={connection.phase !== "ready"}
+          disabled={connection.phase !== "connected"}
           onClick={onRemote}
         >
           <SmartphoneIcon className="size-3.5" /> Remote
@@ -110,7 +114,7 @@ export function ThreadWorkspace({
               </p>
             ) : null}
             <ChatComposer
-              disabled={connection.phase !== "ready" || loading}
+              disabled={connection.phase !== "connected" || loading}
               models={models}
               placeholder={
                 isNew

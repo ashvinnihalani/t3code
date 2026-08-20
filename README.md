@@ -3,29 +3,26 @@
 T3 Codex is a desktop control harness for coding agents that implement the Codex app-server
 protocol. It is a stripped-down fork of [T3 Code](https://github.com/pingdotgg/t3code), retaining
 the Electron presentation shell while replacing T3's server, provider adapters, Effect-RPC
-contracts, cloud relay, and parallel conversation store with one app-server connection.
+contracts, cloud relay, and parallel conversation store with a catalog of app-server environments.
 
 ```text
 T3 Codex renderer
-        │ MessagePort + JSONL
-        ▼
-Codex-compatible app-server
-        │
-        ▼
-agent harness
+        ├─ local MessagePort + JSONL ── local app-server
+        ├─ SSH MessagePort + JSONL ──── remote app-server
+        └─ SSH MessagePort + JSONL ──── another remote app-server
 ```
 
 The app-server is authoritative for projects, threads, turns, items, account state, models, skills,
-and Remote. T3 Codex stores only connection settings and a local presentation cache so the most
-recent project/thread list remains visible while reconnecting.
+and Remote. T3 Codex stores only environment settings and a local presentation cache per
+environment so recent project/thread lists remain visible while any connection is reconnecting.
 
 ## Current scope
 
 - Launch a local app-server over stdio. The default command is `codex app-server`.
-- Launch the same stdio protocol through OpenSSH on a configured remote machine.
+- Keep the local app-server and multiple OpenSSH-hosted app-servers available at the same time.
 - Initialize a generic compatible harness and show its account, model, skill, and thread data.
 - Cache the last thread projection locally and refresh it from app-server after reconnecting.
-- Retry dropped connections with bounded backoff.
+- Retry each dropped connection independently with bounded backoff.
 - Present Remote status and pairing payloads returned by the official app-server
   `remoteControl/*` methods. T3 Codex does not create pairing links, QR payloads, credentials, or
   relay state.
@@ -61,8 +58,9 @@ mise exec -- pnpm exec vp run dist:mac
 
 The DMG is written to `release/T3 Codex-<version>-arm64.dmg`.
 
-The first launch uses `codex app-server` in the repository directory. Change the executable,
-arguments, workspace, environment, or SSH host from Settings. Startup defaults can also be set with
+The first launch uses `codex app-server` in the repository directory. Change its executable,
+arguments, workspace, and environment or add any number of SSH environments from Settings.
+Startup defaults for the local environment can also be set with
 `T3CODE_APP_SERVER_EXECUTABLE`, `T3CODE_APP_SERVER_ARGS`, `T3CODE_APP_SERVER_WORKSPACE`, and
 `T3CODE_APP_SERVER_ENV`.
 

@@ -10,14 +10,9 @@ import {
 import { useMemo, useState } from "react";
 
 import type { ThreadSummary } from "../appServer/presentation";
-import type { ConnectionState } from "../appServer/useAppServerController";
+import type { EnvironmentProject, EnvironmentState } from "../appServer/useAppServerController";
 import type { TimestampFormat } from "../settings/presentationPreferences";
 import { T3Wordmark } from "./T3Wordmark";
-
-interface ProjectGroup {
-  readonly cwd: string;
-  readonly threads: ReadonlyArray<ThreadSummary>;
-}
 
 function projectLabel(cwd: string): string {
   return cwd.split(/[\\/]/u).filter(Boolean).at(-1) ?? cwd;
@@ -47,7 +42,8 @@ function threadTime(updatedAt: number, format: TimestampFormat): string {
 
 export function SidebarV2({
   projects,
-  connection,
+  environments,
+  selectedEnvironmentId,
   selectedThreadId,
   settingsActive,
   groupProjects,
@@ -56,14 +52,15 @@ export function SidebarV2({
   onNewThread,
   onOpenSettings,
 }: {
-  readonly projects: ReadonlyArray<ProjectGroup>;
-  readonly connection: ConnectionState;
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly environments: ReadonlyArray<EnvironmentState>;
+  readonly selectedEnvironmentId: string | null;
   readonly selectedThreadId: string | null;
   readonly settingsActive: boolean;
   readonly groupProjects: boolean;
   readonly timestampFormat: TimestampFormat;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onNewThread: () => void;
+  readonly onSelectThread: (environmentId: string, threadId: string) => void;
+  readonly onNewThread: (environmentId: string | null) => void;
   readonly onOpenSettings: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -71,7 +68,15 @@ export function SidebarV2({
     const normalized = query.trim().toLocaleLowerCase();
     const source = groupProjects
       ? projects
-      : [{ cwd: "", threads: projects.flatMap((project) => project.threads) }];
+      : environments.map((environment) => ({
+          key: `${environment.profile.id}:all`,
+          environmentId: environment.profile.id,
+          environmentName: environment.profile.name,
+          cwd: "",
+          threads: projects
+            .filter((project) => project.environmentId === environment.profile.id)
+            .flatMap((project) => project.threads),
+        }));
     if (!normalized) return source;
     return source
       .map((project) => ({
@@ -81,7 +86,10 @@ export function SidebarV2({
         ),
       }))
       .filter((project) => project.threads.length > 0);
-  }, [groupProjects, projects, query]);
+  }, [environments, groupProjects, projects, query]);
+  const connectedCount = environments.filter(
+    (environment) => environment.phase === "connected",
+  ).length;
 
   return (
     <aside
@@ -91,7 +99,7 @@ export function SidebarV2({
       <header className="drag-region flex h-[var(--workspace-topbar-height)] shrink-0 items-center pl-[90px] pr-3">
         <button
           className="no-drag-region flex min-w-0 items-center gap-1 rounded-md outline-none ring-ring focus-visible:ring-2"
-          onClick={onNewThread}
+          onClick={() => onNewThread(selectedEnvironmentId)}
         >
           <T3Wordmark />
           <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
@@ -117,24 +125,59 @@ export function SidebarV2({
           <button
             className="grid size-6 place-items-center rounded hover:bg-sidebar-row-hover"
             aria-label="New thread"
-            onClick={onNewThread}
+            onClick={() => onNewThread(selectedEnvironmentId)}
           >
             <PlusIcon className="size-3.5" />
           </button>
         </div>
 
+        {environments.length > 1 ? (
+          <div className="mb-4 grid gap-1 px-1">
+            {environments.map((environment) => (
+              <button
+                className={`flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors ${selectedEnvironmentId === environment.profile.id && selectedThreadId === null ? "bg-sidebar-row-active text-sidebar-foreground" : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"}`}
+                key={environment.profile.id}
+                title={`New thread in ${environment.profile.name}`}
+                type="button"
+                onClick={() => onNewThread(environment.profile.id)}
+              >
+                <span
+                  className={`size-2 shrink-0 rounded-full ${environment.phase === "connected" ? "bg-emerald-500" : "bg-amber-500"}`}
+                />
+                <span className="min-w-0 flex-1 truncate">{environment.profile.name}</span>
+                <PlusIcon className="size-3.5" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {filteredProjects.map((project) => (
-          <section className="mb-4" key={project.cwd}>
+          <section className="mb-4" key={project.key}>
             {groupProjects ? (
-              <div className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium">
+              <div
+                className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium"
+                title={project.cwd}
+              >
                 <ChevronDownIcon className="size-3.5 text-sidebar-muted-foreground" />
                 <FolderIcon className="size-4 text-sidebar-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{projectLabel(project.cwd)}</span>
+                {environments.length > 1 ? (
+                  <span className="max-w-20 truncate text-[10px] font-normal text-sidebar-muted-foreground/70">
+                    {project.environmentName}
+                  </span>
+                ) : null}
+              </div>
+            ) : environments.length > 1 ? (
+              <div className="h-7 truncate px-2 text-[11px] font-medium text-sidebar-muted-foreground">
+                {project.environmentName}
               </div>
             ) : null}
             <div className={`grid gap-0.5 ${groupProjects ? "pl-4" : ""}`}>
               {project.threads.map((thread) => {
-                const active = !settingsActive && selectedThreadId === thread.id;
+                const active =
+                  !settingsActive &&
+                  selectedEnvironmentId === project.environmentId &&
+                  selectedThreadId === thread.id;
                 return (
                   <button
                     className={`group relative flex min-h-8 w-full items-center rounded-md px-2 text-left transition-colors ${
@@ -142,8 +185,8 @@ export function SidebarV2({
                         ? "bg-sidebar-row-active text-sidebar-foreground shadow-sm"
                         : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                     }`}
-                    key={thread.id}
-                    onClick={() => onSelectThread(thread.id)}
+                    key={`${project.environmentId}:${thread.id}`}
+                    onClick={() => onSelectThread(project.environmentId, thread.id)}
                   >
                     {thread.status === "active" ? (
                       <span className="mr-2 size-1.5 shrink-0 rounded-full bg-blue-500" />
@@ -163,7 +206,9 @@ export function SidebarV2({
 
         {filteredProjects.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs leading-relaxed text-sidebar-muted-foreground">
-            {query ? "No matching threads." : "Threads from app-server will appear here."}
+            {query
+              ? "No matching threads."
+              : "Threads from connected app-servers will appear here."}
           </p>
         ) : null}
       </div>
@@ -171,12 +216,14 @@ export function SidebarV2({
       <footer className="grid gap-1 p-2.5">
         <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-muted-foreground">
           <span
-            className={`size-2 shrink-0 rounded-full ${connection.phase === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}
+            className={`size-2 shrink-0 rounded-full ${connectedCount === environments.length && connectedCount > 0 ? "bg-emerald-500" : "bg-amber-500"}`}
           />
           <span className="min-w-0 flex-1 truncate">
-            {connection.phase === "ready" ? "Connected" : "Reconnecting"}
+            {connectedCount === environments.length && connectedCount > 0
+              ? `${connectedCount} connected`
+              : `${connectedCount} of ${environments.length} connected`}
           </span>
-          {connection.phase === "ready" ? (
+          {connectedCount === environments.length && connectedCount > 0 ? (
             <WifiIcon className="size-3.5" />
           ) : (
             <WifiOffIcon className="size-3.5" />

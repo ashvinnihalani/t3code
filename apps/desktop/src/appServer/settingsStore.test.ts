@@ -12,30 +12,108 @@ describe("app-server settings store", () => {
     try {
       const store = makeAppServerSettingsStore(directory, {}, "/default-workspace");
       expect(await store.read()).toEqual({
-        connection: {
-          kind: "local",
-          executable: "codex",
-          args: ["app-server"],
-          workspace: "/default-workspace",
-          env: {},
-        },
+        connections: [
+          {
+            id: "local",
+            name: "Local",
+            connection: {
+              kind: "local",
+              executable: "codex",
+              args: ["app-server"],
+              workspace: "/default-workspace",
+              env: {},
+            },
+          },
+        ],
       });
 
       const saved = {
-        connection: {
-          kind: "ssh" as const,
-          host: "build-box",
-          username: "",
-          port: null,
-          identityFile: "",
-          executable: "codex",
-          args: ["app-server"],
-          workspace: "/work/project",
-          env: {},
-        },
+        connections: [
+          {
+            id: "local",
+            name: "Local",
+            connection: {
+              kind: "local" as const,
+              executable: "codex",
+              args: ["app-server"],
+              workspace: "/default-workspace",
+              env: {},
+            },
+          },
+          {
+            id: "build-box",
+            name: "Build box",
+            connection: {
+              kind: "ssh" as const,
+              host: "build-box",
+              username: "",
+              port: null,
+              identityFile: "",
+              executable: "codex",
+              args: ["app-server"],
+              workspace: "/work/project",
+              env: {},
+            },
+          },
+        ],
       };
       await store.write(saved);
       expect(await store.read()).toEqual(saved);
+    } finally {
+      await NodeFS.rm(directory, { recursive: true });
+    }
+  });
+
+  it("migrates legacy settings when they are read", async () => {
+    const directory = await NodeFS.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-codex-settings-"));
+    try {
+      await NodeFS.writeFile(
+        NodePath.join(directory, "app-server-settings.json"),
+        JSON.stringify({
+          connection: {
+            kind: "ssh",
+            host: "legacy-host",
+            username: "",
+            port: null,
+            identityFile: "",
+            executable: "codex",
+            args: ["app-server"],
+            workspace: "/legacy",
+            env: {},
+          },
+        }),
+      );
+      const store = makeAppServerSettingsStore(directory, {}, "/default-workspace");
+      expect(await store.read()).toEqual({
+        connections: [
+          {
+            id: "local",
+            name: "Local",
+            connection: {
+              kind: "local",
+              executable: "codex",
+              args: ["app-server"],
+              workspace: "/legacy",
+              env: {},
+            },
+          },
+          {
+            id: "ssh-legacy",
+            name: "legacy-host",
+            connection: {
+              kind: "ssh",
+              host: "legacy-host",
+              username: "",
+              port: null,
+              identityFile: "",
+              executable: "codex",
+              args: ["app-server"],
+              workspace: "/legacy",
+              env: {},
+            },
+          },
+        ],
+      });
     } finally {
       await NodeFS.rm(directory, { recursive: true });
     }

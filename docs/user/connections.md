@@ -2,14 +2,17 @@
 
 ## Local
 
-Local mode starts the configured executable directly, without a shell, and exchanges newline-
+The Local environment is always available. It starts the configured executable directly, without a shell, and exchanges newline-
 delimited JSON through stdin/stdout. The default is `codex app-server`. Arguments and environment
 values are stored in the desktop settings file; the app-server remains responsible for its own
 authentication and agent runtime.
 
 ## SSH
 
-SSH mode reuses the operating system's OpenSSH client, SSH config, agent, known hosts, and identity
+Add as many SSH environments as needed. They remain available alongside Local and alongside one
+another; adding a host does not switch off or replace another environment.
+
+Each SSH environment reuses the operating system's OpenSSH client, SSH config, agent, known hosts, and identity
 files. T3 Codex discovers named hosts from `~/.ssh/config` (including configured `Include` files)
 and unhashed entries from `known_hosts`. It launches one remote command whose stdin/stdout remain
 the app-server JSONL transport.
@@ -21,16 +24,17 @@ work from a normal terminal.
 
 ## Reconnect and local cache
 
-When the process or SSH session disconnects, the renderer retains the last project/thread
-projection and retries after 3, 4, 8, and then 16 seconds. A successful connection initializes a
-new app-server session and replaces cached data with authoritative `thread/list` results.
+When a process or SSH session disconnects, the renderer retains that environment's last
+project/thread projection and retries after 3, 4, 8, and then 16 seconds. Other environments remain
+usable. A successful connection initializes a new app-server session and replaces only its cached
+data with authoritative `thread/list` results.
 
 The cache is presentation data only. It is not a conversation database and is never used to create
 thread, turn, or item identities.
 
 ## Pair a phone with Remote
 
-The Remote button calls the connected app-server's official experimental `remoteControl/*`
+Each environment's Pair phone or Remote button calls that app-server's official experimental `remoteControl/*`
 methods. Enabling Remote, status, pairing payloads, expiry, claim state, and paired clients all come
 from app-server.
 

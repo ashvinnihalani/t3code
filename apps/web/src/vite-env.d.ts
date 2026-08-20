@@ -1,6 +1,7 @@
 /// <reference types="vite-plus/client" />
 
 import type {
+  AppServerConnectionProfile,
   AppServerDesktopSettings,
   DiscoveredSshHost,
 } from "effect-codex-app-server/connection";
@@ -21,7 +22,7 @@ interface AppServerDesktopBridge {
   ) => Promise<AppServerDesktopSettings>;
   readonly discoverSshHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
   readonly connectAppServer: (
-    settings: AppServerDesktopSettings,
+    profile: AppServerConnectionProfile,
     onError: (message: string) => void,
   ) => () => void;
 }

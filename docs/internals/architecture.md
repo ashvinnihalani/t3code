@@ -1,26 +1,19 @@
 # Architecture
 
-T3 Codex has one execution boundary:
+T3 Codex uses the same environment-catalog idea as upstream T3 Code, narrowed to stdio app-server
+sessions:
 
 ```text
-React renderer
-  ├─ connection settings and presentation cache
-  └─ Codex app-server client
-             │
-             │ Electron MessagePort (JSONL messages)
-             ▼
-Electron main process
-  ├─ local child process, or
-  └─ system OpenSSH child process
-             │ stdin/stdout
-             ▼
-Codex-compatible app-server
+React renderer environment catalog
+  ├─ Local ───── MessagePort ── local child process ── app-server
+  ├─ Build box ─ MessagePort ── OpenSSH child process ─ app-server
+  └─ Lab host ── MessagePort ── OpenSSH child process ─ app-server
 ```
 
 ## Ownership
 
-T3 Codex owns the window, connection settings, SSH host discovery, reconnect scheduling, and local
-presentation cache. The app-server owns initialization, account state, model and skill catalogs,
+T3 Codex owns the window, environment settings, SSH host discovery, reconnect scheduling, and local
+presentation caches. The app-server owns initialization, account state, model and skill catalogs,
 Remote, thread/turn/item identities, canonical history, and agent coordination. The agent harness
 behind app-server owns tools, execution, context, and provider behavior.
 
@@ -30,10 +23,14 @@ monitor in the desktop build.
 
 ## Process lifecycle
 
-Each connection creates a local process or an OpenSSH process and pipes its JSONL bytes through an
-Electron MessagePort. Closing or replacing the renderer connection terminates only that captured
-process. Reconnect creates a fresh process and app-server session; the renderer then reconstructs
-its projection from app-server responses and notifications.
+The Local environment is always present. Every saved SSH environment is desired concurrently; it
+does not replace Local or another SSH host. Each catalog entry creates its own process, MessagePort,
+client, connection presentation, reconnect timer, model list, and cached thread projection.
+
+Environment IDs scope IPC delivery, project keys, thread selection, approval requests, and Remote
+pairing. Identical thread IDs returned by different app-servers therefore cannot collide. Closing
+or reconnecting one entry terminates only its captured process. The renderer reconstructs that
+entry's projection from its app-server without disrupting the others.
 
 Remote persistence beyond the desktop process belongs to a persistent/shared app-server lifecycle,
 not a desktop-owned T3 service.

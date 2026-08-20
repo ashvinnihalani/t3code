@@ -1,5 +1,6 @@
 import type {
   AppServerConnectionSettings,
+  AppServerConnectionProfile,
   AppServerDesktopSettings,
   LocalAppServerConnectionSettings,
   SshAppServerConnectionSettings,
@@ -107,21 +108,27 @@ export function defaultAppServerDesktopSettings(
     "T3CODE_APP_SERVER_ARGS",
   );
   return {
-    connection: {
-      kind: "local",
-      executable: environment.T3CODE_APP_SERVER_EXECUTABLE?.trim() || "codex",
-      args: configuredArgs.length > 0 ? configuredArgs : ["app-server"],
-      workspace: environment.T3CODE_APP_SERVER_WORKSPACE?.trim() || defaultCwd,
-      env: parseEnvironment(environment.T3CODE_APP_SERVER_ENV),
-    },
+    connections: [
+      {
+        id: "local",
+        name: "Local",
+        connection: {
+          kind: "local",
+          executable: environment.T3CODE_APP_SERVER_EXECUTABLE?.trim() || "codex",
+          args: configuredArgs.length > 0 ? configuredArgs : ["app-server"],
+          workspace: environment.T3CODE_APP_SERVER_WORKSPACE?.trim() || defaultCwd,
+          env: parseEnvironment(environment.T3CODE_APP_SERVER_ENV),
+        },
+      },
+    ],
   };
 }
 
-export function parseAppServerDesktopSettings(value: unknown): AppServerDesktopSettings {
-  if (!isRecord(value) || !isRecord(value.connection)) {
-    throw new AppServerConfigurationError("Desktop settings must contain a connection object.");
+export function parseAppServerConnectionSettings(value: unknown): AppServerConnectionSettings {
+  if (!isRecord(value)) {
+    throw new AppServerConfigurationError("Connection settings must be an object.");
   }
-  const connection = value.connection;
+  const connection = value;
   const common = {
     executable: requiredString(connection.executable, "connection.executable"),
     args: stringArray(connection.args, "connection.args"),
@@ -130,21 +137,78 @@ export function parseAppServerDesktopSettings(value: unknown): AppServerDesktopS
   };
 
   if (connection.kind === "local") {
-    return { connection: { kind: "local", ...common } };
+    return { kind: "local", ...common };
   }
   if (connection.kind === "ssh") {
     return {
-      connection: {
-        kind: "ssh",
-        ...common,
-        host: requiredString(connection.host, "connection.host"),
-        username: optionalString(connection.username, "connection.username"),
-        port: parsePort(connection.port),
-        identityFile: optionalString(connection.identityFile, "connection.identityFile"),
-      },
+      kind: "ssh",
+      ...common,
+      host: requiredString(connection.host, "connection.host"),
+      username: optionalString(connection.username, "connection.username"),
+      port: parsePort(connection.port),
+      identityFile: optionalString(connection.identityFile, "connection.identityFile"),
     };
   }
   throw new AppServerConfigurationError("connection.kind must be local or ssh.");
+}
+
+export function parseAppServerConnectionProfile(value: unknown): AppServerConnectionProfile {
+  if (!isRecord(value)) {
+    throw new AppServerConfigurationError("Connection profile must be an object.");
+  }
+  return {
+    id: requiredString(value.id, "connection profile id"),
+    name: requiredString(value.name, "connection profile name"),
+    connection: parseAppServerConnectionSettings(value.connection),
+  };
+}
+
+export function parseAppServerDesktopSettings(value: unknown): AppServerDesktopSettings {
+  if (!isRecord(value)) {
+    throw new AppServerConfigurationError("Desktop settings must be an object.");
+  }
+
+  let rawConnections: ReadonlyArray<unknown> | null = null;
+  if (Array.isArray(value.connections)) {
+    rawConnections = value.connections;
+  } else if (isRecord(value.connection)) {
+    const legacyConnection = parseAppServerConnectionSettings(value.connection);
+    rawConnections =
+      legacyConnection.kind === "local"
+        ? [{ id: "local", name: "Local", connection: legacyConnection }]
+        : [
+            {
+              id: "local",
+              name: "Local",
+              connection: {
+                kind: "local",
+                executable: legacyConnection.executable,
+                args: legacyConnection.args,
+                workspace: legacyConnection.workspace,
+                env: legacyConnection.env,
+              },
+            },
+            {
+              id: "ssh-legacy",
+              name: legacyConnection.host,
+              connection: legacyConnection,
+            },
+          ];
+  }
+  if (rawConnections === null || rawConnections.length === 0) {
+    throw new AppServerConfigurationError("Desktop settings must contain at least one connection.");
+  }
+  const connections = rawConnections.map(parseAppServerConnectionProfile);
+  if (new Set(connections.map((profile) => profile.id)).size !== connections.length) {
+    throw new AppServerConfigurationError("Connection profile ids must be unique.");
+  }
+  const local = connections.find((profile) => profile.id === "local");
+  if (local?.connection.kind !== "local") {
+    throw new AppServerConfigurationError(
+      "Desktop settings must contain a local app-server environment.",
+    );
+  }
+  return { connections };
 }
 
 export function shellQuote(value: string): string {
@@ -225,12 +289,11 @@ function resolveSshConfiguration(
 }
 
 export function resolveConfiguredAppServerProcess(
-  settings: AppServerDesktopSettings,
+  connection: AppServerConnectionSettings,
   environment: NodeJS.ProcessEnv,
   defaultCwd: string,
   platform: NodeJS.Platform = process.platform,
 ): AppServerProcessConfiguration {
-  const connection: AppServerConnectionSettings = settings.connection;
   return connection.kind === "local"
     ? resolveLocalConfiguration(connection, environment, platform)
     : resolveSshConfiguration(connection, environment, defaultCwd, platform);
@@ -241,7 +304,7 @@ export function resolveAppServerProcessConfiguration(
   defaultCwd: string,
 ): AppServerProcessConfiguration {
   return resolveConfiguredAppServerProcess(
-    defaultAppServerDesktopSettings(environment, defaultCwd),
+    defaultAppServerDesktopSettings(environment, defaultCwd).connections[0]!.connection,
     environment,
     defaultCwd,
   );

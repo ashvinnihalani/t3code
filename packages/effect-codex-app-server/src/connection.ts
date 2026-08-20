@@ -22,8 +22,14 @@ export type AppServerConnectionSettings =
   | LocalAppServerConnectionSettings
   | SshAppServerConnectionSettings;
 
-export interface AppServerDesktopSettings {
+export interface AppServerConnectionProfile {
+  readonly id: string;
+  readonly name: string;
   readonly connection: AppServerConnectionSettings;
+}
+
+export interface AppServerDesktopSettings {
+  readonly connections: ReadonlyArray<AppServerConnectionProfile>;
 }
 
 export interface DiscoveredSshHost {

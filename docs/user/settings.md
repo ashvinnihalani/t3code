@@ -17,9 +17,10 @@ are stored on this device and never sent to app-server.
 
 ## Connections
 
-Connections selects a local app-server process or an OpenSSH host and configures its executable,
-arguments, workspace, and environment. Saving replaces the current connection and reconnects. The
-Remote section starts phone pairing through the connected app-server's official Remote service.
+Connections presents the upstream-style environment list. Local is always present; each saved SSH
+host is an additional simultaneous environment with its own status, executable, arguments,
+workspace, environment variables, reconnect lifecycle, and local thread cache. Pair phone starts
+pairing through the selected environment's official app-server Remote service.
 
 Upstream sections for Providers and provider updates are omitted because app-server owns provider,
 account, and model configuration. Source Control, Archive, configurable Keybindings, and Beta are
