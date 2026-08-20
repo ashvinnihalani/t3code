@@ -60,6 +60,11 @@ describe("searchSettings", () => {
     expect(searchSettings("   ", ITEMS)).toEqual([]);
   });
 
+  it("excludes settings sections that are not part of the desktop harness", () => {
+    expect(searchSettings("providers")).toEqual([]);
+    expect(searchSettings("source control")).toEqual([]);
+  });
+
   it("keeps catalog result ids unique", () => {
     const ids = SETTINGS_SEARCH_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);

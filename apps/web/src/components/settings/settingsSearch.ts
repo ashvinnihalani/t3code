@@ -7,6 +7,16 @@ export type SettingsPath =
   | "/settings/connections"
   | "/settings/archived";
 
+export const SETTINGS_NAV_PATHS = [
+  "/settings/general",
+  "/settings/appearance",
+  "/settings/keybindings",
+  "/settings/connections",
+  "/settings/archived",
+] as const satisfies ReadonlyArray<SettingsPath>;
+
+const SETTINGS_NAV_PATH_SET = new Set<SettingsPath>(SETTINGS_NAV_PATHS);
+
 export interface SettingsSearchItem {
   readonly id: string;
   readonly title: string;
@@ -226,10 +236,12 @@ function normalizeSearchText(value: string): string {
 
 export function searchSettings(
   query: string,
-  items: ReadonlyArray<SettingsSearchItem> = SETTINGS_SEARCH_ITEMS,
+  items?: ReadonlyArray<SettingsSearchItem>,
 ): ReadonlyArray<SettingsSearchItem> {
+  const candidates =
+    items ?? SETTINGS_SEARCH_ITEMS.filter((item) => SETTINGS_NAV_PATH_SET.has(item.to));
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length === 0) return [];
 
-  return items.filter((item) => normalizeSearchText(item.title).includes(normalizedQuery));
+  return candidates.filter((item) => normalizeSearchText(item.title).includes(normalizedQuery));
 }
