@@ -29,6 +29,16 @@ interface AppServerDesktopBridge {
     profile: AppServerConnectionProfile,
   ) => Promise<ReadonlyArray<WorkspaceOpener>>;
   readonly openWorkspace: (request: WorkspaceOpenRequest) => Promise<WorkspaceOpenResult>;
+  readonly showContextMenu: <T extends string>(
+    items: ReadonlyArray<{
+      readonly id: T;
+      readonly label: string;
+      readonly destructive?: boolean;
+      readonly disabled?: boolean;
+      readonly separatorBefore?: boolean;
+    }>,
+    position?: { readonly x: number; readonly y: number },
+  ) => Promise<T | null>;
   readonly connectAppServer: (
     profile: AppServerConnectionProfile,
     onError: (message: string) => void,

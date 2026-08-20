@@ -35,6 +35,16 @@ thread, turn, or item identities.
 Project working directories are cached alongside thread summaries. This lets an added project stay
 visible before it has any threads and while its environment is reconnecting.
 
+Right-click a project to open it or remove it. Removing a project deletes its app-server threads
+after confirmation and removes only the cached project entry; files in the working directory are
+not changed. An empty cached project can be removed while disconnected, but a project containing
+threads requires its app-server connection.
+
+Thread rows expose an Archive button on hover and the same action in their right-click menu.
+Archiving calls `thread/archive` on that thread's app-server and removes it from the active sidebar.
+Use **Settings → Archive** to restore it with `thread/unarchive`. Permanent thread deletion remains
+available from the right-click menu behind a confirmation dialog.
+
 ## Open a project
 
 The workspace header's **Open** split button follows the upstream T3 Code interaction. Its primary

@@ -101,7 +101,10 @@ export function AppServerRoot() {
             timestampFormat={preferences.timestampFormat}
             onNewThread={openNewThread}
             onAddProject={() => setAddProjectOpen(true)}
+            onArchiveThread={controller.archiveThread}
+            onDeleteThread={controller.deleteThread}
             onOpenSettings={() => setPage("settings")}
+            onRemoveProject={controller.removeProject}
             onSelectProject={(environmentId, workspace) => {
               setPage("threads");
               controller.selectProject(environmentId, workspace);
@@ -122,7 +125,7 @@ export function AppServerRoot() {
               <span className="text-muted-foreground/40">/</span>
               <h1 className="font-medium">{settingsSectionLabel}</h1>
             </div>
-            {settingsSection !== "connections" ? (
+            {settingsSection === "general" || settingsSection === "appearance" ? (
               <button
                 className="no-drag-region ml-auto inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={isDefault}
@@ -139,9 +142,14 @@ export function AppServerRoot() {
             section={settingsSection}
             sshHosts={controller.sshHosts}
             onOpenRemote={openRemote}
+            archivedThreads={controller.archivedThreads}
+            archiveError={controller.archiveError}
+            archiveLoading={controller.archiveLoading}
+            onRefreshArchive={controller.refreshArchivedThreads}
             onRemove={controller.removeEnvironment}
             onSave={controller.saveEnvironment}
             onUpdatePreferences={updatePreferences}
+            onUnarchiveThread={controller.unarchiveThread}
           />
         </>
       ) : (

@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
 import { registerAppServerBridge } from "./appServer/bridge.ts";
 import { registerAppServerSettingsIpc } from "./appServer/settingsIpc.ts";
 import { makeAppServerSettingsStore } from "./appServer/settingsStore.ts";
+import { registerContextMenuIpc } from "./contextMenuIpc.ts";
 import { registerProjectDirectoryIpc } from "./projectDirectoryIpc.ts";
 import { registerWorkspaceLauncherIpc } from "./workspaceLauncher.ts";
 
@@ -138,6 +139,7 @@ let closeAppServerBridge: (() => void) | undefined;
 let closeSettingsIpc: (() => void) | undefined;
 let closeProjectDirectoryIpc: (() => void) | undefined;
 let closeWorkspaceLauncherIpc: (() => void) | undefined;
+let closeContextMenuIpc: (() => void) | undefined;
 
 void app
   .whenReady()
@@ -153,6 +155,7 @@ void app
     closeSettingsIpc = registerAppServerSettingsIpc(ipcMain, settingsStore);
     closeProjectDirectoryIpc = registerProjectDirectoryIpc(ipcMain);
     closeWorkspaceLauncherIpc = registerWorkspaceLauncherIpc(ipcMain);
+    closeContextMenuIpc = registerContextMenuIpc(ipcMain);
     closeAppServerBridge = registerAppServerBridge(ipcMain);
     mainWindow = createWindow();
 
@@ -171,6 +174,7 @@ app.once("will-quit", () => {
   closeSettingsIpc?.();
   closeProjectDirectoryIpc?.();
   closeWorkspaceLauncherIpc?.();
+  closeContextMenuIpc?.();
   if (protocol.isProtocolHandled(APP_SCHEME)) {
     void protocol.unhandle(APP_SCHEME);
   }

@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   Link2Icon,
   PaletteIcon,
@@ -11,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { T3Wordmark } from "../T3Wordmark";
 
-export type SettingsSectionId = "general" | "appearance" | "connections";
+export type SettingsSectionId = "general" | "appearance" | "connections" | "archive";
 
 export const SETTINGS_SECTIONS: ReadonlyArray<{
   readonly id: SettingsSectionId;
@@ -21,6 +22,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{
   { id: "general", label: "General", icon: Settings2Icon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
   { id: "connections", label: "Connections", icon: Link2Icon },
+  { id: "archive", label: "Archive", icon: ArchiveIcon },
 ];
 
 const SEARCH_ITEMS: ReadonlyArray<{
@@ -40,6 +42,8 @@ const SEARCH_ITEMS: ReadonlyArray<{
   { title: "Executable", section: "connections" },
   { title: "Workspace", section: "connections" },
   { title: "Remote SSH", section: "connections" },
+  { title: "Archived threads", section: "archive" },
+  { title: "Restore thread", section: "archive" },
 ];
 
 export function SettingsSidebarNav({

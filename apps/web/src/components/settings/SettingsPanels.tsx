@@ -1,10 +1,12 @@
 import type { DiscoveredSshHost } from "effect-codex-app-server/connection";
 import {
+  ArchiveRestoreIcon,
   CheckIcon,
   LaptopIcon,
   MonitorIcon,
   MoonIcon,
   PlusIcon,
+  RefreshCwIcon,
   SmartphoneIcon,
   SunIcon,
   Trash2Icon,
@@ -16,6 +18,7 @@ import {
   connectionStatusText,
   newSshSettingsDraft,
   toSettingsDraft,
+  type ArchivedThread,
   type EnvironmentState,
   type SettingsDraft,
 } from "../../appServer/useAppServerController";
@@ -559,6 +562,88 @@ function ConnectionsSettingsPanel({
   );
 }
 
+function archivedThreadLabel(thread: ArchivedThread): string {
+  return (thread.name ?? thread.preview) || "Untitled thread";
+}
+
+function ArchivedThreadsPanel({
+  threads,
+  loading,
+  error,
+  onRefresh,
+  onUnarchive,
+}: {
+  readonly threads: ReadonlyArray<ArchivedThread>;
+  readonly loading: boolean;
+  readonly error: string | null;
+  readonly onRefresh: () => Promise<void>;
+  readonly onUnarchive: (environmentId: string, threadId: string) => Promise<boolean>;
+}) {
+  useEffect(() => {
+    void onRefresh();
+  }, [onRefresh]);
+
+  return (
+    <SettingsPageContainer>
+      <SettingsSection title="Archive">
+        <div className="flex items-start justify-between gap-4 px-4 pb-3">
+          <p className="max-w-xl text-sm leading-5 text-muted-foreground">
+            Archived threads are stored by their app-server and hidden from the project sidebar.
+            Restore a thread to return it to its original project.
+          </p>
+          <button
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
+            disabled={loading}
+            type="button"
+            onClick={() => void onRefresh()}
+          >
+            <RefreshCwIcon className="size-3.5" /> {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+        {error ? (
+          <p className="mx-4 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
+            {error}
+          </p>
+        ) : null}
+        {loading && threads.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+            Loading archived threads…
+          </p>
+        ) : threads.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+            No archived threads.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {threads.map((thread) => (
+              <div
+                className="flex items-center gap-4 rounded-xl px-4 py-3 hover:bg-accent/30"
+                key={`${thread.environmentId}:${thread.id}`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {archivedThreadLabel(thread)}
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {thread.environmentName} · {thread.cwd}
+                  </span>
+                </span>
+                <button
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-medium hover:bg-accent"
+                  type="button"
+                  onClick={() => void onUnarchive(thread.environmentId, thread.id)}
+                >
+                  <ArchiveRestoreIcon className="size-3.5" /> Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SettingsSection>
+    </SettingsPageContainer>
+  );
+}
+
 export function SettingsPanels({
   section,
   preferences,
@@ -569,6 +654,11 @@ export function SettingsPanels({
   onUpdatePreferences,
   onSave,
   onRemove,
+  archivedThreads,
+  archiveLoading,
+  archiveError,
+  onRefreshArchive,
+  onUnarchiveThread,
 }: {
   readonly section: SettingsSectionId;
   readonly preferences: PresentationPreferences;
@@ -579,6 +669,11 @@ export function SettingsPanels({
   readonly onUpdatePreferences: (change: Partial<PresentationPreferences>) => void;
   readonly onSave: (draft: SettingsDraft) => Promise<boolean>;
   readonly onRemove: (environmentId: string) => Promise<boolean>;
+  readonly archivedThreads: ReadonlyArray<ArchivedThread>;
+  readonly archiveLoading: boolean;
+  readonly archiveError: string | null;
+  readonly onRefreshArchive: () => Promise<void>;
+  readonly onUnarchiveThread: (environmentId: string, threadId: string) => Promise<boolean>;
 }) {
   if (section === "appearance") {
     return (
@@ -597,6 +692,17 @@ export function SettingsPanels({
         onOpenRemote={onOpenRemote}
         onSave={onSave}
         onRemove={onRemove}
+      />
+    );
+  }
+  if (section === "archive") {
+    return (
+      <ArchivedThreadsPanel
+        error={archiveError}
+        loading={archiveLoading}
+        threads={archivedThreads}
+        onRefresh={onRefreshArchive}
+        onUnarchive={onUnarchiveThread}
       />
     );
   }

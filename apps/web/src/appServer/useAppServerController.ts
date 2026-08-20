@@ -58,6 +58,11 @@ export interface CachedSnapshot {
   readonly workspaces: ReadonlyArray<string>;
 }
 
+export interface ArchivedThread extends ThreadSummary {
+  readonly environmentId: string;
+  readonly environmentName: string;
+}
+
 export interface ConnectionState {
   readonly phase: "connecting" | "reconnecting" | "connected";
   readonly attempt: number;
@@ -132,13 +137,7 @@ function readCache(profile: AppServerConnectionProfile): CachedSnapshot | null {
     const cachedWorkspaces = Array.isArray(value.workspaces)
       ? value.workspaces.filter((workspace): workspace is string => typeof workspace === "string")
       : [];
-    const workspaces = [
-      ...new Set([
-        profile.connection.workspace,
-        ...cachedWorkspaces,
-        ...threads.map((thread) => thread.cwd),
-      ]),
-    ];
+    const workspaces = [...new Set([...cachedWorkspaces, ...threads.map((thread) => thread.cwd)])];
     return { updatedAt: value.updatedAt, threads, workspaces };
   } catch {
     return null;
@@ -260,6 +259,7 @@ export function fromSettingsDraft(draft: SettingsDraft): AppServerConnectionProf
 
 function readAllThreads(
   client: Client,
+  archived = false,
 ): Effect.Effect<ReadonlyArray<ThreadSummary>, CodexError.CodexAppServerError> {
   return Effect.gen(function* () {
     const threads: ThreadSummary[] = [];
@@ -267,7 +267,7 @@ function readAllThreads(
     do {
       const response: CodexSchema.V2ThreadListResponse = yield* client.request(
         "thread/list",
-        cursor === null ? {} : { cursor },
+        cursor === null ? { archived } : { archived, cursor },
       );
       for (const value of response.data) {
         const thread = projectThreadSummary(value);
@@ -277,6 +277,24 @@ function readAllThreads(
     } while (cursor !== null);
     return threads;
   });
+}
+
+export function removeThreadFromSnapshot(
+  snapshot: CachedSnapshot,
+  threadId: string,
+): CachedSnapshot {
+  return { ...snapshot, threads: snapshot.threads.filter((thread) => thread.id !== threadId) };
+}
+
+export function removeProjectFromSnapshot(
+  snapshot: CachedSnapshot,
+  workspace: string,
+): CachedSnapshot {
+  return {
+    ...snapshot,
+    threads: snapshot.threads.filter((thread) => thread.cwd !== workspace),
+    workspaces: snapshot.workspaces.filter((candidate) => candidate !== workspace),
+  };
 }
 
 export function connectionLabel(connection: AppServerConnectionSettings): string {
@@ -335,6 +353,9 @@ export function useAppServerController() {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [archivedThreads, setArchivedThreads] = useState<ReadonlyArray<ArchivedThread>>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlyArray<PendingApproval>>([]);
   const [remote, setRemote] = useState<RemoteDialogState>({
     connectionId: null,
@@ -360,6 +381,24 @@ export function useAppServerController() {
     [],
   );
 
+  const updateSnapshot = useCallback(
+    (profile: AppServerConnectionProfile, update: (snapshot: CachedSnapshot) => CachedSnapshot) => {
+      updateEnvironment(profile.id, (current) => {
+        const snapshot = update(
+          current.snapshot ?? {
+            updatedAt: Date.now(),
+            threads: [],
+            workspaces: [profile.connection.workspace],
+          },
+        );
+        const next = { ...snapshot, updatedAt: Date.now() };
+        writeCache(profile, next);
+        return { ...current, snapshot: next };
+      });
+    },
+    [updateEnvironment],
+  );
+
   const replaceThreads = useCallback(
     (profile: AppServerConnectionProfile, threads: ReadonlyArray<ThreadSummary>) => {
       updateEnvironment(profile.id, (current) => {
@@ -368,9 +407,8 @@ export function useAppServerController() {
           threads,
           workspaces: [
             ...new Set([
-              profile.connection.workspace,
               ...(current.snapshot?.workspaces ?? []),
-              ...threads.map((thread) => thread.cwd),
+              ...threads.map((item) => item.cwd),
             ]),
           ],
         };
@@ -394,7 +432,7 @@ export function useAppServerController() {
           workspaces: [
             ...new Set([
               ...(current.snapshot?.workspaces ?? [profile.connection.workspace]),
-              ...threads.map((thread) => thread.cwd),
+              ...threads.map((item) => item.cwd),
             ]),
           ],
         };
@@ -554,6 +592,20 @@ export function useAppServerController() {
           );
           yield* client.handleServerNotification("thread/started", ({ thread: started }) =>
             Effect.sync(() => upsertThreadSummary(profile, started)),
+          );
+          yield* client.handleServerNotification("thread/archived", ({ threadId }) =>
+            Effect.sync(() => {
+              updateSnapshot(profile, (snapshot) => removeThreadFromSnapshot(snapshot, threadId));
+              if (
+                selectionRef.current.environmentId === profile.id &&
+                selectionRef.current.threadId === threadId
+              ) {
+                selectionRef.current = { environmentId: profile.id, threadId: null };
+                setSelectedThreadId(null);
+                setThread(null);
+                setThreadEnvironmentId(null);
+              }
+            }),
           );
           yield* client.handleServerNotification(
             "thread/name/updated",
@@ -775,7 +827,14 @@ export function useAppServerController() {
       for (const runtime of runtimesRef.current.values()) runtime.close();
       runtimesRef.current.clear();
     };
-  }, [replaceThreads, settings, updateEnvironment, updateThreadSnapshot, upsertThreadSummary]);
+  }, [
+    replaceThreads,
+    settings,
+    updateEnvironment,
+    updateSnapshot,
+    updateThreadSnapshot,
+    upsertThreadSummary,
+  ]);
 
   const selectThread = useCallback(
     async (environmentId: string, threadId: string | null) => {
@@ -841,6 +900,181 @@ export function useAppServerController() {
       });
     },
     [environmentStates, updateEnvironment],
+  );
+
+  const archiveThread = useCallback(
+    async (environmentId: string, threadId: string) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStates[environmentId];
+      const summary = environment?.snapshot?.threads.find((candidate) => candidate.id === threadId);
+      if (client === undefined || environment === undefined || summary === undefined) {
+        setActionError("Connect to the app-server before archiving this thread.");
+        return false;
+      }
+      setActionError(null);
+      try {
+        await Effect.runPromise(client.request("thread/archive", { threadId }));
+        updateSnapshot(environment.profile, (snapshot) =>
+          removeThreadFromSnapshot(snapshot, threadId),
+        );
+        setArchivedThreads((current) => [
+          { ...summary, environmentId, environmentName: environment.profile.name },
+          ...current.filter(
+            (candidate) => candidate.environmentId !== environmentId || candidate.id !== threadId,
+          ),
+        ]);
+        if (
+          selectionRef.current.environmentId === environmentId &&
+          selectionRef.current.threadId === threadId
+        ) {
+          selectionRef.current = { environmentId, threadId: null };
+          setSelectedThreadId(null);
+          setThread(null);
+          setThreadEnvironmentId(null);
+        }
+        return true;
+      } catch (error) {
+        setActionError(errorMessage(error));
+        return false;
+      }
+    },
+    [environmentStates, updateSnapshot],
+  );
+
+  const deleteThread = useCallback(
+    async (environmentId: string, threadId: string) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStates[environmentId];
+      if (client === undefined || environment === undefined) {
+        setActionError("Connect to the app-server before deleting this thread.");
+        return false;
+      }
+      setActionError(null);
+      try {
+        await Effect.runPromise(client.request("thread/delete", { threadId }));
+        updateSnapshot(environment.profile, (snapshot) =>
+          removeThreadFromSnapshot(snapshot, threadId),
+        );
+        if (
+          selectionRef.current.environmentId === environmentId &&
+          selectionRef.current.threadId === threadId
+        ) {
+          selectionRef.current = { environmentId, threadId: null };
+          setSelectedThreadId(null);
+          setThread(null);
+          setThreadEnvironmentId(null);
+        }
+        return true;
+      } catch (error) {
+        setActionError(errorMessage(error));
+        return false;
+      }
+    },
+    [environmentStates, updateSnapshot],
+  );
+
+  const removeProject = useCallback(
+    async (environmentId: string, workspace: string) => {
+      const environment = environmentStates[environmentId];
+      if (environment === undefined) return false;
+      const projectThreads =
+        environment.snapshot?.threads.filter((candidate) => candidate.cwd === workspace) ?? [];
+      const client = clientsRef.current.get(environmentId);
+      if (projectThreads.length > 0 && client === undefined) {
+        setActionError("Connect to the app-server before removing a project with threads.");
+        return false;
+      }
+      setActionError(null);
+      try {
+        if (client !== undefined) {
+          await Promise.all(
+            projectThreads.map((candidate) =>
+              Effect.runPromise(client.request("thread/delete", { threadId: candidate.id })),
+            ),
+          );
+        }
+        updateSnapshot(environment.profile, (snapshot) =>
+          removeProjectFromSnapshot(snapshot, workspace),
+        );
+        if (selectionRef.current.environmentId === environmentId) {
+          const selectedBelongsToProject = projectThreads.some(
+            (candidate) => candidate.id === selectionRef.current.threadId,
+          );
+          if (selectedBelongsToProject || selectedWorkspace === workspace) {
+            selectionRef.current = { environmentId, threadId: null };
+            setSelectedThreadId(null);
+            setSelectedWorkspace(
+              environment.snapshot?.workspaces.find((candidate) => candidate !== workspace) ??
+                environment.profile.connection.workspace,
+            );
+            setThread(null);
+            setThreadEnvironmentId(null);
+          }
+        }
+        return true;
+      } catch (error) {
+        setActionError(errorMessage(error));
+        return false;
+      }
+    },
+    [environmentStates, selectedWorkspace, updateSnapshot],
+  );
+
+  const refreshArchivedThreads = useCallback(async () => {
+    setArchiveLoading(true);
+    setArchiveError(null);
+    try {
+      const profiles = settings?.connections ?? [];
+      const results = await Promise.all(
+        profiles.map(async (profile) => {
+          const client = clientsRef.current.get(profile.id);
+          if (client === undefined) return [];
+          const threads = await Effect.runPromise(readAllThreads(client, true));
+          return threads.map((summary) => ({
+            id: summary.id,
+            cwd: summary.cwd,
+            name: summary.name,
+            preview: summary.preview,
+            createdAt: summary.createdAt,
+            updatedAt: summary.updatedAt,
+            status: summary.status,
+            environmentId: profile.id,
+            environmentName: profile.name,
+          }));
+        }),
+      );
+      setArchivedThreads(results.flat());
+    } catch (error) {
+      setArchiveError(errorMessage(error));
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, [settings?.connections]);
+
+  const unarchiveThread = useCallback(
+    async (environmentId: string, threadId: string) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStates[environmentId];
+      if (client === undefined || environment === undefined) {
+        setArchiveError("Connect to the app-server before restoring this thread.");
+        return false;
+      }
+      setArchiveError(null);
+      try {
+        const response = await Effect.runPromise(client.request("thread/unarchive", { threadId }));
+        upsertThreadSummary(environment.profile, response.thread);
+        setArchivedThreads((current) =>
+          current.filter(
+            (candidate) => candidate.environmentId !== environmentId || candidate.id !== threadId,
+          ),
+        );
+        return true;
+      } catch (error) {
+        setArchiveError(errorMessage(error));
+        return false;
+      }
+    },
+    [environmentStates, upsertThreadSummary],
   );
 
   const selectedEnvironment =
@@ -1131,10 +1365,18 @@ export function useAppServerController() {
     thread,
     threadLoading,
     actionError,
+    archivedThreads,
+    archiveLoading,
+    archiveError,
     pendingApproval,
     remote,
     selectThread,
     selectProject,
+    archiveThread,
+    deleteThread,
+    removeProject,
+    refreshArchivedThreads,
+    unarchiveThread,
     startThread,
     sendTurn,
     interruptTurn,

@@ -24,9 +24,14 @@ workspace, environment variables, reconnect lifecycle, and local thread cache. E
 service.
 
 Upstream sections for Providers and provider updates are omitted because app-server owns provider,
-account, and model configuration. Source Control, Archive, configurable Keybindings, and Beta are
-omitted until the stripped client exposes corresponding behavior; showing inert controls would
-misrepresent what the app can do.
+account, and model configuration. Source Control, configurable Keybindings, and Beta are omitted
+until the stripped client exposes corresponding behavior; showing inert controls would misrepresent
+what the app can do.
+
+## Archive
+
+Archive lists archived threads from every currently connected app-server. Restoring a thread calls
+that environment's native `thread/unarchive` method and returns the thread to its original project.
 
 ## Composer controls
 

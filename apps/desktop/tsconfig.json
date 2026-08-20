@@ -8,6 +8,8 @@
   "include": [
     "src/main.ts",
     "src/preload.ts",
+    "src/contextMenuIpc.ts",
+    "src/contextMenuIpc.test.ts",
     "src/appServer",
     "src/ipc/channels.ts",
     "src/projectDirectoryIpc.ts",

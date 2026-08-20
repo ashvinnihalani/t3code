@@ -8,6 +8,7 @@ import type {
 } from "../../../packages/effect-codex-app-server/src/connection.ts";
 import { contextBridge, ipcRenderer } from "electron";
 
+import type { DesktopContextMenuItem } from "./contextMenuIpc.ts";
 import * as IpcChannels from "./ipc/channels.ts";
 
 export interface AppServerDesktopBridge {
@@ -22,6 +23,10 @@ export interface AppServerDesktopBridge {
     profile: AppServerConnectionProfile,
   ) => Promise<ReadonlyArray<WorkspaceOpener>>;
   readonly openWorkspace: (request: WorkspaceOpenRequest) => Promise<WorkspaceOpenResult>;
+  readonly showContextMenu: <T extends string>(
+    items: ReadonlyArray<DesktopContextMenuItem<T>>,
+    position?: { readonly x: number; readonly y: number },
+  ) => Promise<T | null>;
   readonly connectAppServer: (
     profile: AppServerConnectionProfile,
     onError: (message: string) => void,
@@ -39,6 +44,11 @@ const bridge: AppServerDesktopBridge = {
   listWorkspaceOpeners: (profile) =>
     ipcRenderer.invoke(IpcChannels.WORKSPACE_OPENERS_LIST_CHANNEL, profile),
   openWorkspace: (request) => ipcRenderer.invoke(IpcChannels.WORKSPACE_OPEN_CHANNEL, request),
+  showContextMenu: (items, position) =>
+    ipcRenderer.invoke(IpcChannels.CONTEXT_MENU_CHANNEL, {
+      items,
+      ...(position === undefined ? {} : { position }),
+    }),
   connectAppServer: (profile, onError) => {
     const handlePort = (event: Electron.IpcRendererEvent, value: unknown) => {
       if (
