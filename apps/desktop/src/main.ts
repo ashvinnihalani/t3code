@@ -15,7 +15,12 @@ import * as Option from "effect/Option";
 import * as Electron from "electron";
 
 import * as NetService from "@t3tools/shared/Net";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessPlatform,
+  HostProcessWorkingDirectory,
+} from "@t3tools/shared/hostProcess";
 import { resolveRemoteT3CliPackageSpec } from "@t3tools/ssh/command";
 import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
@@ -62,6 +67,21 @@ import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
+import { registerAppServerBridge } from "./appServer/bridge.ts";
+
+const desktopAppServerBridgeLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const cwd = yield* HostProcessWorkingDirectory;
+    const env = yield* HostProcessEnvironment;
+    const platform = yield* HostProcessPlatform;
+    yield* registerAppServerBridge(Electron.ipcMain, {
+      cwd,
+      env,
+      platform,
+      writeDiagnostic: (message) => process.stderr.write(`[app-server] ${message}\n`),
+    });
+  }),
+);
 
 const desktopEnvironmentLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -185,6 +205,7 @@ const desktopApplicationLayer = Layer.mergeAll(
   DesktopApplicationMenu.layer,
   DesktopLinuxUrlHandler.layer,
   DesktopShellEnvironment.layer,
+  desktopAppServerBridgeLayer,
   desktopSshLayer,
 ).pipe(
   Layer.provideMerge(DesktopUpdates.layer),

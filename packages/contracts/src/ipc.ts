@@ -995,6 +995,14 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 });
 
 export interface DesktopBridge {
+  /** Opens a direct stdio channel to a local or SSH-hosted app-server. */
+  connectAppServer?: (profile: unknown) => void;
+  onAppServerPort?: (
+    listener: (connectionId: string, port: DesktopAppServerPort) => void,
+  ) => () => void;
+  onAppServerError?: (
+    listener: (connectionId: string | null, message: string) => void,
+  ) => () => void;
   getAppBranding: () => DesktopAppBranding | null;
   // One bootstrap per pool instance currently registered with bootstrap
   // info (omits instances whose backend hasn't produced a config yet).
@@ -1062,6 +1070,20 @@ export interface DesktopBridge {
    * Electron desktop build; web builds have `preview === undefined`.
    */
   preview?: DesktopPreviewBridge;
+}
+
+export interface DesktopAppServerMessageEvent {
+  readonly data: unknown;
+}
+
+export interface DesktopAppServerPort {
+  postMessage(message: string | Uint8Array): void;
+  start(): void;
+  addEventListener(type: "message", listener: (event: DesktopAppServerMessageEvent) => void): void;
+  removeEventListener(
+    type: "message",
+    listener: (event: DesktopAppServerMessageEvent) => void,
+  ): void;
 }
 
 export interface DesktopPreviewBridge {

@@ -1,6 +1,9 @@
 export const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 export const PICK_THEME_FILES_CHANNEL = "desktop:pick-theme-files";
 export const SET_THEME_CHANNEL = "desktop:set-theme";
+export const APP_SERVER_CONNECT_CHANNEL = "desktop:app-server-connect";
+export const APP_SERVER_PORT_CHANNEL = "desktop:app-server-port";
+export const APP_SERVER_ERROR_CHANNEL = "desktop:app-server-error";
 export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";

@@ -28,6 +28,33 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 }
 
 contextBridge.exposeInMainWorld("desktopBridge", {
+  connectAppServer: (profile) => ipcRenderer.send(IpcChannels.APP_SERVER_CONNECT_CHANNEL, profile),
+  onAppServerPort: (listener) => {
+    const wrappedListener = (
+      event: Electron.IpcRendererEvent,
+      payload: { connectionId?: unknown },
+    ) => {
+      const port = event.ports[0];
+      if (typeof payload?.connectionId !== "string" || port === undefined) return;
+      listener(payload.connectionId, port);
+    };
+    ipcRenderer.on(IpcChannels.APP_SERVER_PORT_CHANNEL, wrappedListener);
+    return () => ipcRenderer.removeListener(IpcChannels.APP_SERVER_PORT_CHANNEL, wrappedListener);
+  },
+  onAppServerError: (listener) => {
+    const wrappedListener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { connectionId?: unknown; message?: unknown },
+    ) => {
+      if (typeof payload?.message !== "string") return;
+      listener(
+        typeof payload.connectionId === "string" ? payload.connectionId : null,
+        payload.message,
+      );
+    };
+    ipcRenderer.on(IpcChannels.APP_SERVER_ERROR_CHANNEL, wrappedListener);
+    return () => ipcRenderer.removeListener(IpcChannels.APP_SERVER_ERROR_CHANNEL, wrappedListener);
+  },
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {
