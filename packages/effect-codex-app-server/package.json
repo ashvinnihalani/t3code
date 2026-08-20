@@ -7,6 +7,10 @@
       "types": "./src/client.ts",
       "import": "./src/client.ts"
     },
+    "./connection": {
+      "types": "./src/connection.ts",
+      "import": "./src/connection.ts"
+    },
     "./schema": {
       "types": "./src/schema.ts",
       "import": "./src/schema.ts"
