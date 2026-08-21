@@ -291,7 +291,9 @@ export function toEnvironmentThreadShell(
     hasPendingApprovals:
       controller.pendingApproval?.environmentId === connectionId &&
       controller.pendingApproval.threadId === thread.id,
-    hasPendingUserInput: false,
+    hasPendingUserInput:
+      controller.pendingUserInput?.environmentId === connectionId &&
+      controller.pendingUserInput.threadId === thread.id,
     hasActionableProposedPlan: false,
     backgroundLiveness: null,
     planProgress: null,
@@ -365,7 +367,12 @@ export function toEnvironmentThread(
     controller.pendingApproval.threadId === detail.id
       ? controller.pendingApproval
       : null;
-  const activities =
+  const userInput =
+    controller.pendingUserInput?.environmentId === connectionId &&
+    controller.pendingUserInput.threadId === detail.id
+      ? controller.pendingUserInput
+      : null;
+  const approvalActivities =
     approval === null
       ? timelineActivities
       : [
@@ -385,6 +392,21 @@ export function toEnvironmentThread(
             },
             turnId: detail.turns.at(-1)?.id ? TurnId.make(detail.turns.at(-1)!.id) : null,
             createdAt: isoTimestamp(approval.createdAt),
+          },
+        ];
+  const activities =
+    userInput === null
+      ? approvalActivities
+      : [
+          ...approvalActivities,
+          {
+            id: EventId.make(`user-input-${userInput.id}`),
+            tone: "info" as const,
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: { requestId: userInput.id, questions: userInput.questions },
+            turnId: detail.turns.at(-1)?.id ? TurnId.make(detail.turns.at(-1)!.id) : null,
+            createdAt: isoTimestamp(userInput.createdAt),
           },
         ];
   return {

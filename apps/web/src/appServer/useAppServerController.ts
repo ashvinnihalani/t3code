@@ -110,6 +110,21 @@ export interface PendingApproval {
   readonly respond: (decision: ApprovalDecision) => void;
 }
 
+export interface PendingUserInput {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly environmentId: string;
+  readonly threadId: string;
+  readonly questions: ReadonlyArray<{
+    readonly id: string;
+    readonly header: string;
+    readonly question: string;
+    readonly options?: ReadonlyArray<{ readonly label: string; readonly description: string }>;
+    readonly multiSelect: boolean;
+  }>;
+  readonly respond: (answers: Readonly<Record<string, string | ReadonlyArray<string>>>) => void;
+}
+
 interface EnvironmentRuntime {
   readonly close: () => void;
   readonly retry: () => void;
@@ -359,6 +374,7 @@ export function useAppServerController() {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlyArray<PendingApproval>>([]);
+  const [pendingUserInputs, setPendingUserInputs] = useState<ReadonlyArray<PendingUserInput>>([]);
   const [remote, setRemote] = useState<RemoteDialogState>({
     connectionId: null,
     connectionName: null,
@@ -580,6 +596,9 @@ export function useAppServerController() {
       const removeApproval = (id: string) => {
         setPendingApprovals((current) => current.filter((approval) => approval.id !== id));
       };
+      const removeUserInput = (id: string) => {
+        setPendingUserInputs((current) => current.filter((request) => request.id !== id));
+      };
 
       const connectClient = (connectedPort: DesktopAppServerPort) =>
         Effect.gen(function* () {
@@ -685,6 +704,48 @@ export function useAppServerController() {
                 },
               ]);
               return Effect.sync(() => removeApproval(id));
+            }),
+          );
+          yield* client.handleServerRequest("item/tool/requestUserInput", (request) =>
+            Effect.callback<CodexSchema.ToolRequestUserInputResponse>((resume) => {
+              const id = `${profile.id}:${request.turnId}:${request.itemId}`;
+              setPendingUserInputs((current) => [
+                ...current.filter((candidate) => candidate.id !== id),
+                {
+                  id,
+                  createdAt: Date.now(),
+                  environmentId: profile.id,
+                  threadId: request.threadId,
+                  questions: request.questions.map((question) => ({
+                    id: question.id,
+                    header: question.header,
+                    question: question.question,
+                    ...(question.options
+                      ? {
+                          options: question.options.map((option) => ({
+                            label: option.label,
+                            description: option.description,
+                          })),
+                        }
+                      : {}),
+                    multiSelect: false,
+                  })),
+                  respond: (answers) => {
+                    removeUserInput(id);
+                    resume(
+                      Effect.succeed({
+                        answers: Object.fromEntries(
+                          Object.entries(answers).map(([questionId, answer]) => [
+                            questionId,
+                            { answers: typeof answer === "string" ? [answer] : [...answer] },
+                          ]),
+                        ),
+                      }),
+                    );
+                  },
+                },
+              ]);
+              return Effect.sync(() => removeUserInput(id));
             }),
           );
           yield* client.handleServerNotification("turn/started", ({ threadId, turn }) =>
@@ -818,6 +879,9 @@ export function useAppServerController() {
           closeCurrent();
           setPendingApprovals((current) =>
             current.filter((approval) => approval.environmentId !== profile.id),
+          );
+          setPendingUserInputs((current) =>
+            current.filter((request) => request.environmentId !== profile.id),
           );
         },
         retry: () => {
@@ -1244,6 +1308,13 @@ export function useAppServerController() {
     [pendingApprovals],
   );
 
+  const respondToUserInput = useCallback(
+    (requestId: string, answers: Readonly<Record<string, string | ReadonlyArray<string>>>) => {
+      pendingUserInputs.find((request) => request.id === requestId)?.respond(answers);
+    },
+    [pendingUserInputs],
+  );
+
   const applySavedSettings = useCallback((saved: AppServerDesktopSettings) => {
     setSettings(saved);
     setEnvironmentStates((current) =>
@@ -1409,6 +1480,12 @@ export function useAppServerController() {
         approval.environmentId === selectedEnvironmentId &&
         (selectedThreadId === null || approval.threadId === selectedThreadId),
     ) ?? null;
+  const pendingUserInput =
+    pendingUserInputs.find(
+      (request) =>
+        request.environmentId === selectedEnvironmentId &&
+        (selectedThreadId === null || request.threadId === selectedThreadId),
+    ) ?? null;
 
   return {
     settings,
@@ -1429,6 +1506,7 @@ export function useAppServerController() {
     archiveLoading,
     archiveError,
     pendingApproval,
+    pendingUserInput,
     remote,
     selectThread,
     selectProject,
@@ -1442,6 +1520,7 @@ export function useAppServerController() {
     interruptTurn,
     renameThread,
     respondToApproval,
+    respondToUserInput,
     saveEnvironment,
     removeEnvironment,
     retry,

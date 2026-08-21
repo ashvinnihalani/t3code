@@ -97,4 +97,47 @@ describe("upstream app-server adapter", () => {
       },
     ]);
   });
+
+  it("projects app-server questions into the upstream structured-input model", () => {
+    const base = controller();
+    const withUserInput = {
+      ...base,
+      pendingApproval: null,
+      pendingUserInput: {
+        id: "question-1",
+        createdAt: 1_000,
+        environmentId: "local",
+        threadId: "thread-1",
+        questions: [
+          {
+            id: "scope",
+            header: "Scope",
+            question: "Which scope?",
+            options: [{ label: "Focused", description: "Only this package" }],
+            multiSelect: false,
+          },
+        ],
+        respond: () => undefined,
+      },
+    } as AppServerController;
+    const thread = toEnvironmentThread(withUserInput, "local", {
+      id: "thread-1",
+      name: "Test",
+      preview: "",
+      cwd: "/workspace",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      status: "active",
+      turns: [],
+    });
+    expect(thread.activities).toMatchObject([
+      {
+        kind: "user-input.requested",
+        payload: {
+          requestId: "question-1",
+          questions: [{ id: "scope", multiSelect: false }],
+        },
+      },
+    ]);
+  });
 });

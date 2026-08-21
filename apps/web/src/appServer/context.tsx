@@ -206,6 +206,24 @@ export async function runAppServerCommand(
         return success();
       }
       return unsupported(label);
+    case "environment-data:commands:thread:respond-to-user-input":
+      if (
+        typeof input.requestId === "string" &&
+        typeof input.answers === "object" &&
+        input.answers !== null
+      ) {
+        const answers = Object.fromEntries(
+          Object.entries(input.answers).flatMap(([questionId, answer]) =>
+            typeof answer === "string" ||
+            (Array.isArray(answer) && answer.every((entry) => typeof entry === "string"))
+              ? [[questionId, answer as string | ReadonlyArray<string>]]
+              : [],
+          ),
+        );
+        controller.respondToUserInput(input.requestId, answers);
+        return success();
+      }
+      return unsupported(label);
     default:
       return unsupported(label);
   }
