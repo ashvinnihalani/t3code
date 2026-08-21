@@ -8,7 +8,6 @@ import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/rela
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
-import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 import {
@@ -364,15 +363,15 @@ export class MissingServerProductionDependenciesError extends Schema.TaggedError
 const DesktopBuildInputArtifact = Schema.Literals([
   "desktop-dist",
   "desktop-resources",
-  "server-dist",
-  "bundled-server-client",
+  "web-dist",
+  "bundled-web-client",
 ]);
 type DesktopBuildInputArtifact = typeof DesktopBuildInputArtifact.Type;
 const desktopBuildInputArtifactNames = {
   "desktop-dist": "desktopDist",
   "desktop-resources": "desktopResources",
-  "server-dist": "serverDist",
-  "bundled-server-client": "bundled server client",
+  "web-dist": "webDist",
+  "bundled-web-client": "bundled web client",
 } satisfies Record<DesktopBuildInputArtifact, string>;
 
 export class MissingDesktopBuildInputError extends Schema.TaggedErrorClass<MissingDesktopBuildInputError>()(
@@ -639,7 +638,6 @@ export const DESKTOP_FILE_EXCLUSIONS = [
 // bundle (otherwise ERR_MODULE_NOT_FOUND: "Cannot find package 'effect'").
 // The Windows primary backend reads the same files through the asar redirect,
 // so nothing is duplicated.
-export const WINDOWS_ASAR_UNPACK = ["apps/server/dist/**", "**/node_modules/**"] as const;
 export const DESKTOP_EXTRA_RESOURCES = [
   {
     from: "apps/desktop/prod-resources/resource-monitor",
@@ -1547,7 +1545,6 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     // Only the Windows WSL backend needs files outside the asar (see
     // WINDOWS_ASAR_UNPACK); macOS and Linux stay packed — smart unpack
     // extracts native libraries, which fff-node finds in app.asar.unpacked.
-    ...(platform === "win" ? { asarUnpack: [...WINDOWS_ASAR_UNPACK] } : {}),
     extraResources: DESKTOP_EXTRA_RESOURCES,
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
@@ -1738,13 +1735,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const electronVersion = desktopPackageJson.dependencies.electron;
 
-  const serverDependencies = serverPackageJson.dependencies;
-  if (!serverDependencies || Object.keys(serverDependencies).length === 0) {
-    return yield* new MissingServerProductionDependenciesError({
-      manifestPath: "apps/server/package.json",
-    });
-  }
-
   const resolvedOverrides = yield* Effect.try({
     try: () => resolveCatalogDependencies(workspaceOverrides, workspaceCatalog, "apps/desktop"),
     catch: (cause) =>
@@ -1755,15 +1745,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
   });
 
-  const resolvedServerDependencies = yield* Effect.try({
-    try: () => resolveCatalogDependencies(serverDependencies, workspaceCatalog, "apps/server"),
-    catch: (cause) =>
-      new DesktopBuildDependencyResolutionError({
-        kind: "server-production",
-        manifestPath: "apps/server/package.json",
-        cause,
-      }),
-  });
   const resolvedDesktopRuntimeDependencies = yield* Effect.try({
     try: () => resolveDesktopRuntimeDependencies(desktopPackageJson.dependencies, workspaceCatalog),
     catch: (cause) =>
@@ -1774,7 +1755,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
   });
 
-  const appVersion = options.version ?? serverPackageJson.version;
+  const appVersion = options.version ?? desktopPackageJson.version;
   const iconAssets = resolveDesktopBuildIconAssets(appVersion);
   const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
@@ -1787,12 +1768,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
-    serverDist: path.join(repoRoot, "apps/server/dist"),
+    webDist: path.join(repoRoot, "apps/web/dist"),
   };
-  const bundledClientEntry = path.join(distDirs.serverDist, "client/index.html");
+  const bundledClientEntry = path.join(distDirs.webDist, "index.html");
 
   if (!options.skipBuild) {
-    yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
+    yield* Effect.log("[desktop-artifact] Building desktop and web artifacts...");
     const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop"]);
     yield* runCommand(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
@@ -1806,7 +1787,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const requiredBuildInputs = [
     { artifact: "desktop-dist", artifactPath: distDirs.desktopDist },
     { artifact: "desktop-resources", artifactPath: distDirs.desktopResources },
-    { artifact: "server-dist", artifactPath: distDirs.serverDist },
+    { artifact: "web-dist", artifactPath: distDirs.webDist },
   ] as const;
   for (const input of requiredBuildInputs) {
     if (!(yield* fs.exists(input.artifactPath))) {
@@ -1819,24 +1800,24 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   if (!(yield* fs.exists(bundledClientEntry))) {
     return yield* new MissingDesktopBuildInputError({
-      artifact: "bundled-server-client",
+      artifact: "bundled-web-client",
       artifactPath: bundledClientEntry,
       buildCommand: "vp run build:desktop",
     });
   }
 
   const webAssetBrand = resolveDesktopWebAssetBrand(appVersion);
-  yield* applyWebBrandAssets(webAssetBrand, "apps/server/dist/client");
+  yield* applyWebBrandAssets(webAssetBrand, "apps/web/dist");
   yield* Effect.log(`[desktop-artifact] Applied ${webAssetBrand} web client branding.`);
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
-  yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
+  yield* fs.makeDirectory(path.join(stageAppDir, "apps/web"), { recursive: true });
 
   yield* Effect.log("[desktop-artifact] Staging release app...");
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
-  yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+  yield* fs.copy(distDirs.webDist, path.join(stageAppDir, "apps/web/dist"));
   yield* stageResourceMonitor({
     repoRoot,
     stageResourcesDir,
@@ -1888,24 +1869,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   const stageDependencies = {
-    ...resolvedServerDependencies,
     ...resolvedDesktopRuntimeDependencies,
-    ...resolveFffNativeDependencies(
-      options.platform,
-      options.arch,
-      serverPackageJson.dependencies["@ff-labs/fff-node"],
-    ),
-    // Windows artifacts also bundle the same-architecture WSL Linux backend, which loads the
-    // fff native binary through ffi-rs. The platform fff binary above is the
-    // host's (win32), so promote the matching Linux fff binaries too; without
-    // them file-finding in WSL fails to load its Linux native package.
-    ...(options.platform === "win"
-      ? resolveFffNativeDependencies(
-          "linux",
-          options.arch,
-          serverPackageJson.dependencies["@ff-labs/fff-node"],
-        )
-      : {}),
   };
   const stagePatchedDependencies = createStagePatchedDependencies(
     workspacePatchedDependencies,
@@ -1970,16 +1934,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     { label: "vp install --prod", verbose: options.verbose },
   );
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
-
-  // WSL is Windows-only, so only the Windows artifact carries the Linux backend
-  // binary; other platforms ignore the prebuild input.
-  if (options.platform === "win") {
-    yield* stageWslNodePtyPrebuild({
-      stageAppDir,
-      arch: options.arch,
-      prebuildPath: options.wslPrebuild,
-    });
-  }
 
   // electron-builder treats several set-but-empty variables (e.g. CSC_LINK="")
   // as enabled, so copy the host env and scrub empty values instead of relying

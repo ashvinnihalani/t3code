@@ -261,12 +261,9 @@ export const make = Effect.gen(function* () {
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const previewManager = yield* PreviewManager.PreviewManager;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
-  // Window-side latch for the primary backend's readiness. Set by
-  // handleBackendReady (driven by the pool's onReady callback), cleared
-  // by handleBackendNotReady (driven by onShutdown). Only consumed by
-  // createMainIfBackendReady, which gates the post-readiness window
-  // open in development and the macOS "activate without windows" path.
-  const backendReadyRef = yield* Ref.make(false);
+  // App-server connections reconnect independently after the renderer loads;
+  // the desktop window no longer waits for a bundled T3 backend.
+  const backendReadyRef = yield* Ref.make(true);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());

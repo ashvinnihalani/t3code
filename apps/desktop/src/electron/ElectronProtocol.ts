@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
+import { pathToFileURL } from "node:url";
 
 export const DESKTOP_HOST = "app";
 export const DESKTOP_PRODUCTION_SCHEME = "t3code";
@@ -50,8 +51,10 @@ export class ElectronProtocolUnregistrationError extends Schema.TaggedErrorClass
 
 export interface DesktopProtocolRegistrationInput {
   readonly scheme: string;
-  readonly targetOrigin: URL;
-  readonly backendOrigin: URL;
+  readonly targetOrigin?: URL;
+  readonly rendererDirectory?: string;
+  /** @deprecated Retained for compatibility with older protocol tests. */
+  readonly backendOrigin?: URL;
   readonly clerkFrontendApiHostname: string | undefined;
 }
 
@@ -182,6 +185,48 @@ async function proxyRequest(
   return withContentSecurityPolicy(response, contentSecurityPolicy);
 }
 
+function resolveRendererAssetUrl(rendererDirectory: string, requestUrl: URL): URL | null {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(requestUrl.pathname);
+  } catch {
+    return null;
+  }
+
+  const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1);
+  const requestedPath =
+    pathname.endsWith("/") || !lastSegment.includes(".")
+      ? "index.html"
+      : pathname.replace(/^\/+/, "");
+  const rendererRoot = pathToFileURL(`${rendererDirectory.replace(/[\\/]+$/u, "")}/`);
+  const assetUrl = new URL(requestedPath, rendererRoot);
+  if (!assetUrl.href.startsWith(rendererRoot.href)) {
+    return null;
+  }
+  return assetUrl;
+}
+
+async function serveRendererAsset(
+  request: Request,
+  rendererDirectory: string,
+  contentSecurityPolicy: string,
+): Promise<Response> {
+  const requestUrl = new URL(request.url);
+  if (requestUrl.host !== DESKTOP_HOST || (request.method !== "GET" && request.method !== "HEAD")) {
+    return new Response(null, { status: 404 });
+  }
+
+  const assetUrl = resolveRendererAssetUrl(rendererDirectory, requestUrl);
+  if (assetUrl === null) {
+    return new Response(null, { status: 404 });
+  }
+
+  const response = await Electron.net.fetch(assetUrl.href, {
+    method: request.method,
+  });
+  return withContentSecurityPolicy(response, contentSecurityPolicy);
+}
+
 const TRANSIENT_FETCH_RETRY_DELAYS_MS = [0, 50, 150] as const;
 
 async function fetchWithTransientRetry(url: string, init: RequestInit): Promise<Response> {
@@ -214,9 +259,15 @@ export const make = Effect.gen(function* () {
       yield* Effect.acquireRelease(
         Effect.try({
           try: () => {
-            Electron.protocol.handle(input.scheme, (request) =>
-              proxyRequest(request, input.targetOrigin, contentSecurityPolicy),
-            );
+            Electron.protocol.handle(input.scheme, (request) => {
+              if (input.targetOrigin !== undefined) {
+                return proxyRequest(request, input.targetOrigin, contentSecurityPolicy);
+              }
+              if (input.rendererDirectory !== undefined) {
+                return serveRendererAsset(request, input.rendererDirectory, contentSecurityPolicy);
+              }
+              return Promise.resolve(new Response(null, { status: 404 }));
+            });
           },
           catch: (cause) => new ElectronProtocolRegistrationError({ scheme: input.scheme, cause }),
         }).pipe(Effect.andThen(Ref.set(registered, true))),
