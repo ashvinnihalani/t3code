@@ -45,7 +45,10 @@ export default defineConfig({
       entry: ["src/main.ts"],
       clean: true,
       deps: {
-        alwaysBundle: (id) => id.startsWith("@t3tools/"),
+        alwaysBundle: (id) =>
+          id.startsWith("@t3tools/") ||
+          id === "effect-codex-app-server" ||
+          id.startsWith("effect-codex-app-server/"),
       },
       ...(shouldLaunchElectronAfterPack ? { onSuccess: "node scripts/dev-electron.mjs" } : {}),
     },
