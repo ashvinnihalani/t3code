@@ -142,6 +142,8 @@ import {
   buildSidebarProjectSnapshots,
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
+import { useOptionalAppServerController } from "../appServer/context";
+import { projectIdForWorkspace } from "../appServer/upstreamAdapter";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -554,6 +556,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const appServerController = useOptionalAppServerController();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -1092,7 +1095,7 @@ function OpenCommandPaletteDialog(props: {
 
       await browseNavigation.run(
         () =>
-          initialBrowsePath.length > 0
+          appServerController === null && initialBrowsePath.length > 0
             ? prefetchBrowsePath(initialBrowsePath, environmentId, browseCwd)
             : Promise.resolve(),
         () => {
@@ -1104,6 +1107,7 @@ function OpenCommandPaletteDialog(props: {
     },
     [
       browseNavigation,
+      appServerController,
       getAddProjectInitialQueryForEnvironment,
       getBrowseCwdForEnvironment,
       prefetchBrowsePath,
@@ -1148,6 +1152,10 @@ function OpenCommandPaletteDialog(props: {
           },
         },
       ];
+
+      if (appServerController !== null) {
+        return [{ value: `sources:${environmentId}`, label: "Sources", items: sourceItems }];
+      }
 
       const orderedSources: ReadonlyArray<AddProjectRemoteSource> = [
         "url",
@@ -1220,7 +1228,7 @@ function OpenCommandPaletteDialog(props: {
 
       return [{ value: `sources:${environmentId}`, label: "Sources", items: sourceItems }];
     },
-    [openSourceControlSettings, startAddProjectBrowse, startAddProjectClone],
+    [appServerController, openSourceControlSettings, startAddProjectBrowse, startAddProjectClone],
   );
 
   const startAddProjectSourceSelection = useCallback(
@@ -1638,6 +1646,13 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
+      if (appServerController !== null) {
+        appServerController.selectProject(input.environmentId, cwd);
+        await handleNewThread(scopeProjectRef(input.environmentId, projectIdForWorkspace(cwd)));
+        setOpen(false);
+        return;
+      }
+
       const projectId = newProjectId();
       const targetEnvironmentProviders =
         environments.find((environment) => environment.environmentId === input.environmentId)
@@ -1688,6 +1703,7 @@ function OpenCommandPaletteDialog(props: {
     },
     [
       handleNewThread,
+      appServerController,
       createProject,
       environments,
       navigate,
