@@ -9,6 +9,11 @@ import {
 import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
 import { useMemo } from "react";
 
+import { useOptionalAppServerController } from "../appServer/context";
+import {
+  appServerTerminalKey,
+  type AppServerTerminalSession,
+} from "../appServer/useAppServerController";
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
 
@@ -16,8 +21,9 @@ export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;
   readonly terminal: TerminalAttachInput | null;
 }): TerminalSessionState {
+  const appServer = useOptionalAppServerController();
   const attach = useEnvironmentQuery(
-    input.environmentId !== null && input.terminal !== null
+    appServer === null && input.environmentId !== null && input.terminal !== null
       ? terminalEnvironment.attach({
           environmentId: input.environmentId,
           input: input.terminal,
@@ -25,7 +31,7 @@ export function useAttachedTerminalSession(input: {
       : null,
   );
   const metadata = useEnvironmentQuery(
-    input.environmentId === null
+    appServer !== null || input.environmentId === null
       ? null
       : terminalEnvironment.metadata({
           environmentId: input.environmentId,
@@ -37,6 +43,13 @@ export function useAttachedTerminalSession(input: {
     if (input.environmentId === null || input.terminal === null) {
       return EMPTY_TERMINAL_SESSION_STATE;
     }
+    if (appServer !== null) {
+      const session =
+        appServer.terminalSessions[appServerTerminalKey(input.environmentId, input.terminal)];
+      return session === undefined
+        ? EMPTY_TERMINAL_SESSION_STATE
+        : directTerminalSessionState(session);
+    }
     const summary =
       metadata.data?.find(
         (terminal) =>
@@ -45,15 +58,16 @@ export function useAttachedTerminalSession(input: {
       ) ?? null;
     const state = combineTerminalSessionState(summary, attach.data ?? EMPTY_TERMINAL_BUFFER_STATE);
     return attach.error === null ? state : { ...state, error: attach.error, status: "error" };
-  }, [attach.data, attach.error, input.environmentId, input.terminal, metadata.data]);
+  }, [appServer, attach.data, attach.error, input.environmentId, input.terminal, metadata.data]);
 }
 
 export function useKnownTerminalSessions(input: {
   readonly environmentId: EnvironmentId | null;
   readonly threadId: ThreadId | null;
 }): ReadonlyArray<KnownTerminalSession> {
+  const appServer = useOptionalAppServerController();
   const metadata = useEnvironmentQuery(
-    input.environmentId === null
+    appServer !== null || input.environmentId === null
       ? null
       : terminalEnvironment.metadata({
           environmentId: input.environmentId,
@@ -63,6 +77,27 @@ export function useKnownTerminalSessions(input: {
   return useMemo(() => {
     if (input.environmentId === null) {
       return [];
+    }
+    if (appServer !== null) {
+      return Object.values(appServer.terminalSessions)
+        .filter(
+          (session) =>
+            session.environmentId === input.environmentId &&
+            (input.threadId === null || session.snapshot.threadId === input.threadId),
+        )
+        .map((session) => ({
+          target: {
+            environmentId: input.environmentId!,
+            threadId: ThreadId.make(session.snapshot.threadId),
+            terminalId: session.snapshot.terminalId,
+          },
+          state: directTerminalSessionState(session),
+        }))
+        .sort((left, right) =>
+          left.target.terminalId.localeCompare(right.target.terminalId, undefined, {
+            numeric: true,
+          }),
+        );
     }
     return (metadata.data ?? [])
       .filter((summary) => input.threadId === null || summary.threadId === input.threadId)
@@ -79,7 +114,32 @@ export function useKnownTerminalSessions(input: {
           numeric: true,
         }),
       );
-  }, [input.environmentId, input.threadId, metadata.data]);
+  }, [appServer, input.environmentId, input.threadId, metadata.data]);
+}
+
+function directTerminalSessionState(session: AppServerTerminalSession): TerminalSessionState {
+  const { snapshot } = session;
+  return {
+    summary: {
+      threadId: snapshot.threadId,
+      terminalId: snapshot.terminalId,
+      cwd: snapshot.cwd,
+      worktreePath: snapshot.worktreePath,
+      status: snapshot.status,
+      pid: snapshot.pid,
+      exitCode: snapshot.exitCode,
+      exitSignal: snapshot.exitSignal,
+      hasRunningSubprocess: false,
+      label: snapshot.label,
+      updatedAt: snapshot.updatedAt,
+    },
+    buffer: snapshot.history,
+    status: snapshot.status,
+    error: session.error,
+    hasRunningSubprocess: false,
+    updatedAt: snapshot.updatedAt,
+    version: session.version,
+  };
 }
 
 export function useThreadRunningTerminalIds(input: {

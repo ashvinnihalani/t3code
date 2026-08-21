@@ -13,7 +13,22 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopAppServerPort, EditorId, FilesystemBrowseResult } from "@t3tools/contracts";
+import type {
+  DesktopAppServerPort,
+  EditorId,
+  FilesystemBrowseResult,
+  ProjectListEntriesResult,
+  ProjectReadFileResult,
+  ProjectWriteFileInput,
+  TerminalAttachInput,
+  TerminalClearInput,
+  TerminalCloseInput,
+  TerminalOpenInput,
+  TerminalResizeInput,
+  TerminalRestartInput,
+  TerminalSessionSnapshot,
+  TerminalWriteInput,
+} from "@t3tools/contracts";
 
 import {
   appendAgentMessageDelta,
@@ -37,7 +52,21 @@ import { onDesktopAppServerPort } from "./desktopAppServerPort";
 
 const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000] as const;
 const CACHE_PREFIX = "t3-codex:app-server-cache:v3:";
+const MAX_TERMINAL_HISTORY_CHARS = 512 * 1024;
+const MAX_PROJECT_FILE_ENTRIES = 10_000;
+const PROJECT_SCAN_CONCURRENCY = 16;
+const IGNORED_PROJECT_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  ".venv",
+  "build",
+  "dist",
+  "node_modules",
+  "target",
+]);
 let nextDraftId = 0;
+let nextTerminalProcessId = 0;
 
 type Client = CodexClient.CodexAppServerClient["Service"];
 
@@ -91,6 +120,58 @@ export interface EnvironmentProject {
   readonly threads: ReadonlyArray<ThreadSummary>;
 }
 
+export interface AppServerTerminalSession {
+  readonly environmentId: string;
+  readonly processId: string;
+  readonly snapshot: TerminalSessionSnapshot;
+  readonly error: string | null;
+  readonly version: number;
+}
+
+export function appServerTerminalKey(
+  environmentId: string,
+  input: { readonly threadId: string; readonly terminalId: string },
+): string {
+  return JSON.stringify([environmentId, input.threadId, input.terminalId]);
+}
+
+function appServerTerminalProcessId(input: {
+  readonly threadId: string;
+  readonly terminalId: string;
+}): string {
+  nextTerminalProcessId += 1;
+  return `t3-codex:${encodeURIComponent(input.threadId)}:${encodeURIComponent(input.terminalId)}:${nextTerminalProcessId}`;
+}
+
+function decodeTerminalOutput(value: string): string {
+  const binary = window.atob(value);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function encodeTerminalInput(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return window.btoa(binary);
+}
+
+function decodeBase64Bytes(value: string): Uint8Array {
+  const binary = window.atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function encodeBase64Text(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return window.btoa(binary);
+}
+
+function terminalTimestamp(): string {
+  return new Date().toISOString();
+}
+
 function appServerPathSeparator(path: string): "/" | "\\" {
   return /^[A-Za-z]:\\/u.test(path) ? "\\" : "/";
 }
@@ -102,6 +183,17 @@ function joinAppServerPath(parent: string, child: string): string {
   if (trimmedParent.length === 0) return `${separator}${trimmedChild}`;
   if (trimmedChild.length === 0) return trimmedParent || separator;
   return `${trimmedParent}${separator}${trimmedChild}`;
+}
+
+export function resolveProjectFilePath(cwd: string, relativePath: string): string {
+  if (
+    relativePath.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/u.test(relativePath) ||
+    relativePath.split(/[\\/]+/u).some((segment) => segment === "..")
+  ) {
+    throw new Error("Workspace file paths must stay inside the selected project.");
+  }
+  return joinAppServerPath(cwd, relativePath);
 }
 
 export function resolveAppServerBrowsePath(
@@ -443,6 +535,11 @@ export function useAppServerController() {
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlyArray<PendingApproval>>([]);
   const [pendingUserInputs, setPendingUserInputs] = useState<ReadonlyArray<PendingUserInput>>([]);
+  const [terminalSessions, setTerminalSessions] = useState<
+    Readonly<Record<string, AppServerTerminalSession>>
+  >({});
+  const terminalSessionsRef = useRef(terminalSessions);
+  terminalSessionsRef.current = terminalSessions;
   const [remote, setRemote] = useState<RemoteDialogState>({
     connectionId: null,
     connectionName: null,
@@ -458,6 +555,43 @@ export function useAppServerController() {
   environmentStatesRef.current = environmentStates;
   const selectionRef = useRef({ environmentId: selectedEnvironmentId, threadId: selectedThreadId });
   selectionRef.current = { environmentId: selectedEnvironmentId, threadId: selectedThreadId };
+
+  const updateTerminalSession = useCallback(
+    (
+      environmentId: string,
+      input: { readonly threadId: string; readonly terminalId: string },
+      update: (current: AppServerTerminalSession) => AppServerTerminalSession,
+    ) => {
+      const key = appServerTerminalKey(environmentId, input);
+      setTerminalSessions((current) => {
+        const session = current[key];
+        if (session === undefined) return current;
+        const next = { ...current, [key]: update(session) };
+        terminalSessionsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const updateTerminalProcess = useCallback(
+    (
+      environmentId: string,
+      processId: string,
+      update: (current: AppServerTerminalSession) => AppServerTerminalSession,
+    ) => {
+      setTerminalSessions((current) => {
+        const entry = Object.entries(current).find(
+          ([, session]) =>
+            session.environmentId === environmentId && session.processId === processId,
+        );
+        if (entry === undefined) return current;
+        const next = { ...current, [entry[0]]: update(entry[1]) };
+        terminalSessionsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
 
   const updateEnvironment = useCallback(
     (environmentId: string, update: (current: EnvironmentState) => EnvironmentState) => {
@@ -694,6 +828,26 @@ export function useAppServerController() {
             Effect.provideService(Scope.Scope, nextScope),
           );
 
+          yield* client.handleServerNotification(
+            "command/exec/outputDelta",
+            ({ deltaBase64, processId }) =>
+              Effect.sync(() => {
+                const data = decodeTerminalOutput(deltaBase64);
+                updateTerminalProcess(profile.id, processId, (current) => ({
+                  ...current,
+                  snapshot: {
+                    ...current.snapshot,
+                    history: `${current.snapshot.history}${data}`.slice(
+                      -MAX_TERMINAL_HISTORY_CHARS,
+                    ),
+                    status: "running",
+                    updatedAt: terminalTimestamp(),
+                  },
+                  error: null,
+                  version: current.version + 1,
+                }));
+              }),
+          );
           yield* client.handleServerNotification("remoteControl/status/changed", (status) =>
             Effect.sync(() => {
               if (!active) return;
@@ -1000,6 +1154,7 @@ export function useAppServerController() {
     settings,
     updateEnvironment,
     updateSnapshot,
+    updateTerminalProcess,
     updateThreadSnapshot,
     upsertThreadSummary,
   ]);
@@ -1125,6 +1280,104 @@ export function useAppServerController() {
       selectProject(environmentId, path);
     },
     [selectProject],
+  );
+
+  const listProjectEntries = useCallback(
+    async (environmentId: string, cwd: string): Promise<ProjectListEntriesResult> => {
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) throw new Error("Connect to the app-server before listing files.");
+
+      const pending: Array<{ absolutePath: string; relativePath: string }> = [
+        { absolutePath: cwd, relativePath: "" },
+      ];
+      const entries: ProjectListEntriesResult["entries"][number][] = [];
+      let truncated = false;
+
+      while (pending.length > 0 && entries.length < MAX_PROJECT_FILE_ENTRIES) {
+        const batch = pending.splice(0, PROJECT_SCAN_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (directory) => {
+            try {
+              return {
+                directory,
+                response: await Effect.runPromise(
+                  client.request("fs/readDirectory", { path: directory.absolutePath }),
+                ),
+              };
+            } catch (error) {
+              if (directory.relativePath.length === 0) throw error;
+              return { directory, response: null };
+            }
+          }),
+        );
+        for (const { directory, response } of results) {
+          if (response === null) continue;
+          for (const child of response.entries) {
+            if (entries.length >= MAX_PROJECT_FILE_ENTRIES) {
+              truncated = true;
+              break;
+            }
+            const relativePath = directory.relativePath
+              ? `${directory.relativePath}/${child.fileName}`
+              : child.fileName;
+            if (child.isDirectory) {
+              entries.push({ path: relativePath, kind: "directory" });
+              if (!IGNORED_PROJECT_DIRECTORIES.has(child.fileName)) {
+                pending.push({
+                  absolutePath: joinAppServerPath(directory.absolutePath, child.fileName),
+                  relativePath,
+                });
+              }
+            } else if (child.isFile) {
+              entries.push({ path: relativePath, kind: "file" });
+            }
+          }
+        }
+      }
+      if (pending.length > 0) truncated = true;
+      return {
+        entries: entries.toSorted((left, right) => left.path.localeCompare(right.path)),
+        truncated,
+      };
+    },
+    [],
+  );
+
+  const readProjectFile = useCallback(
+    async (
+      environmentId: string,
+      cwd: string,
+      relativePath: string,
+    ): Promise<ProjectReadFileResult> => {
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) throw new Error("Connect to the app-server before reading files.");
+      const response = await Effect.runPromise(
+        client.request("fs/readFile", { path: resolveProjectFilePath(cwd, relativePath) }),
+      );
+      const bytes = decodeBase64Bytes(response.dataBase64);
+      return {
+        relativePath,
+        contents: new TextDecoder().decode(bytes),
+        byteLength: bytes.byteLength,
+        truncated: false,
+      };
+    },
+    [],
+  );
+
+  const writeProjectFile = useCallback(
+    async (environmentId: string, input: ProjectWriteFileInput) => {
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) return false;
+      await Effect.runPromise(
+        client.request("fs/writeFile", {
+          path: resolveProjectFilePath(input.cwd, input.relativePath),
+          dataBase64: encodeBase64Text(input.contents),
+        }),
+      );
+      return true;
+    },
+    [],
   );
 
   const archiveThread = useCallback(
@@ -1305,6 +1558,166 @@ export function useAppServerController() {
       }
     },
     [environmentStates, upsertThreadSummary],
+  );
+
+  const openTerminal = useCallback(
+    async (environmentId: string, input: TerminalOpenInput | TerminalAttachInput) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStatesRef.current[environmentId];
+      if (client === undefined || environment === undefined) return false;
+
+      const key = appServerTerminalKey(environmentId, input);
+      const current = terminalSessionsRef.current[key];
+      if (current?.snapshot.status === "starting" || current?.snapshot.status === "running") {
+        return true;
+      }
+
+      const cwd = input.cwd ?? environment.profile.connection.workspace;
+      const processId = appServerTerminalProcessId(input);
+      const now = terminalTimestamp();
+      const session: AppServerTerminalSession = {
+        environmentId,
+        processId,
+        snapshot: {
+          threadId: input.threadId,
+          terminalId: input.terminalId,
+          cwd,
+          worktreePath: input.worktreePath ?? null,
+          status: "starting",
+          pid: null,
+          history: current?.snapshot.history ?? "",
+          exitCode: null,
+          exitSignal: null,
+          label: input.terminalId,
+          updatedAt: now,
+        },
+        error: null,
+        version: (current?.version ?? 0) + 1,
+      };
+      const nextSessions = { ...terminalSessionsRef.current, [key]: session };
+      terminalSessionsRef.current = nextSessions;
+      setTerminalSessions(nextSessions);
+
+      void Effect.runPromise(
+        client.request("command/exec", {
+          command: ["/bin/sh", "-l"],
+          cwd,
+          env: input.env ?? {},
+          processId,
+          tty: true,
+          streamStdin: true,
+          streamStdoutStderr: true,
+          disableTimeout: true,
+          disableOutputCap: true,
+          size: { cols: input.cols ?? 120, rows: input.rows ?? 30 },
+        }),
+      ).then(
+        (response) => {
+          updateTerminalProcess(environmentId, processId, (latest) => ({
+            ...latest,
+            snapshot: {
+              ...latest.snapshot,
+              history: `${latest.snapshot.history}${response.stdout}${response.stderr}`.slice(
+                -MAX_TERMINAL_HISTORY_CHARS,
+              ),
+              status: "exited",
+              exitCode: response.exitCode,
+              updatedAt: terminalTimestamp(),
+            },
+            version: latest.version + 1,
+          }));
+        },
+        (error) => {
+          updateTerminalProcess(environmentId, processId, (latest) => ({
+            ...latest,
+            snapshot: {
+              ...latest.snapshot,
+              status: "error",
+              updatedAt: terminalTimestamp(),
+            },
+            error: errorMessage(error),
+            version: latest.version + 1,
+          }));
+        },
+      );
+      return true;
+    },
+    [updateTerminalProcess],
+  );
+
+  const writeTerminal = useCallback(async (environmentId: string, input: TerminalWriteInput) => {
+    const client = clientsRef.current.get(environmentId);
+    const session = terminalSessionsRef.current[appServerTerminalKey(environmentId, input)];
+    if (client === undefined || session === undefined) return false;
+    await Effect.runPromise(
+      client.request("command/exec/write", {
+        processId: session.processId,
+        deltaBase64: encodeTerminalInput(input.data),
+      }),
+    );
+    return true;
+  }, []);
+
+  const resizeTerminal = useCallback(async (environmentId: string, input: TerminalResizeInput) => {
+    const client = clientsRef.current.get(environmentId);
+    const session = terminalSessionsRef.current[appServerTerminalKey(environmentId, input)];
+    if (client === undefined || session === undefined) return false;
+    await Effect.runPromise(
+      client.request("command/exec/resize", {
+        processId: session.processId,
+        size: { cols: input.cols, rows: input.rows },
+      }),
+    );
+    return true;
+  }, []);
+
+  const clearTerminal = useCallback(
+    (environmentId: string, input: TerminalClearInput) => {
+      updateTerminalSession(environmentId, input, (current) => ({
+        ...current,
+        snapshot: { ...current.snapshot, history: "", updatedAt: terminalTimestamp() },
+        error: null,
+        version: current.version + 1,
+      }));
+      return true;
+    },
+    [updateTerminalSession],
+  );
+
+  const closeTerminal = useCallback(async (environmentId: string, input: TerminalCloseInput) => {
+    const client = clientsRef.current.get(environmentId);
+    if (client === undefined) return false;
+    const entries = Object.entries(terminalSessionsRef.current).filter(
+      ([, session]) =>
+        session.environmentId === environmentId &&
+        session.snapshot.threadId === input.threadId &&
+        (input.terminalId === undefined || session.snapshot.terminalId === input.terminalId),
+    );
+    await Promise.all(
+      entries.map(([, session]) =>
+        Effect.runPromise(
+          client.request("command/exec/terminate", { processId: session.processId }),
+        ).catch(() => undefined),
+      ),
+    );
+    setTerminalSessions((current) => {
+      const next = { ...current };
+      for (const [key] of entries) delete next[key];
+      terminalSessionsRef.current = next;
+      return next;
+    });
+    return true;
+  }, []);
+
+  const restartTerminal = useCallback(
+    async (environmentId: string, input: TerminalRestartInput) => {
+      await closeTerminal(environmentId, {
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+      });
+      return openTerminal(environmentId, input);
+    },
+    [closeTerminal, openTerminal],
   );
 
   const selectedEnvironment =
@@ -1666,16 +2079,26 @@ export function useAppServerController() {
     archiveError,
     pendingApproval,
     pendingUserInput,
+    terminalSessions,
     remote,
     selectThread,
     selectProject,
     browseFilesystem,
     addProject,
+    listProjectEntries,
+    readProjectFile,
+    writeProjectFile,
     archiveThread,
     deleteThread,
     removeProject,
     refreshArchivedThreads,
     unarchiveThread,
+    openTerminal,
+    writeTerminal,
+    resizeTerminal,
+    clearTerminal,
+    restartTerminal,
+    closeTerminal,
     startThread,
     sendTurn,
     interruptTurn,

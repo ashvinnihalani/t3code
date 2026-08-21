@@ -1,12 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  appServerTerminalKey,
   fromSettingsDraft,
   projectAppServerDirectory,
   projectEnvironmentProjects,
   removeProjectFromSnapshot,
   removeThreadFromSnapshot,
   resolveAppServerBrowsePath,
+  resolveProjectFilePath,
   toSettingsDraft,
   type EnvironmentState,
 } from "./useAppServerController";
@@ -24,6 +26,12 @@ const localProfile = {
 };
 
 describe("app-server environment controller", () => {
+  it("scopes terminal sessions to their app-server environment", () => {
+    expect(appServerTerminalKey("local", { threadId: "thread-1", terminalId: "term-1" })).not.toBe(
+      appServerTerminalKey("build-box", { threadId: "thread-1", terminalId: "term-1" }),
+    );
+  });
+
   it("round-trips editable connection profiles", () => {
     expect(fromSettingsDraft(toSettingsDraft(localProfile))).toEqual(localProfile);
     expect(
@@ -127,6 +135,13 @@ describe("app-server environment controller", () => {
         { name: "zeta", fullPath: "/repo/zeta" },
       ],
     });
+  });
+
+  it("keeps direct app-server file access inside the selected project", () => {
+    expect(resolveProjectFilePath("/repo", "src/index.ts")).toBe("/repo/src/index.ts");
+    expect(() => resolveProjectFilePath("/repo", "../secrets.txt")).toThrow(
+      "Workspace file paths must stay inside the selected project.",
+    );
   });
 
   it("removes one archived thread without removing its project", () => {

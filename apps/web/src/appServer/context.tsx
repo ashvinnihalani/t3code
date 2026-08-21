@@ -135,6 +135,69 @@ export async function runAppServerCommand(
       });
       return result.ok ? success() : failure(result.error ?? "Unable to open workspace.");
     }
+    case "environment-data:projects:write-file": {
+      try {
+        return (await controller.writeProjectFile(
+          command.environmentId,
+          input as Parameters<typeof controller.writeProjectFile>[1],
+        ))
+          ? success()
+          : unsupported(label);
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error));
+      }
+    }
+    case "environment-data:terminal:open":
+    case "environment-data:terminal:write":
+    case "environment-data:terminal:resize":
+    case "environment-data:terminal:clear":
+    case "environment-data:terminal:restart":
+    case "environment-data:terminal:close": {
+      try {
+        let handled = false;
+        switch (label) {
+          case "environment-data:terminal:open":
+            handled = await controller.openTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.openTerminal>[1],
+            );
+            break;
+          case "environment-data:terminal:write":
+            handled = await controller.writeTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.writeTerminal>[1],
+            );
+            break;
+          case "environment-data:terminal:resize":
+            handled = await controller.resizeTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.resizeTerminal>[1],
+            );
+            break;
+          case "environment-data:terminal:clear":
+            handled = controller.clearTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.clearTerminal>[1],
+            );
+            break;
+          case "environment-data:terminal:restart":
+            handled = await controller.restartTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.restartTerminal>[1],
+            );
+            break;
+          case "environment-data:terminal:close":
+            handled = await controller.closeTerminal(
+              command.environmentId,
+              input as Parameters<typeof controller.closeTerminal>[1],
+            );
+            break;
+        }
+        return handled ? success() : unsupported(label);
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error));
+      }
+    }
     case "environment-data:commands:thread:create":
       return success();
     case "environment-data:commands:thread:start-turn": {

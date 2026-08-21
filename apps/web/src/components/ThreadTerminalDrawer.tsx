@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
+import { Atom } from "effect/unstable/reactivity";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -40,6 +41,7 @@ import {
 } from "~/terminal/ghostty/surface";
 import { type GhosttyColor, type GhosttyTheme } from "~/terminal/ghostty/core";
 import { useOpenInPreferredEditor } from "../editorPreferences";
+import { useOptionalAppServerController } from "../appServer/context";
 import { isTerminalLinkActivation, resolvePathLinkTarget } from "../terminal-links";
 import {
   isDiffToggleShortcut,
@@ -75,6 +77,7 @@ import {
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
+const EMPTY_SERVER_CONFIG_ATOM = Atom.make(null);
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -308,7 +311,12 @@ export function TerminalViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
   const environmentId = threadRef.environmentId;
-  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const appServer = useOptionalAppServerController();
+  const serverConfig = useAtomValue(
+    appServer === null
+      ? serverEnvironment.configValueAtom(environmentId)
+      : EMPTY_SERVER_CONFIG_ATOM,
+  );
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
     serverConfig?.availableEditors ?? [],

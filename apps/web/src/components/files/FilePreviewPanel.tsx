@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
+import { useOptionalAppServerController } from "~/appServer/context";
 import { useAssetUrlState } from "~/assets/assetUrls";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
@@ -408,6 +409,8 @@ function useFileSaveCoordinator({
   EditableFileSurfaceProps,
   "environmentId" | "cwd" | "relativePath" | "onPendingChange"
 >): FileSaveCoordinator {
+  const appServer = useOptionalAppServerController();
+  const directAppServer = appServer !== null;
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const coordinator = useMemo(
     () =>
@@ -420,10 +423,12 @@ function useFileSaveCoordinator({
             input: { cwd, relativePath, contents: nextContents },
           }),
         onConfirmed: (confirmedContents) => {
-          confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
+          confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents, {
+            refresh: !directAppServer,
+          });
         },
       }),
-    [cwd, environmentId, onPendingChange, relativePath, writeFile],
+    [cwd, directAppServer, environmentId, onPendingChange, relativePath, writeFile],
   );
 
   useEffect(() => () => coordinator.dispose(), [coordinator]);
