@@ -924,6 +924,11 @@ export function useAppServerController() {
         updateSnapshot(environment.profile, (snapshot) =>
           removeThreadFromSnapshot(snapshot, threadId),
         );
+        setArchivedThreads((current) =>
+          current.filter(
+            (candidate) => candidate.environmentId !== environmentId || candidate.id !== threadId,
+          ),
+        );
         setArchivedThreads((current) => [
           { ...summary, environmentId, environmentName: environment.profile.name },
           ...current.filter(
