@@ -217,6 +217,8 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
+import { useOptionalAppServerController } from "../appServer/context";
+import { toServerConfig } from "../appServer/upstreamAdapter";
 import {
   useProject,
   useProjects,
@@ -1158,6 +1160,7 @@ function ChatViewContent(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
+  const appServerController = useOptionalAppServerController();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1755,9 +1758,15 @@ function ChatViewContent(props: ChatViewProps) {
   });
   // Once a thread selects an environment, never substitute the primary
   // environment's config while the selected environment is still loading.
-  const serverConfig = activeThread
-    ? (activeEnvironment?.serverConfig ?? null)
-    : (primaryEnvironment?.serverConfig ?? null);
+  const directServerConfig =
+    appServerController === null
+      ? null
+      : toServerConfig(appServerController, activeThread?.environmentId ?? environmentId);
+  const serverConfig =
+    directServerConfig ??
+    (activeThread
+      ? (activeEnvironment?.serverConfig ?? null)
+      : (primaryEnvironment?.serverConfig ?? null));
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread

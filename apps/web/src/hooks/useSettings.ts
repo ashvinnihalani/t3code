@@ -37,6 +37,8 @@ import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
+import { useOptionalAppServerController } from "~/appServer/context";
+import { toServerConfig } from "~/appServer/upstreamAdapter";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
@@ -283,15 +285,25 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
+  const appServerController = useOptionalAppServerController();
   const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
+  const directSettings =
+    appServerController === null
+      ? null
+      : toServerConfig(appServerController, environmentId).settings;
+  return useMergedSettings(directSettings ?? serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
 /** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
+  const appServerController = useOptionalAppServerController();
+  const serverSettings = useAtomValue(primaryServerSettingsAtom);
+  const directSettings = appServerController?.selectedEnvironmentId
+    ? toServerConfig(appServerController, appServerController.selectedEnvironmentId).settings
+    : null;
+  return useMergedSettings(directSettings ?? serverSettings, selector);
 }
 
 /**
