@@ -1,15 +1,39 @@
-import type {
-  DesktopBridge,
-  DesktopPreviewPointerEvent,
-  DesktopPreviewRecordingFrame,
-  DesktopPreviewTabState,
-} from "@t3tools/contracts";
+import {
+  DESKTOP_APP_SERVER_PORT_MESSAGE_TYPE,
+  type DesktopAppServerPortMessage,
+} from "@t3tools/contracts/appServerDesktop";
 import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
+type DesktopBridge = import("@t3tools/contracts").DesktopBridge;
+type DesktopPreviewPointerEvent = import("@t3tools/contracts").DesktopPreviewPointerEvent;
+type DesktopPreviewRecordingFrame = import("@t3tools/contracts").DesktopPreviewRecordingFrame;
+type DesktopPreviewTabState = import("@t3tools/contracts").DesktopPreviewTabState;
+
 exposeClerkBridge({ passkeys: true });
+
+ipcRenderer.on(IpcChannels.APP_SERVER_PORT_CHANNEL, (event, payload: unknown) => {
+  const port = event.ports[0];
+  if (
+    port === undefined ||
+    typeof payload !== "object" ||
+    payload === null ||
+    !("connectionId" in payload) ||
+    typeof payload.connectionId !== "string"
+  ) {
+    port?.close();
+    return;
+  }
+  const message: DesktopAppServerPortMessage = {
+    type: DESKTOP_APP_SERVER_PORT_MESSAGE_TYPE,
+    connectionId: payload.connectionId,
+  };
+  // MessagePorts cannot cross contextBridge. Transfer the native port from
+  // the preload's isolated world into the renderer's main world instead.
+  window.postMessage(message, "*", [port]);
+});
 
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
@@ -37,18 +61,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.APP_SERVER_WORKSPACE_OPENERS_CHANNEL, profile),
   openAppServerWorkspace: (request) =>
     ipcRenderer.invoke(IpcChannels.APP_SERVER_WORKSPACE_OPEN_CHANNEL, request),
-  onAppServerPort: (listener) => {
-    const wrappedListener = (
-      event: Electron.IpcRendererEvent,
-      payload: { connectionId?: unknown },
-    ) => {
-      const port = event.ports[0];
-      if (typeof payload?.connectionId !== "string" || port === undefined) return;
-      listener(payload.connectionId, port);
-    };
-    ipcRenderer.on(IpcChannels.APP_SERVER_PORT_CHANNEL, wrappedListener);
-    return () => ipcRenderer.removeListener(IpcChannels.APP_SERVER_PORT_CHANNEL, wrappedListener);
-  },
   onAppServerError: (listener) => {
     const wrappedListener = (
       _event: Electron.IpcRendererEvent,

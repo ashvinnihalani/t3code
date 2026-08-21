@@ -32,6 +32,7 @@ import {
   turnAccessOverrides,
   type ComposerOptions,
 } from "./composerOptions";
+import { onDesktopAppServerPort } from "./desktopAppServerPort";
 
 const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000] as const;
 const CACHE_PREFIX = "t3-codex:app-server-cache:v3:";
@@ -509,13 +510,8 @@ export function useAppServerController() {
     if (settings === null) return;
     const bridge = window.desktopBridge;
     const connectAppServer = bridge?.connectAppServer;
-    const onAppServerPort = bridge?.onAppServerPort;
     const onAppServerError = bridge?.onAppServerError;
-    if (
-      connectAppServer === undefined ||
-      onAppServerPort === undefined ||
-      onAppServerError === undefined
-    ) {
+    if (connectAppServer === undefined || onAppServerError === undefined) {
       return;
     }
 
@@ -863,7 +859,7 @@ export function useAppServerController() {
         );
       };
 
-      const removePortListener = onAppServerPort(handlePort);
+      const removePortListener = onDesktopAppServerPort(handlePort);
       const removeErrorListener = onAppServerError((connectionId, message) => {
         if (connectionId === profile.id) scheduleReconnect(message);
       });

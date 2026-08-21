@@ -1007,9 +1007,6 @@ export interface DesktopBridge {
     readonly cwd: string;
     readonly editor: EditorId;
   }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  onAppServerPort?: (
-    listener: (connectionId: string, port: DesktopAppServerPort) => void,
-  ) => () => void;
   onAppServerError?: (
     listener: (connectionId: string | null, message: string) => void,
   ) => () => void;
