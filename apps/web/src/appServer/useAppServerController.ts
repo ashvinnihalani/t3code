@@ -1376,6 +1376,17 @@ export function useAppServerController() {
     }
   }, [remote.connectionId, remote.pairing]);
 
+  const closeRemotePairing = useCallback(() => {
+    setRemote({
+      connectionId: null,
+      connectionName: null,
+      pairing: null,
+      clients: [],
+      error: null,
+      busy: false,
+    });
+  }, []);
+
   const environments = useMemo(
     () =>
       settings?.connections
@@ -1428,5 +1439,6 @@ export function useAppServerController() {
     retry,
     beginRemotePairing,
     checkRemotePairing,
+    closeRemotePairing,
   };
 }
