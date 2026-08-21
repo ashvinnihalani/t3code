@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
+import { APP_VERSION } from "../branding";
 import type { AppServerController } from "./context";
 import { toEnvironmentThread, toServerConfig } from "./upstreamAdapter";
 
@@ -73,6 +74,7 @@ describe("upstream app-server adapter", () => {
       },
     });
     expect(config.availableEditors).toEqual(["cursor", "vscode", "zed", "file-manager"]);
+    expect(config.environment.serverVersion).toBe(APP_VERSION);
   });
 
   it("projects app-server approvals into the upstream composer activity model", () => {

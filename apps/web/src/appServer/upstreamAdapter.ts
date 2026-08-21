@@ -23,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 
+import { APP_VERSION } from "../branding";
 import type { AppServerController } from "./context";
 import type { EnvironmentProject as AppServerProject } from "./useAppServerController";
 import type { ThreadDetail, ThreadSummary, ThreadTurn, TimelineItem } from "./presentation";
@@ -158,7 +159,9 @@ export function toServerConfig(
       environmentId: environmentIdFor(connectionId),
       label: profile?.name ?? connectionId,
       platform: { os: "unknown", arch: "other" },
-      serverVersion: "app-server",
+      // This config is synthesized by the client adapter; there is no T3
+      // server whose version or updater should be presented to the user.
+      serverVersion: APP_VERSION,
       capabilities: {
         repositoryIdentity: false,
         connectionProbe: false,
