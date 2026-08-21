@@ -226,6 +226,8 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { useOptionalAppServerController } from "../../appServer/context";
+import { toServerConfig } from "../../appServer/upstreamAdapter";
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -634,12 +636,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     runtimeMode,
     interactionMode,
     lockedProvider,
-    providerStatuses,
+    providerStatuses: upstreamProviderStatuses,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
     activeThreadActivities,
     resolvedTheme,
-    settings,
+    settings: upstreamSettings,
     keybindings,
     terminalOpen,
     gitCwd,
@@ -666,6 +668,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setThreadError,
     onExpandImage,
   } = props;
+  const appServerController = useOptionalAppServerController();
+  const directServerConfig =
+    appServerController === null ? null : toServerConfig(appServerController, environmentId);
+  const providerStatuses = directServerConfig?.providers ?? upstreamProviderStatuses;
+  const settings: UnifiedSettings =
+    directServerConfig === null
+      ? upstreamSettings
+      : { ...upstreamSettings, ...directServerConfig.settings };
   const isSendDisabled = sendDisabledReason !== null;
 
   // ------------------------------------------------------------------

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { APP_VERSION } from "../branding";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  resolveSelectableProviderInstanceEntry,
+} from "../providerInstances";
 import type { AppServerController } from "./context";
 import {
   isNewAppServerThreadSelection,
@@ -30,6 +35,7 @@ function controller(): AppServerController {
         snapshot: null,
         account: {},
         remote: null,
+        workspaceOpeners: ["cursor", "vscode", "zed", "file-manager"],
         models: [
           {
             id: "model",
@@ -85,6 +91,11 @@ describe("upstream app-server adapter", () => {
     });
     expect(config.availableEditors).toEqual(["cursor", "vscode", "zed", "file-manager"]);
     expect(config.environment.serverVersion).toBe(APP_VERSION);
+    const entries = applyProviderInstanceSettings(
+      deriveProviderInstanceEntries(config.providers),
+      config.settings,
+    );
+    expect(resolveSelectableProviderInstanceEntry(entries, undefined)?.instanceId).toBe("codex");
   });
 
   it("projects app-server approvals into the upstream composer activity model", () => {
