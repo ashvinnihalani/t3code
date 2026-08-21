@@ -638,12 +638,7 @@ export const DESKTOP_FILE_EXCLUSIONS = [
 // bundle (otherwise ERR_MODULE_NOT_FOUND: "Cannot find package 'effect'").
 // The Windows primary backend reads the same files through the asar redirect,
 // so nothing is duplicated.
-export const DESKTOP_EXTRA_RESOURCES = [
-  {
-    from: "apps/desktop/prod-resources/resource-monitor",
-    to: "resource-monitor",
-  },
-] as const;
+export const DESKTOP_EXTRA_RESOURCES = [] as const;
 
 export interface MacPasskeySigningConfiguration {
   readonly appId: string;
@@ -1818,14 +1813,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.webDist, path.join(stageAppDir, "apps/web/dist"));
-  yield* stageResourceMonitor({
-    repoRoot,
-    stageResourcesDir,
-    platform: options.platform,
-    arch: options.arch,
-    verbose: options.verbose,
-  });
-
   yield* assertPlatformBuildResources(
     options.platform,
     stageResourcesDir,
