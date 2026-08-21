@@ -13,10 +13,11 @@ function timestamp(value: number): Date {
 
 export function AppServerArchivedThreads() {
   const controller = useOptionalAppServerController();
+  const refreshArchivedThreads = controller?.refreshArchivedThreads;
 
   useEffect(() => {
-    void controller?.refreshArchivedThreads();
-  }, [controller]);
+    void refreshArchivedThreads?.();
+  }, [refreshArchivedThreads]);
 
   const groups = useMemo(() => {
     const grouped = new Map<
