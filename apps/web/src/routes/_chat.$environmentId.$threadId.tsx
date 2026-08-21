@@ -15,8 +15,10 @@ import {
 } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
+import { useOptionalAppServerController } from "../appServer/context";
 
 function ChatThreadRouteView() {
+  const appServer = useOptionalAppServerController();
   const navigate = useNavigate();
   const threadRef = Route.useParams({
     select: (params) => resolveThreadRouteRef(params),
@@ -28,7 +30,8 @@ function ChatThreadRouteView() {
   const serverThreadDetail = useThreadDetail(threadRef);
   const serverThreadStatus = useThreadStatus(threadRef);
   const environmentThreadRefs = useEnvironmentThreadRefs(threadRef?.environmentId ?? null);
-  const bootstrapComplete = shell.data?.snapshot._tag === "Some";
+  const bootstrapComplete =
+    appServer === null ? shell.data?.snapshot._tag === "Some" : appServer.settings !== null;
   const environmentHasServerThreads = environmentThreadRefs.length > 0;
   const draftThreadExists = useComposerDraftStore((store) =>
     threadRef ? store.getDraftThreadByRef(threadRef) !== null : false,
@@ -58,14 +61,25 @@ function ChatThreadRouteView() {
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
 
   useEffect(() => {
+    if (appServer === null || threadRef === null) return;
+    if (
+      appServer.selectedEnvironmentId === threadRef.environmentId &&
+      appServer.thread?.id === threadRef.threadId
+    ) {
+      return;
+    }
+    void appServer.selectThread(threadRef.environmentId, threadRef.threadId);
+  }, [appServer, threadRef]);
+
+  useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
       return;
     }
 
-    if (renderState === "missing" && environmentHasAnyThreads) {
+    if (appServer === null && renderState === "missing" && environmentHasAnyThreads) {
       void navigate({ to: "/", replace: true });
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, threadRef]);
+  }, [appServer, bootstrapComplete, environmentHasAnyThreads, navigate, renderState, threadRef]);
 
   useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread) {

@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   connectionCatalogDisplayUrl,
+  PrimaryConnectionTarget,
   type EnvironmentPresentation as BaseEnvironmentPresentation,
 } from "@t3tools/client-runtime/connection";
 import { Discovery } from "@t3tools/client-runtime/relay";
@@ -14,6 +15,8 @@ import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { useEnvironmentQuery } from "./query";
 import { relayEnvironmentDiscovery } from "./relay";
 import { usePreparedConnection } from "./session";
+import { useOptionalAppServerController } from "../appServer/context";
+import { environmentIdFor, toServerConfig } from "../appServer/upstreamAdapter";
 
 export interface EnvironmentPresentation extends BaseEnvironmentPresentation {
   readonly environmentId: EnvironmentId;
@@ -36,40 +39,79 @@ function projectEnvironmentPresentation(
 }
 
 export function useEnvironments() {
+  const appServer = useOptionalAppServerController();
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   const networkStatus = useAtomValue(environmentCatalog.networkStatusValueAtom);
   const presentationById = useAtomValue(environmentPresentations.presentationsAtom);
 
-  const environments = useMemo(
-    () =>
-      [...presentationById.entries()].map(([environmentId, presentation]) =>
-        projectEnvironmentPresentation(environmentId, presentation),
-      ),
-    [presentationById],
+  const environments = useMemo(() => {
+    if (appServer !== null) {
+      return appServer.environments.map((environment): EnvironmentPresentation => {
+        const environmentId = environmentIdFor(environment.profile.id);
+        const target = new PrimaryConnectionTarget({
+          environmentId,
+          label: environment.profile.name,
+          httpBaseUrl: "app-server://stdio",
+          wsBaseUrl: "app-server://stdio",
+        });
+        return {
+          environmentId,
+          label: environment.profile.name,
+          displayUrl:
+            environment.profile.connection.kind === "ssh"
+              ? environment.profile.connection.host
+              : "Local",
+          relayManaged: false,
+          entry: { target, profile: Option.none() },
+          connection: {
+            phase: environment.phase,
+            error: environment.error,
+            traceId: null,
+          },
+          serverConfig: toServerConfig(appServer, environment.profile.id),
+        };
+      });
+    }
+    return [...presentationById.entries()].map(([environmentId, presentation]) =>
+      projectEnvironmentPresentation(environmentId, presentation),
+    );
+  }, [appServer, presentationById]);
+
+  const directPresentationById = useMemo(
+    () => new Map(environments.map((environment) => [environment.environmentId, environment])),
+    [environments],
   );
 
   return {
-    isReady: catalog.isReady,
+    isReady: appServer === null ? catalog.isReady : appServer.settings !== null,
     networkStatus,
     environments,
-    presentationById,
+    presentationById: appServer === null ? presentationById : directPresentationById,
   };
 }
 
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
-  return useAtomValue(primaryEnvironmentIdAtom);
+  const appServer = useOptionalAppServerController();
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  return appServer?.selectedEnvironmentId
+    ? environmentIdFor(appServer.selectedEnvironmentId)
+    : environmentId;
 }
 
 export function useEnvironment(
   environmentId: EnvironmentId | null,
 ): EnvironmentPresentation | null {
   const { presentation } = useEnvironmentPresentation(environmentId);
+  const direct = useEnvironments().environments.find(
+    (candidate) => candidate.environmentId === environmentId,
+  );
   return useMemo(
     () =>
-      environmentId === null || presentation === null
+      direct ??
+      (environmentId === null || presentation === null
         ? null
-        : projectEnvironmentPresentation(environmentId, presentation),
-    [environmentId, presentation],
+        : projectEnvironmentPresentation(environmentId, presentation)),
+    [direct, environmentId, presentation],
   );
 }
 

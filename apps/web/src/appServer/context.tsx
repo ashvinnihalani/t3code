@@ -1,0 +1,186 @@
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/unstable/reactivity";
+import { createContext, type PropsWithChildren, useContext, useEffect } from "react";
+
+import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+import type { RuntimeMode } from "@t3tools/contracts";
+import { projectIdForWorkspace } from "./upstreamAdapter";
+import { useAppServerController } from "./useAppServerController";
+
+export type AppServerController = ReturnType<typeof useAppServerController>;
+
+const AppServerControllerContext = createContext<AppServerController | null>(null);
+let activeController: AppServerController | null = null;
+
+export function isDirectAppServerDesktop(): boolean {
+  return typeof window !== "undefined" && window.desktopBridge?.connectAppServer !== undefined;
+}
+
+function ActiveAppServerProvider({ children }: PropsWithChildren) {
+  const controller = useAppServerController();
+  activeController = controller;
+  useEffect(
+    () => () => {
+      if (activeController === controller) activeController = null;
+    },
+    [controller],
+  );
+  return (
+    <AppServerControllerContext.Provider value={controller}>
+      {children}
+    </AppServerControllerContext.Provider>
+  );
+}
+
+export function AppServerProvider({ children }: PropsWithChildren) {
+  return isDirectAppServerDesktop() ? (
+    <ActiveAppServerProvider>{children}</ActiveAppServerProvider>
+  ) : (
+    children
+  );
+}
+
+export function useOptionalAppServerController(): AppServerController | null {
+  return useContext(AppServerControllerContext);
+}
+
+export function readOptionalAppServerController(): AppServerController | null {
+  return activeController;
+}
+
+function accessMode(runtimeMode: RuntimeMode) {
+  return runtimeMode === "approval-required" ? "supervised" : runtimeMode;
+}
+
+function modelOption(modelSelection: Record<string, unknown>, optionId: string): string | null {
+  const options = modelSelection.options;
+  if (!Array.isArray(options)) return null;
+  const option = options.find(
+    (candidate): candidate is { readonly id: string; readonly value: string } =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "id" in candidate &&
+      candidate.id === optionId &&
+      "value" in candidate &&
+      typeof candidate.value === "string",
+  );
+  return option?.value ?? null;
+}
+
+function success(): AtomCommandResult<unknown, unknown> {
+  return AsyncResult.success(undefined);
+}
+
+function unsupported(label: string): AtomCommandResult<unknown, unknown> {
+  return AsyncResult.failure(Cause.fail(new Error(`${label} is not supported by app-server.`)));
+}
+
+export async function runAppServerCommand(
+  controller: AppServerController,
+  label: string,
+  value: unknown,
+): Promise<AtomCommandResult<unknown, unknown>> {
+  if (typeof value !== "object" || value === null || !("environmentId" in value)) {
+    return unsupported(label);
+  }
+  const command = value as {
+    readonly environmentId: string;
+    readonly input?: Record<string, unknown>;
+  };
+  const input = command.input ?? {};
+  const threadId = typeof input.threadId === "string" ? input.threadId : null;
+
+  switch (label) {
+    case "environment-data:commands:project:create":
+      if (typeof input.workspaceRoot === "string") {
+        controller.selectProject(command.environmentId, input.workspaceRoot);
+        return success();
+      }
+      return unsupported(label);
+    case "environment-data:commands:project:delete": {
+      if (typeof input.projectId !== "string") return unsupported(label);
+      const project = controller.projects.find(
+        (candidate) =>
+          candidate.environmentId === command.environmentId &&
+          projectIdForWorkspace(candidate.cwd) === input.projectId,
+      );
+      return project !== undefined &&
+        (await controller.removeProject(command.environmentId, project.cwd))
+        ? success()
+        : unsupported(label);
+    }
+    case "environment-data:commands:thread:create":
+      return success();
+    case "environment-data:commands:thread:start-turn": {
+      const message = input.message;
+      if (typeof message !== "object" || message === null || !("text" in message)) {
+        return unsupported(label);
+      }
+      const text = typeof message.text === "string" ? message.text : "";
+      const modelSelection = input.modelSelection;
+      const selection =
+        typeof modelSelection === "object" && modelSelection !== null
+          ? (modelSelection as Record<string, unknown>)
+          : null;
+      const model =
+        selection !== null && typeof selection.model === "string" ? selection.model : null;
+      const rawRuntimeMode = input.runtimeMode;
+      const runtimeMode: RuntimeMode =
+        rawRuntimeMode === "approval-required" ||
+        rawRuntimeMode === "auto-accept-edits" ||
+        rawRuntimeMode === "auto" ||
+        rawRuntimeMode === "full-access"
+          ? rawRuntimeMode
+          : "full-access";
+      const options = {
+        model,
+        effort:
+          selection === null
+            ? null
+            : (modelOption(selection, "reasoningEffort") ?? modelOption(selection, "effort")),
+        serviceTier: selection === null ? null : modelOption(selection, "serviceTier"),
+        access: accessMode(runtimeMode),
+      } as const;
+      const started =
+        input.bootstrap && threadId !== null
+          ? await controller.startThread(text, options)
+          : (await controller.sendTurn(text, options), threadId);
+      return started === null ? unsupported(label) : success();
+    }
+    case "environment-data:commands:thread:interrupt-turn":
+      await controller.interruptTurn();
+      return success();
+    case "environment-data:commands:thread:archive":
+      return threadId !== null && (await controller.archiveThread(command.environmentId, threadId))
+        ? success()
+        : unsupported(label);
+    case "environment-data:commands:thread:delete":
+      return threadId !== null && (await controller.deleteThread(command.environmentId, threadId))
+        ? success()
+        : unsupported(label);
+    case "environment-data:commands:thread:update-metadata":
+      if (threadId !== null && typeof input.title === "string") {
+        return (await controller.renameThread(command.environmentId, threadId, input.title))
+          ? success()
+          : unsupported(label);
+      }
+      return success();
+    case "environment-data:commands:thread:set-runtime-mode":
+    case "environment-data:commands:thread:set-interaction-mode":
+      return success();
+    case "environment-data:commands:thread:respond-to-approval":
+      if (
+        typeof input.requestId === "string" &&
+        (input.decision === "accept" ||
+          input.decision === "acceptForSession" ||
+          input.decision === "decline" ||
+          input.decision === "cancel")
+      ) {
+        controller.respondToApproval(input.requestId, input.decision);
+        return success();
+      }
+      return unsupported(label);
+    default:
+      return unsupported(label);
+  }
+}

@@ -55,6 +55,7 @@ import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
 } from "../components/KeybindingsUpdateToast.logic";
+import { isDirectAppServerDesktop } from "../appServer/context";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -72,6 +73,10 @@ export const Route = createRootRoute({
           status: "hosted-static",
         } as const,
       };
+    }
+
+    if (isDirectAppServerDesktop()) {
+      return { authGateState: { status: "authenticated" } as const };
     }
 
     const authGateState = await resolveInitialServerAuthGateState();

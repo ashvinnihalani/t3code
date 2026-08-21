@@ -1112,10 +1112,10 @@ export function useAppServerController() {
 
   const startThread = useCallback(
     async (prompt: string, options: ComposerOptions) => {
-      if (selectedEnvironmentId === null || prompt.trim().length === 0) return;
+      if (selectedEnvironmentId === null || prompt.trim().length === 0) return null;
       const client = clientsRef.current.get(selectedEnvironmentId);
       const profile = environmentStates[selectedEnvironmentId]?.profile;
-      if (client === undefined || profile === undefined) return;
+      if (client === undefined || profile === undefined) return null;
       setActionError(null);
       setThreadLoading(true);
       try {
@@ -1145,8 +1145,10 @@ export function useAppServerController() {
           }),
         );
         setThread((current) => (current ? upsertTurn(current, response.turn) : current));
+        return projected.id;
       } catch (error) {
         setActionError(errorMessage(error));
+        return null;
       } finally {
         setThreadLoading(false);
       }
@@ -1203,6 +1205,36 @@ export function useAppServerController() {
       setActionError(errorMessage(error));
     }
   }, [selectedEnvironmentId, thread]);
+
+  const renameThread = useCallback(
+    async (environmentId: string, threadId: string, title: string) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStates[environmentId];
+      const name = title.trim();
+      if (client === undefined || environment === undefined || name.length === 0) return false;
+      try {
+        await Effect.runPromise(client.request("thread/name/set", { threadId, name }));
+        updateThreadSnapshot(environment.profile, (threads) =>
+          threads.map((candidate) =>
+            candidate.id === threadId ? { ...candidate, name } : candidate,
+          ),
+        );
+        setThread((current) => (current?.id === threadId ? { ...current, name } : current));
+        return true;
+      } catch (error) {
+        setActionError(errorMessage(error));
+        return false;
+      }
+    },
+    [environmentStates, updateThreadSnapshot],
+  );
+
+  const respondToApproval = useCallback(
+    (requestId: string, decision: ApprovalDecision) => {
+      pendingApprovals.find((approval) => approval.id === requestId)?.respond(decision);
+    },
+    [pendingApprovals],
+  );
 
   const applySavedSettings = useCallback((saved: AppServerDesktopSettings) => {
     setSettings(saved);
@@ -1389,6 +1421,8 @@ export function useAppServerController() {
     startThread,
     sendTurn,
     interruptTurn,
+    renameThread,
+    respondToApproval,
     saveEnvironment,
     removeEnvironment,
     retry,

@@ -11,8 +11,11 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
+import { useOptionalAppServerController } from "../appServer/context";
+import { projectIdForWorkspace } from "../appServer/upstreamAdapter";
 
 function DraftChatThreadRouteView() {
+  const appServer = useOptionalAppServerController();
   const navigate = useNavigate();
   const { draftId: rawDraftId } = Route.useParams();
   const draftId = DraftId.make(rawDraftId);
@@ -29,6 +32,34 @@ function DraftChatThreadRouteView() {
   const serverThread = useThread(serverThreadRef);
   const serverThreadStarted = threadHasStarted(serverThread);
   const canonicalThreadRef = serverThreadStarted ? serverThreadRef : null;
+
+  useEffect(() => {
+    if (appServer === null || draftSession === null) return;
+    const project = appServer.projects.find(
+      (candidate) =>
+        candidate.environmentId === draftSession.environmentId &&
+        projectIdForWorkspace(candidate.cwd) === draftSession.projectId,
+    );
+    if (project) appServer.selectProject(project.environmentId, project.cwd);
+  }, [appServer, draftSession]);
+
+  useEffect(() => {
+    if (
+      appServer === null ||
+      appServer.selectedEnvironmentId === null ||
+      appServer.selectedThreadId === null
+    ) {
+      return;
+    }
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId: appServer.selectedEnvironmentId,
+        threadId: appServer.selectedThreadId,
+      },
+      replace: true,
+    });
+  }, [appServer, navigate]);
 
   useEffect(() => {
     if (!inferredThreadRef || draftSession?.promotedTo) {
