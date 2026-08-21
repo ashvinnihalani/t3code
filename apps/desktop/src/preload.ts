@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   saveAppServerSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_SET_CHANNEL, settings),
   discoverAppServerSshHosts: () => ipcRenderer.invoke(IpcChannels.APP_SERVER_SSH_HOSTS_CHANNEL),
+  listAppServerWorkspaceOpeners: (profile) =>
+    ipcRenderer.invoke(IpcChannels.APP_SERVER_WORKSPACE_OPENERS_CHANNEL, profile),
+  openAppServerWorkspace: (request) =>
+    ipcRenderer.invoke(IpcChannels.APP_SERVER_WORKSPACE_OPEN_CHANNEL, request),
   onAppServerPort: (listener) => {
     const wrappedListener = (
       event: Electron.IpcRendererEvent,

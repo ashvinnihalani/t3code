@@ -75,6 +75,10 @@ function unsupported(label: string): AtomCommandResult<unknown, unknown> {
   return AsyncResult.failure(Cause.fail(new Error(`${label} is not supported by app-server.`)));
 }
 
+function failure(message: string): AtomCommandResult<unknown, unknown> {
+  return AsyncResult.failure(Cause.fail(new Error(message)));
+}
+
 export async function runAppServerCommand(
   controller: AppServerController,
   label: string,
@@ -108,6 +112,28 @@ export async function runAppServerCommand(
         (await controller.removeProject(command.environmentId, project.cwd))
         ? success()
         : unsupported(label);
+    }
+    case "environment-data:shell:open-in-editor": {
+      const bridge = window.desktopBridge;
+      const profile = controller.environments.find(
+        (candidate) => candidate.profile.id === command.environmentId,
+      )?.profile;
+      if (
+        profile === undefined ||
+        bridge?.openAppServerWorkspace === undefined ||
+        typeof input.cwd !== "string" ||
+        typeof input.editor !== "string"
+      ) {
+        return unsupported(label);
+      }
+      const result = await bridge.openAppServerWorkspace({
+        profile,
+        cwd: input.cwd,
+        editor: input.editor as Parameters<
+          NonNullable<typeof bridge.openAppServerWorkspace>
+        >[0]["editor"],
+      });
+      return result.ok ? success() : failure(result.error ?? "Unable to open workspace.");
     }
     case "environment-data:commands:thread:create":
       return success();

@@ -26,6 +26,7 @@ import type {
 } from "./review.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type { AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
+import type { EditorId } from "./editor.ts";
 import type {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -1000,6 +1001,12 @@ export interface DesktopBridge {
   getAppServerSettings?: <A = unknown>() => Promise<A>;
   saveAppServerSettings?: <A = unknown>(settings: unknown) => Promise<A>;
   discoverAppServerSshHosts?: <A = unknown>() => Promise<ReadonlyArray<A>>;
+  listAppServerWorkspaceOpeners?: (profile: unknown) => Promise<ReadonlyArray<EditorId>>;
+  openAppServerWorkspace?: (request: {
+    readonly profile: unknown;
+    readonly cwd: string;
+    readonly editor: EditorId;
+  }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   onAppServerPort?: (
     listener: (connectionId: string, port: DesktopAppServerPort) => void,
   ) => () => void;

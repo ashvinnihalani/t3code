@@ -180,7 +180,10 @@ export function toServerConfig(
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     issues: [],
     providers: [toServerProvider(controller, connectionId)],
-    availableEditors: [],
+    availableEditors:
+      profile?.connection.kind === "ssh"
+        ? ["cursor", "vscode", "zed"]
+        : ["cursor", "vscode", "zed", "file-manager"],
     observability: {
       logsDirectoryPath: profile?.connection.workspace ?? "/",
       localTracingEnabled: false,
