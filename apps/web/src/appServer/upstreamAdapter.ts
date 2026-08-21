@@ -354,12 +354,39 @@ export function toEnvironmentThread(
       return message === null ? [] : [message];
     }),
   );
-  const activities = detail.turns.flatMap((turn) =>
+  const timelineActivities = detail.turns.flatMap((turn) =>
     turn.items.flatMap((item, index) => {
       const activity = activityFromItem(turn, item, index);
       return activity === null ? [] : [activity];
     }),
   );
+  const approval =
+    controller.pendingApproval?.environmentId === connectionId &&
+    controller.pendingApproval.threadId === detail.id
+      ? controller.pendingApproval
+      : null;
+  const activities =
+    approval === null
+      ? timelineActivities
+      : [
+          ...timelineActivities,
+          {
+            id: EventId.make(`approval-${approval.id}`),
+            tone: "approval" as const,
+            kind: "approval.requested",
+            summary:
+              approval.kind === "command"
+                ? "Command approval requested"
+                : "File-change approval requested",
+            payload: {
+              requestId: approval.id,
+              requestKind: approval.kind === "command" ? "command" : "file-change",
+              detail: approval.reason ?? approval.detail ?? approval.title,
+            },
+            turnId: detail.turns.at(-1)?.id ? TurnId.make(detail.turns.at(-1)!.id) : null,
+            createdAt: isoTimestamp(approval.createdAt),
+          },
+        ];
   return {
     environmentId: shell.environmentId,
     id: shell.id,

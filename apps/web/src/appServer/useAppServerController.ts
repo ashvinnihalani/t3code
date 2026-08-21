@@ -100,6 +100,7 @@ export type ApprovalDecision = "accept" | "acceptForSession" | "decline" | "canc
 
 export interface PendingApproval {
   readonly id: string;
+  readonly createdAt: number;
   readonly environmentId: string;
   readonly threadId: string;
   readonly kind: "command" | "fileChange";
@@ -645,6 +646,7 @@ export function useAppServerController() {
                 ...current.filter((approval) => approval.id !== id),
                 {
                   id,
+                  createdAt: Date.now(),
                   environmentId: profile.id,
                   threadId: request.threadId,
                   kind: "command",
@@ -667,6 +669,7 @@ export function useAppServerController() {
                 ...current.filter((approval) => approval.id !== id),
                 {
                   id,
+                  createdAt: Date.now(),
                   environmentId: profile.id,
                   threadId: request.threadId,
                   kind: "fileChange",
