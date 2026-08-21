@@ -252,7 +252,11 @@ export function toEnvironmentProject(project: AppServerProject): EnvironmentProj
     workspaceRoot: project.cwd,
     repositoryIdentity: null,
     defaultModelSelection: null,
-    defaultThreadEnvMode: null,
+    // Direct app-server projects always start in their selected workspace.
+    // Mark that explicitly so upstream's new-thread flow does not try to
+    // resolve a fork-specific t3.json through the removed T3 RPC backend
+    // before it can navigate to the draft.
+    defaultThreadEnvMode: DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode,
     faviconPath: null,
     scripts: [],
     createdAt: isoTimestamp(Number.isFinite(createdAt) ? createdAt : 0),

@@ -9,6 +9,7 @@ import {
 import type { AppServerController } from "./context";
 import {
   isNewAppServerThreadSelection,
+  toEnvironmentProject,
   toEnvironmentThread,
   toServerConfig,
 } from "./upstreamAdapter";
@@ -96,6 +97,18 @@ describe("upstream app-server adapter", () => {
       config.settings,
     );
     expect(resolveSelectableProviderInstanceEntry(entries, undefined)?.instanceId).toBe("codex");
+  });
+
+  it("keeps direct projects on the app-server workspace path", () => {
+    const project = toEnvironmentProject({
+      key: "local:/workspace",
+      environmentId: "local",
+      environmentName: "Local",
+      cwd: "/workspace",
+      threads: [],
+    });
+
+    expect(project.defaultThreadEnvMode).toBe("local");
   });
 
   it("projects app-server approvals into the upstream composer activity model", () => {
