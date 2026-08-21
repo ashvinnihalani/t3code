@@ -19,11 +19,6 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
     to: "/settings/connections",
   },
   {
-    id: "providers",
-    title: "Providers",
-    to: "/settings/providers",
-  },
-  {
     id: "provider-updates",
     title: "Update checks",
     to: "/settings/general",
