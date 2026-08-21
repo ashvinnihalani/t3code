@@ -68,6 +68,7 @@ import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import { registerAppServerBridge } from "./appServer/bridge.ts";
+import { registerAppServerSettingsIpc } from "./appServer/settingsIpc.ts";
 
 const desktopAppServerBridgeLayer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -80,6 +81,7 @@ const desktopAppServerBridgeLayer = Layer.effectDiscard(
       platform,
       writeDiagnostic: (message) => process.stderr.write(`[app-server] ${message}\n`),
     });
+    yield* registerAppServerSettingsIpc(Electron.ipcMain);
   }),
 );
 

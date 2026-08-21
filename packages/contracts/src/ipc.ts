@@ -997,6 +997,9 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export interface DesktopBridge {
   /** Opens a direct stdio channel to a local or SSH-hosted app-server. */
   connectAppServer?: (profile: unknown) => void;
+  getAppServerSettings?: <A = unknown>() => Promise<A>;
+  saveAppServerSettings?: <A = unknown>(settings: unknown) => Promise<A>;
+  discoverAppServerSshHosts?: <A = unknown>() => Promise<ReadonlyArray<A>>;
   onAppServerPort?: (
     listener: (connectionId: string, port: DesktopAppServerPort) => void,
   ) => () => void;
@@ -1079,11 +1082,14 @@ export interface DesktopAppServerMessageEvent {
 export interface DesktopAppServerPort {
   postMessage(message: string | Uint8Array): void;
   start(): void;
+  close(): void;
   addEventListener(type: "message", listener: (event: DesktopAppServerMessageEvent) => void): void;
+  addEventListener(type: "close", listener: () => void): void;
   removeEventListener(
     type: "message",
     listener: (event: DesktopAppServerMessageEvent) => void,
   ): void;
+  removeEventListener(type: "close", listener: () => void): void;
 }
 
 export interface DesktopPreviewBridge {

@@ -29,6 +29,10 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   connectAppServer: (profile) => ipcRenderer.send(IpcChannels.APP_SERVER_CONNECT_CHANNEL, profile),
+  getAppServerSettings: () => ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_GET_CHANNEL),
+  saveAppServerSettings: (settings) =>
+    ipcRenderer.invoke(IpcChannels.APP_SERVER_SETTINGS_SET_CHANNEL, settings),
+  discoverAppServerSshHosts: () => ipcRenderer.invoke(IpcChannels.APP_SERVER_SSH_HOSTS_CHANNEL),
   onAppServerPort: (listener) => {
     const wrappedListener = (
       event: Electron.IpcRendererEvent,
