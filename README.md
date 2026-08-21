@@ -1,108 +1,68 @@
-# T3 Code
+# T3 Codex
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+T3 Codex is a desktop control harness for Codex app-server compatible agents. It is a focused fork of [T3 Code](https://github.com/pingdotgg/t3code) that keeps T3 Code's desktop UI and interaction patterns while replacing its provider/server control plane with direct app-server connections.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, T3 Code can control them.
+The desktop can run a local app-server and any number of app-servers over SSH at the same time. Projects and thread summaries are cached locally, connections retry after disconnects, and each connection can expose the app-server's own Remote pairing flow.
 
-## "Wait, what are you selling me?"
+## Requirements
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+- macOS, Windows, or Linux
+- [mise](https://mise.jdx.dev/) for repository tooling
+- A compatible executable on each host. The default is `codex app-server`.
+- For SSH connections, an OpenSSH host reachable by the desktop and a compatible executable installed on that host.
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
-
-## Installation
-
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build and OpenCode. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-
-### Try it out (install-free)
-
-The easiest way to test T3 Code is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
+Authenticate Codex on each machine before connecting:
 
 ```bash
-npx t3@latest
+codex login
 ```
 
-This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
+## Start from source
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
+Install the pinned Node.js and pnpm versions, then install dependencies:
 
 ```bash
-winget install T3Tools.T3Code
+mise install
+mise exec node@24.13.1 pnpm@11.10.0 -- pnpm install
 ```
 
-#### macOS (Homebrew)
+Start the web renderer for desktop development:
 
 ```bash
-brew install --cask t3-code
+mise exec node@24.13.1 pnpm@11.10.0 -- pnpm dev:web
 ```
 
-#### Arch Linux (AUR)
+In another terminal, start Electron with the renderer URL shown by Vite:
 
 ```bash
-yay -S t3code-bin
+VITE_DEV_SERVER_URL=http://127.0.0.1:5173 \
+  mise exec node@24.13.1 pnpm@11.10.0 -- pnpm start:desktop
 ```
 
-## Some notes
+The exact Vite port can change when the default port is occupied.
 
-We are very very early in this project. Expect bugs.
+## Use T3 Codex
 
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+Open Settings → Connections to configure:
+
+- Local: executable, arguments, workspace, and environment for an app-server on this machine.
+- SSH: multiple independent OpenSSH hosts, each with its own executable, arguments, workspace, and environment.
+
+All enabled connections stay available together. Select a connection when adding a project. Use Pair on a connection to request its app-server Remote pairing presentation. Use Open In from a project or thread to open that workspace locally or through an editor's SSH integration.
+
+## Build a macOS image
+
+```bash
+mise exec node@24.13.1 pnpm@11.10.0 -- pnpm dist:desktop:dmg:arm64
+```
+
+Artifacts are written to `release/` and are named `T3-Codex-<version>-<arch>.dmg`.
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
+- [Getting started](./docs/getting-started.md)
+- [Connections and remote hosts](./docs/connections.md)
+- [Architecture](./docs/architecture.md)
+- [Development and releases](./docs/development.md)
 
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Customize a project icon](./docs/user/project-settings.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- Linux: [run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+T3 Codex remains derived from T3 Code and retains its upstream license. Changes specific to this fork should preserve upstream UI components where they remain relevant and adapt commands at the app-server boundary.
