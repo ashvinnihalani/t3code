@@ -52,6 +52,21 @@ describe("app-server workspace launcher", () => {
     ]);
   });
 
+  it("detects and launches the bundled Zed CLI", async () => {
+    const launcher = dependencies("/Applications/Zed.app/Contents/MacOS/cli");
+    await expect(listWorkspaceOpeners(localProfile, launcher)).resolves.toEqual([
+      "zed",
+      "file-manager",
+    ]);
+    await expect(
+      openWorkspace({ profile: localProfile, cwd: "/work/local", editor: "zed" }, launcher),
+    ).resolves.toEqual({ ok: true });
+    expect(launcher.spawnDetached).toHaveBeenCalledWith(
+      "/Applications/Zed.app/Contents/MacOS/cli",
+      ["/work/local"],
+    );
+  });
+
   it("keeps local file managers out of SSH workspaces", async () => {
     await expect(listWorkspaceOpeners(sshProfile, dependencies("/code"))).resolves.toEqual([
       "vscode",
