@@ -2,9 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   fromSettingsDraft,
+  projectAppServerDirectory,
   projectEnvironmentProjects,
   removeProjectFromSnapshot,
   removeThreadFromSnapshot,
+  resolveAppServerBrowsePath,
   toSettingsDraft,
   type EnvironmentState,
 } from "./useAppServerController";
@@ -68,7 +70,7 @@ describe("app-server environment controller", () => {
       attempt: 1,
       error: null,
       retryAt: null,
-      snapshot: { updatedAt: 1, threads: [thread], workspaces: ["/workspace"] },
+      snapshot: { updatedAt: 1, threads: [thread], workspaces: ["/workspace"], details: {} },
       account: null,
       remote: null,
       models: [],
@@ -89,7 +91,12 @@ describe("app-server environment controller", () => {
       attempt: 1,
       error: null,
       retryAt: null,
-      snapshot: { updatedAt: 1, threads: [], workspaces: ["/workspace", "/new-project"] },
+      snapshot: {
+        updatedAt: 1,
+        threads: [],
+        workspaces: ["/workspace", "/new-project"],
+        details: {},
+      },
       account: null,
       remote: null,
       models: [],
@@ -98,6 +105,26 @@ describe("app-server environment controller", () => {
       { key: "local:/workspace", threads: [] },
       { key: "local:/new-project", threads: [] },
     ]);
+  });
+
+  it("resolves and projects app-server directory browsing", () => {
+    expect(resolveAppServerBrowsePath("~/src", "/Users/tester")).toBe("/Users/tester/src");
+    expect(resolveAppServerBrowsePath("packages", "/Users/tester", "/repo")).toBe("/repo/packages");
+    expect(
+      projectAppServerDirectory("/repo", {
+        entries: [
+          { fileName: "zeta", isDirectory: true, isFile: false },
+          { fileName: "README.md", isDirectory: false, isFile: true },
+          { fileName: "alpha", isDirectory: true, isFile: false },
+        ],
+      }),
+    ).toEqual({
+      parentPath: "/repo",
+      entries: [
+        { name: "alpha", fullPath: "/repo/alpha" },
+        { name: "zeta", fullPath: "/repo/zeta" },
+      ],
+    });
   });
 
   it("removes one archived thread without removing its project", () => {
@@ -124,11 +151,24 @@ describe("app-server environment controller", () => {
         },
       ],
       workspaces: ["/workspace"],
+      details: {
+        "thread-1": {
+          id: "thread-1",
+          name: "First",
+          preview: "",
+          cwd: "/workspace",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle" as const,
+          turns: [],
+        },
+      },
     };
 
     expect(removeThreadFromSnapshot(snapshot, "thread-1")).toMatchObject({
       threads: [{ id: "thread-2" }],
       workspaces: ["/workspace"],
+      details: {},
     });
   });
 
@@ -156,11 +196,34 @@ describe("app-server environment controller", () => {
         },
       ],
       workspaces: ["/remove", "/keep"],
+      details: {
+        remove: {
+          id: "remove",
+          name: null,
+          preview: "",
+          cwd: "/remove",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle" as const,
+          turns: [],
+        },
+        keep: {
+          id: "keep",
+          name: null,
+          preview: "",
+          cwd: "/keep",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle" as const,
+          turns: [],
+        },
+      },
     };
 
     expect(removeProjectFromSnapshot(snapshot, "/remove")).toMatchObject({
       threads: [{ id: "keep" }],
       workspaces: ["/keep"],
+      details: { keep: { id: "keep" } },
     });
   });
 });

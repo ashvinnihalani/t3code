@@ -59,17 +59,26 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  const selectAppServerThread = appServer?.selectThread;
+  const selectedAppServerEnvironmentId = appServer?.selectedEnvironmentId;
+  const loadedAppServerThreadId = appServer?.thread?.id;
 
   useEffect(() => {
-    if (appServer === null || threadRef === null) return;
+    if (selectAppServerThread === undefined || threadRef === null) return;
     if (
-      appServer.selectedEnvironmentId === threadRef.environmentId &&
-      appServer.thread?.id === threadRef.threadId
+      selectedAppServerEnvironmentId === threadRef.environmentId &&
+      loadedAppServerThreadId === threadRef.threadId
     ) {
       return;
     }
-    void appServer.selectThread(threadRef.environmentId, threadRef.threadId);
-  }, [appServer, threadRef]);
+    void selectAppServerThread(threadRef.environmentId, threadRef.threadId);
+  }, [
+    loadedAppServerThreadId,
+    selectAppServerThread,
+    selectedAppServerEnvironmentId,
+    threadRef?.environmentId,
+    threadRef?.threadId,
+  ]);
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {

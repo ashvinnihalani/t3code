@@ -147,6 +147,12 @@ import { projectIdForWorkspace } from "../appServer/upstreamAdapter";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
+interface DirectAppServerBrowseState {
+  readonly key: string;
+  readonly result: FilesystemBrowseResult | null;
+  readonly pending: boolean;
+}
+
 function projectFavicon(project: Project) {
   return (
     <ProjectFavicon
@@ -620,6 +626,8 @@ function OpenCommandPaletteDialog(props: {
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
     null,
   );
+  const [directAppServerBrowseState, setDirectAppServerBrowseState] =
+    useState<DirectAppServerBrowseState | null>(null);
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
@@ -757,6 +765,9 @@ function OpenCommandPaletteDialog(props: {
   const browseEnvironmentId = addProjectEnvironmentId ?? defaultAddProjectEnvironmentId;
   const browseEnvironment =
     environments.find((environment) => environment.environmentId === browseEnvironmentId) ?? null;
+  const directBrowseEnvironment = appServerController?.environments.find(
+    (environment) => environment.profile.id === browseEnvironmentId,
+  );
   // A desktop-local secondary backend (today: the WSL backend). The picker is
   // available against these too — the desktop dispatches pickFolder into the
   // backend's filesystem when routed by its instance id.
@@ -801,6 +812,12 @@ function OpenCommandPaletteDialog(props: {
   const paletteMode = getCommandPaletteMode({ currentView, isBrowsing });
   const getAddProjectInitialQueryForEnvironment = useCallback(
     (environmentId: EnvironmentId | null): string => {
+      const directEnvironment = appServerController?.environments.find(
+        (candidate) => candidate.profile.id === environmentId,
+      );
+      if (directEnvironment !== undefined) {
+        return ensureBrowseDirectoryPath(directEnvironment.profile.connection.workspace);
+      }
       const environment = environments.find(
         (candidate) => candidate.environmentId === environmentId,
       );
@@ -811,7 +828,7 @@ function OpenCommandPaletteDialog(props: {
       }
       return ensureBrowseDirectoryPath(baseDirectory);
     },
-    [environments],
+    [appServerController, environments],
   );
 
   const projectCwdById = useMemo(
@@ -843,7 +860,8 @@ function OpenCommandPaletteDialog(props: {
   const relativePathNeedsActiveProject =
     isExplicitRelativeProjectPath(query.trim()) && currentProjectCwdForBrowse === null;
   const browseQuery = useEnvironmentQuery(
-    isBrowsing &&
+    appServerController === null &&
+      isBrowsing &&
       browsePath.directoryPath.length > 0 &&
       browseEnvironmentId !== null &&
       !relativePathNeedsActiveProject
@@ -856,8 +874,60 @@ function OpenCommandPaletteDialog(props: {
         })
       : null,
   );
-  const browseResult = browseQuery.data;
-  const isBrowsePending = browseQuery.isPending;
+  const directBrowseKey =
+    appServerController !== null &&
+    isBrowsing &&
+    browsePath.directoryPath.length > 0 &&
+    browseEnvironmentId !== null &&
+    !relativePathNeedsActiveProject
+      ? `${browseEnvironmentId}\u0000${browsePath.directoryPath}\u0000${currentProjectCwdForBrowse ?? ""}`
+      : null;
+  const browseAppServerFilesystem = appServerController?.browseFilesystem;
+  useEffect(() => {
+    if (
+      directBrowseKey === null ||
+      browseAppServerFilesystem === undefined ||
+      browseEnvironmentId === null
+    ) {
+      setDirectAppServerBrowseState(null);
+      return;
+    }
+    let active = true;
+    setDirectAppServerBrowseState({ key: directBrowseKey, result: null, pending: true });
+    void browseAppServerFilesystem(
+      browseEnvironmentId,
+      browsePath.directoryPath,
+      currentProjectCwdForBrowse ?? undefined,
+    ).then(
+      (result) => {
+        if (active) setDirectAppServerBrowseState({ key: directBrowseKey, result, pending: false });
+      },
+      () => {
+        if (active) {
+          setDirectAppServerBrowseState({ key: directBrowseKey, result: null, pending: false });
+        }
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [
+    browseAppServerFilesystem,
+    browseEnvironmentId,
+    browsePath.directoryPath,
+    currentProjectCwdForBrowse,
+    directBrowseKey,
+  ]);
+  const matchingDirectBrowseState =
+    directBrowseKey !== null && directAppServerBrowseState?.key === directBrowseKey
+      ? directAppServerBrowseState
+      : null;
+  const browseResult =
+    appServerController === null ? browseQuery.data : matchingDirectBrowseState?.result;
+  const isBrowsePending =
+    appServerController === null
+      ? browseQuery.isPending
+      : (matchingDirectBrowseState?.pending ?? false);
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
   const { visibleEntries: visibleBrowseEntries, exactEntry: exactBrowseEntry } = useMemo(
     () => filterFilesystemBrowseEntries(browseEntries, browsePath.filterQuery),
@@ -880,6 +950,11 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
+      if (browseAppServerFilesystem !== undefined) {
+        await browseAppServerFilesystem(environmentId, partialPath, cwd ?? undefined);
+        return;
+      }
+
       await loadBrowsePath({
         environmentId,
         input: {
@@ -888,7 +963,13 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     },
-    [browseEnvironmentId, currentProjectCwdForBrowse, environments, loadBrowsePath],
+    [
+      browseAppServerFilesystem,
+      browseEnvironmentId,
+      currentProjectCwdForBrowse,
+      environments,
+      loadBrowsePath,
+    ],
   );
 
   useEffect(
@@ -1647,7 +1728,18 @@ function OpenCommandPaletteDialog(props: {
       }
 
       if (appServerController !== null) {
-        appServerController.selectProject(input.environmentId, cwd);
+        try {
+          await appServerController.addProject(input.environmentId, cwd);
+        } catch (error) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to add project",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return;
+        }
         await handleNewThread(scopeProjectRef(input.environmentId, projectIdForWorkspace(cwd)));
         setOpen(false);
         return;
@@ -1992,6 +2084,8 @@ function OpenCommandPaletteDialog(props: {
   const canOpenProjectFromFileManager =
     isBrowsing &&
     browseEnvironmentId !== null &&
+    (appServerController === null ||
+      directBrowseEnvironment?.profile.connection.kind === "local") &&
     // For a desktop-local (WSL) env, only offer the picker once we have resolved
     // its desktop pool instance id. Without it pickFolder can't be routed to the
     // WSL filesystem and would open the primary (Windows) picker, then add the

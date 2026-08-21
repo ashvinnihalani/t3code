@@ -2,7 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { APP_VERSION } from "../branding";
 import type { AppServerController } from "./context";
-import { toEnvironmentThread, toServerConfig } from "./upstreamAdapter";
+import {
+  isNewAppServerThreadSelection,
+  toEnvironmentThread,
+  toServerConfig,
+} from "./upstreamAdapter";
 
 function controller(): AppServerController {
   return {
@@ -62,6 +66,12 @@ function controller(): AppServerController {
 }
 
 describe("upstream app-server adapter", () => {
+  it("only promotes a draft after app-server selects a different thread", () => {
+    expect(isNewAppServerThreadSelection("previous", "previous")).toBe(false);
+    expect(isNewAppServerThreadSelection("previous", null)).toBe(false);
+    expect(isNewAppServerThreadSelection("previous", "created")).toBe(true);
+  });
+
   it("exposes app-server model traits to the upstream picker", () => {
     const config = toServerConfig(controller(), "local");
     expect(config.providers[0]?.models[0]).toMatchObject({

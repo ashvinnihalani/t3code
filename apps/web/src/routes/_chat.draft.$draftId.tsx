@@ -1,5 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { ThreadId } from "@t3tools/contracts";
+import { useEffect, useRef } from "react";
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import {
@@ -12,7 +14,11 @@ import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransiti
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
 import { useOptionalAppServerController } from "../appServer/context";
-import { projectIdForWorkspace } from "../appServer/upstreamAdapter";
+import {
+  environmentIdFor,
+  isNewAppServerThreadSelection,
+  projectIdForWorkspace,
+} from "../appServer/upstreamAdapter";
 
 function DraftChatThreadRouteView() {
   const appServer = useOptionalAppServerController();
@@ -32,25 +38,50 @@ function DraftChatThreadRouteView() {
   const serverThread = useThread(serverThreadRef);
   const serverThreadStarted = threadHasStarted(serverThread);
   const canonicalThreadRef = serverThreadStarted ? serverThreadRef : null;
+  const directProject = draftSession
+    ? appServer?.projects.find(
+        (candidate) =>
+          candidate.environmentId === draftSession.environmentId &&
+          projectIdForWorkspace(candidate.cwd) === draftSession.projectId,
+      )
+    : undefined;
+  const selectAppServerProject = appServer?.selectProject;
+  const directDraftBaselineRef = useRef({
+    draftId: rawDraftId,
+    threadId: appServer?.selectedThreadId ?? null,
+  });
+  if (directDraftBaselineRef.current.draftId !== rawDraftId) {
+    directDraftBaselineRef.current = {
+      draftId: rawDraftId,
+      threadId: appServer?.selectedThreadId ?? null,
+    };
+  }
 
   useEffect(() => {
-    if (appServer === null || draftSession === null) return;
-    const project = appServer.projects.find(
-      (candidate) =>
-        candidate.environmentId === draftSession.environmentId &&
-        projectIdForWorkspace(candidate.cwd) === draftSession.projectId,
-    );
-    if (project) appServer.selectProject(project.environmentId, project.cwd);
-  }, [appServer, draftSession]);
+    if (selectAppServerProject === undefined || directProject === undefined) return;
+    selectAppServerProject(directProject.environmentId, directProject.cwd);
+  }, [directProject?.cwd, directProject?.environmentId, selectAppServerProject]);
 
   useEffect(() => {
     if (
       appServer === null ||
       appServer.selectedEnvironmentId === null ||
-      appServer.selectedThreadId === null
+      !isNewAppServerThreadSelection(
+        directDraftBaselineRef.current.threadId,
+        appServer.selectedThreadId,
+      )
     ) {
       return;
     }
+    useComposerDraftStore
+      .getState()
+      .markDraftThreadPromoting(
+        draftId,
+        scopeThreadRef(
+          environmentIdFor(appServer.selectedEnvironmentId),
+          ThreadId.make(appServer.selectedThreadId),
+        ),
+      );
     void navigate({
       to: "/$environmentId/$threadId",
       params: {
@@ -59,7 +90,7 @@ function DraftChatThreadRouteView() {
       },
       replace: true,
     });
-  }, [appServer, navigate]);
+  }, [appServer?.selectedEnvironmentId, appServer?.selectedThreadId, draftId, navigate]);
 
   useEffect(() => {
     if (!inferredThreadRef || draftSession?.promotedTo) {

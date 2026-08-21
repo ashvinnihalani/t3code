@@ -53,6 +53,13 @@ export function projectIdForWorkspace(workspace: string) {
   return ProjectId.make(`workspace-${hashWorkspace(workspace)}`);
 }
 
+export function isNewAppServerThreadSelection(
+  initialThreadId: string | null,
+  selectedThreadId: string | null,
+): selectedThreadId is string {
+  return selectedThreadId !== null && selectedThreadId !== initialThreadId;
+}
+
 function workspaceTitle(workspace: string): string {
   const normalized = workspace.replace(/[\\/]+$/u, "");
   return normalized.split(/[\\/]/u).at(-1) || workspace;

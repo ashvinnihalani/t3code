@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopAppServerPort } from "@t3tools/contracts";
+import type { DesktopAppServerPort, FilesystemBrowseResult } from "@t3tools/contracts";
 
 import {
   appendAgentMessageDelta,
@@ -58,6 +58,7 @@ export interface CachedSnapshot {
   readonly updatedAt: number;
   readonly threads: ReadonlyArray<ThreadSummary>;
   readonly workspaces: ReadonlyArray<string>;
+  readonly details: Readonly<Record<string, ThreadDetail>>;
 }
 
 export interface ArchivedThread extends ThreadSummary {
@@ -86,6 +87,49 @@ export interface EnvironmentProject {
   readonly environmentName: string;
   readonly cwd: string;
   readonly threads: ReadonlyArray<ThreadSummary>;
+}
+
+function appServerPathSeparator(path: string): "/" | "\\" {
+  return /^[A-Za-z]:\\/u.test(path) ? "\\" : "/";
+}
+
+function joinAppServerPath(parent: string, child: string): string {
+  const separator = appServerPathSeparator(parent);
+  const trimmedParent = parent.replace(/[\\/]+$/u, "");
+  const trimmedChild = child.replace(/^[\\/]+/u, "");
+  if (trimmedParent.length === 0) return `${separator}${trimmedChild}`;
+  if (trimmedChild.length === 0) return trimmedParent || separator;
+  return `${trimmedParent}${separator}${trimmedChild}`;
+}
+
+export function resolveAppServerBrowsePath(
+  partialPath: string,
+  workspace: string,
+  cwd?: string,
+): string {
+  const value = partialPath.trim();
+  if (value === "~") return workspace;
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return joinAppServerPath(workspace, value.slice(2));
+  }
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) return value;
+  return joinAppServerPath(cwd?.trim() || workspace, value);
+}
+
+export function projectAppServerDirectory(
+  parentPath: string,
+  response: CodexSchema.V2FsReadDirectoryResponse,
+): FilesystemBrowseResult {
+  return {
+    parentPath,
+    entries: response.entries
+      .filter((entry) => entry.isDirectory)
+      .map((entry) => ({
+        name: entry.fileName,
+        fullPath: joinAppServerPath(parentPath, entry.fileName),
+      }))
+      .toSorted((left, right) => left.name.localeCompare(right.name)),
+  };
 }
 
 export interface RemoteDialogState {
@@ -155,8 +199,16 @@ function readCache(profile: AppServerConnectionProfile): CachedSnapshot | null {
     const cachedWorkspaces = Array.isArray(value.workspaces)
       ? value.workspaces.filter((workspace): workspace is string => typeof workspace === "string")
       : [];
+    const details = isRecord(value.details)
+      ? Object.fromEntries(
+          Object.values(value.details).flatMap((candidate) => {
+            const detail = projectThreadDetail(candidate);
+            return detail === null ? [] : [[detail.id, detail]];
+          }),
+        )
+      : {};
     const workspaces = [...new Set([...cachedWorkspaces, ...threads.map((thread) => thread.cwd)])];
-    return { updatedAt: value.updatedAt, threads, workspaces };
+    return { updatedAt: value.updatedAt, threads, workspaces, details };
   } catch {
     return null;
   }
@@ -182,6 +234,7 @@ function initialEnvironmentState(profile: AppServerConnectionProfile): Environme
       updatedAt: 0,
       threads: [],
       workspaces: [profile.connection.workspace],
+      details: {},
     },
     account: null,
     remote: null,
@@ -301,17 +354,28 @@ export function removeThreadFromSnapshot(
   snapshot: CachedSnapshot,
   threadId: string,
 ): CachedSnapshot {
-  return { ...snapshot, threads: snapshot.threads.filter((thread) => thread.id !== threadId) };
+  const { [threadId]: _removed, ...details } = snapshot.details;
+  return {
+    ...snapshot,
+    threads: snapshot.threads.filter((thread) => thread.id !== threadId),
+    details,
+  };
 }
 
 export function removeProjectFromSnapshot(
   snapshot: CachedSnapshot,
   workspace: string,
 ): CachedSnapshot {
+  const removedIds = new Set(
+    snapshot.threads.filter((thread) => thread.cwd === workspace).map((thread) => thread.id),
+  );
   return {
     ...snapshot,
     threads: snapshot.threads.filter((thread) => thread.cwd !== workspace),
     workspaces: snapshot.workspaces.filter((candidate) => candidate !== workspace),
+    details: Object.fromEntries(
+      Object.entries(snapshot.details).filter(([threadId]) => !removedIds.has(threadId)),
+    ),
   };
 }
 
@@ -386,6 +450,9 @@ export function useAppServerController() {
   });
   const clientsRef = useRef(new Map<string, Client>());
   const runtimesRef = useRef(new Map<string, EnvironmentRuntime>());
+  const threadLoadsRef = useRef(new Map<string, Promise<ThreadDetail>>());
+  const environmentStatesRef = useRef(environmentStates);
+  environmentStatesRef.current = environmentStates;
   const selectionRef = useRef({ environmentId: selectedEnvironmentId, threadId: selectedThreadId });
   selectionRef.current = { environmentId: selectedEnvironmentId, threadId: selectedThreadId };
 
@@ -408,6 +475,7 @@ export function useAppServerController() {
             updatedAt: Date.now(),
             threads: [],
             workspaces: [profile.connection.workspace],
+            details: {},
           },
         );
         const next = { ...snapshot, updatedAt: Date.now() };
@@ -421,6 +489,7 @@ export function useAppServerController() {
   const replaceThreads = useCallback(
     (profile: AppServerConnectionProfile, threads: ReadonlyArray<ThreadSummary>) => {
       updateEnvironment(profile.id, (current) => {
+        const threadIds = new Set(threads.map((thread) => thread.id));
         const snapshot = {
           updatedAt: Date.now(),
           threads,
@@ -430,6 +499,11 @@ export function useAppServerController() {
               ...threads.map((item) => item.cwd),
             ]),
           ],
+          details: Object.fromEntries(
+            Object.entries(current.snapshot?.details ?? {}).filter(([threadId]) =>
+              threadIds.has(threadId),
+            ),
+          ),
         };
         writeCache(profile, snapshot);
         return { ...current, snapshot };
@@ -454,6 +528,7 @@ export function useAppServerController() {
               ...threads.map((item) => item.cwd),
             ]),
           ],
+          details: current.snapshot?.details ?? {},
         };
         writeCache(profile, snapshot);
         return { ...current, snapshot };
@@ -472,6 +547,18 @@ export function useAppServerController() {
       ]);
     },
     [updateThreadSnapshot],
+  );
+
+  const persistThreadDetail = useCallback(
+    (profile: AppServerConnectionProfile, detail: ThreadDetail) => {
+      updateSnapshot(profile, (snapshot) => ({
+        ...snapshot,
+        threads: [detail, ...snapshot.threads.filter((candidate) => candidate.id !== detail.id)],
+        workspaces: [...new Set([...snapshot.workspaces, detail.cwd])],
+        details: { ...snapshot.details, [detail.id]: detail },
+      }));
+    },
+    [updateSnapshot],
   );
 
   useEffect(() => {
@@ -917,40 +1004,67 @@ export function useAppServerController() {
         setThreadEnvironmentId(null);
         return;
       }
-      const summary = environmentStates[environmentId]?.snapshot?.threads.find(
-        (candidate) => candidate.id === threadId,
-      );
+      const environment = environmentStatesRef.current[environmentId];
+      const summary = environment?.snapshot?.threads.find((candidate) => candidate.id === threadId);
       if (summary !== undefined) setSelectedWorkspace(summary.cwd);
+      const cachedDetail = environment?.snapshot?.details[threadId];
+      if (cachedDetail !== undefined) {
+        setThread(cachedDetail);
+        setThreadEnvironmentId(environmentId);
+      }
       const client = clientsRef.current.get(environmentId);
       if (client === undefined) {
-        setThread(null);
-        setThreadEnvironmentId(null);
+        if (cachedDetail === undefined) {
+          setThread(null);
+          setThreadEnvironmentId(null);
+        }
         return;
       }
       setThreadLoading(true);
       try {
-        const response = await Effect.runPromise(client.request("thread/resume", { threadId }));
-        const projected = projectThreadDetail(response.thread);
-        if (projected === null) throw new Error("The app-server returned an invalid thread.");
+        const loadKey = `${environmentId}:${threadId}`;
+        let load = threadLoadsRef.current.get(loadKey);
+        if (load === undefined) {
+          load = Effect.runPromise(
+            Effect.gen(function* () {
+              const read = yield* client.request("thread/read", { threadId, includeTurns: true });
+              const response =
+                read.thread.status.type === "notLoaded"
+                  ? yield* client.request("thread/resume", { threadId })
+                  : read;
+              const projected = projectThreadDetail(response.thread);
+              if (projected === null) {
+                return yield* Effect.die(new Error("The app-server returned an invalid thread."));
+              }
+              return projected;
+            }),
+          );
+          threadLoadsRef.current.set(loadKey, load);
+          const clearLoad = () => {
+            if (threadLoadsRef.current.get(loadKey) === load)
+              threadLoadsRef.current.delete(loadKey);
+          };
+          void load.then(clearLoad, clearLoad);
+        }
+        const projected = await load;
         const selected = selectionRef.current;
         if (selected.environmentId !== environmentId || selected.threadId !== threadId) return;
         setThread(projected);
         setThreadEnvironmentId(environmentId);
-        const profile = settings?.connections.find((candidate) => candidate.id === environmentId);
-        if (profile !== undefined) upsertThreadSummary(profile, response.thread);
+        if (environment !== undefined) persistThreadDetail(environment.profile, projected);
       } catch (error) {
         setActionError(errorMessage(error));
       } finally {
         setThreadLoading(false);
       }
     },
-    [environmentStates, settings?.connections, upsertThreadSummary],
+    [persistThreadDetail],
   );
 
   const selectProject = useCallback(
     (environmentId: string, workspace: string) => {
       const normalized = workspace.trim();
-      const environment = environmentStates[environmentId];
+      const environment = environmentStatesRef.current[environmentId];
       if (!normalized || environment === undefined) return;
       setSelectedEnvironmentId(environmentId);
       setSelectedWorkspace(normalized);
@@ -964,12 +1078,45 @@ export function useAppServerController() {
           updatedAt: Date.now(),
           threads: current.snapshot?.threads ?? [],
           workspaces: [...new Set([...(current.snapshot?.workspaces ?? []), normalized])],
+          details: current.snapshot?.details ?? {},
         };
         writeCache(current.profile, snapshot);
         return { ...current, snapshot };
       });
     },
-    [environmentStates, updateEnvironment],
+    [updateEnvironment],
+  );
+
+  const browseFilesystem = useCallback(
+    async (environmentId: string, partialPath: string, cwd?: string) => {
+      const client = clientsRef.current.get(environmentId);
+      const environment = environmentStatesRef.current[environmentId];
+      if (client === undefined || environment === undefined) {
+        throw new Error("Connect to the app-server before choosing a folder.");
+      }
+      const path = resolveAppServerBrowsePath(
+        partialPath,
+        environment.profile.connection.workspace,
+        cwd,
+      );
+      const response = await Effect.runPromise(client.request("fs/readDirectory", { path }));
+      return projectAppServerDirectory(path, response);
+    },
+    [],
+  );
+
+  const addProject = useCallback(
+    async (environmentId: string, workspace: string) => {
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) {
+        throw new Error("Connect to the app-server before adding a project.");
+      }
+      const path = workspace.trim();
+      if (path.length === 0) throw new Error("Choose a project folder.");
+      await Effect.runPromise(client.request("fs/createDirectory", { path, recursive: true }));
+      selectProject(environmentId, path);
+    },
+    [selectProject],
   );
 
   const archiveThread = useCallback(
@@ -1158,6 +1305,14 @@ export function useAppServerController() {
     ? (environmentStates[settings.connections[0].id] ?? null)
     : null;
   const connection = selectedEnvironment ?? fallbackEnvironment;
+
+  useEffect(() => {
+    if (thread === null || threadEnvironmentId === null) return;
+    const profile = environmentStatesRef.current[threadEnvironmentId]?.profile;
+    if (profile === undefined) return;
+    const timeout = setTimeout(() => persistThreadDetail(profile, thread), 300);
+    return () => clearTimeout(timeout);
+  }, [persistThreadDetail, thread, threadEnvironmentId]);
 
   useEffect(() => {
     if (
@@ -1506,6 +1661,8 @@ export function useAppServerController() {
     remote,
     selectThread,
     selectProject,
+    browseFilesystem,
+    addProject,
     archiveThread,
     deleteThread,
     removeProject,
