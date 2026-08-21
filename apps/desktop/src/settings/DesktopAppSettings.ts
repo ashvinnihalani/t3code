@@ -21,8 +21,10 @@ import {
   normalizeLinuxPasswordStorePreference,
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
-import { resolveDefaultDesktopUpdateChannel } from "../updates/updateChannels.ts";
-import { isValidDistroName } from "../wsl/wslPathParsing.ts";
+
+const resolveDefaultDesktopUpdateChannel = (version: string): "latest" | "nightly" =>
+  /-nightly\.\d{8}\.\d+$/u.test(version) ? "nightly" : "latest";
+const isValidDistroName = (value: string) => /^\w(?:[\w \-.]*\w)?$/u.test(value);
 
 export interface DesktopSettings {
   readonly linuxPasswordStore: LinuxPasswordStorePreference;

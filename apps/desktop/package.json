@@ -18,13 +18,10 @@
     "@t3tools/client-runtime": "workspace:*",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
-    "@t3tools/ssh": "workspace:*",
-    "@t3tools/tailscale": "workspace:*",
     "effect": "catalog:",
     "effect-codex-app-server": "workspace:*",
     "electron": "41.5.0",
     "electron-store": "^8.2.0",
-    "electron-updater": "^6.6.2",
     "playwright-core": "1.60.0",
     "react-grab": "^0.1.32"
   },
