@@ -13,11 +13,12 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopAppServerPort, FilesystemBrowseResult } from "@t3tools/contracts";
+import type { DesktopAppServerPort, EditorId, FilesystemBrowseResult } from "@t3tools/contracts";
 
 import {
   appendAgentMessageDelta,
   isRecord,
+  mergeThreadDetails,
   projectModels,
   projectThreadDetail,
   projectThreadSummary,
@@ -79,6 +80,7 @@ export interface ConnectionState {
 export interface EnvironmentState extends ConnectionState {
   readonly profile: AppServerConnectionProfile;
   readonly models: ReadonlyArray<ModelOption>;
+  readonly workspaceOpeners: ReadonlyArray<EditorId>;
 }
 
 export interface EnvironmentProject {
@@ -239,6 +241,7 @@ function initialEnvironmentState(profile: AppServerConnectionProfile): Environme
     account: null,
     remote: null,
     models: [],
+    workspaceOpeners: [],
   };
 }
 
@@ -598,6 +601,7 @@ export function useAppServerController() {
     const bridge = window.desktopBridge;
     const connectAppServer = bridge?.connectAppServer;
     const onAppServerError = bridge?.onAppServerError;
+    const listWorkspaceOpeners = bridge?.listAppServerWorkspaceOpeners;
     if (connectAppServer === undefined || onAppServerError === undefined) {
       return;
     }
@@ -978,6 +982,13 @@ export function useAppServerController() {
         },
       };
       runtimesRef.current.set(profile.id, runtime);
+      if (listWorkspaceOpeners !== undefined) {
+        void listWorkspaceOpeners(profile).then(
+          (workspaceOpeners) =>
+            updateEnvironment(profile.id, (current) => ({ ...current, workspaceOpeners })),
+          () => updateEnvironment(profile.id, (current) => ({ ...current, workspaceOpeners: [] })),
+        );
+      }
     }
 
     return () => {
@@ -993,73 +1004,70 @@ export function useAppServerController() {
     upsertThreadSummary,
   ]);
 
-  const selectThread = useCallback(
-    async (environmentId: string, threadId: string | null) => {
-      setSelectedEnvironmentId(environmentId);
-      setSelectedThreadId(threadId);
-      selectionRef.current = { environmentId, threadId };
-      setActionError(null);
-      if (threadId === null) {
+  const selectThread = useCallback(async (environmentId: string, threadId: string | null) => {
+    setSelectedEnvironmentId(environmentId);
+    setSelectedThreadId(threadId);
+    selectionRef.current = { environmentId, threadId };
+    setActionError(null);
+    if (threadId === null) {
+      setThread(null);
+      setThreadEnvironmentId(null);
+      return;
+    }
+    const environment = environmentStatesRef.current[environmentId];
+    const summary = environment?.snapshot?.threads.find((candidate) => candidate.id === threadId);
+    if (summary !== undefined) setSelectedWorkspace(summary.cwd);
+    const cachedDetail = environment?.snapshot?.details[threadId];
+    if (cachedDetail !== undefined) {
+      setThread(cachedDetail);
+      setThreadEnvironmentId(environmentId);
+    }
+    const client = clientsRef.current.get(environmentId);
+    if (client === undefined) {
+      if (cachedDetail === undefined) {
         setThread(null);
         setThreadEnvironmentId(null);
-        return;
       }
-      const environment = environmentStatesRef.current[environmentId];
-      const summary = environment?.snapshot?.threads.find((candidate) => candidate.id === threadId);
-      if (summary !== undefined) setSelectedWorkspace(summary.cwd);
-      const cachedDetail = environment?.snapshot?.details[threadId];
-      if (cachedDetail !== undefined) {
-        setThread(cachedDetail);
-        setThreadEnvironmentId(environmentId);
+      return;
+    }
+    setThreadLoading(true);
+    try {
+      const loadKey = `${environmentId}:${threadId}`;
+      let load = threadLoadsRef.current.get(loadKey);
+      if (load === undefined) {
+        load = Effect.runPromise(
+          Effect.gen(function* () {
+            const read = yield* client.request("thread/read", { threadId, includeTurns: true });
+            const response =
+              read.thread.status.type === "notLoaded"
+                ? yield* client.request("thread/resume", { threadId })
+                : read;
+            const projected = projectThreadDetail(response.thread);
+            if (projected === null) {
+              return yield* Effect.die(new Error("The app-server returned an invalid thread."));
+            }
+            return projected;
+          }),
+        );
+        threadLoadsRef.current.set(loadKey, load);
+        const clearLoad = () => {
+          if (threadLoadsRef.current.get(loadKey) === load) threadLoadsRef.current.delete(loadKey);
+        };
+        void load.then(clearLoad, clearLoad);
       }
-      const client = clientsRef.current.get(environmentId);
-      if (client === undefined) {
-        if (cachedDetail === undefined) {
-          setThread(null);
-          setThreadEnvironmentId(null);
-        }
-        return;
-      }
-      setThreadLoading(true);
-      try {
-        const loadKey = `${environmentId}:${threadId}`;
-        let load = threadLoadsRef.current.get(loadKey);
-        if (load === undefined) {
-          load = Effect.runPromise(
-            Effect.gen(function* () {
-              const read = yield* client.request("thread/read", { threadId, includeTurns: true });
-              const response =
-                read.thread.status.type === "notLoaded"
-                  ? yield* client.request("thread/resume", { threadId })
-                  : read;
-              const projected = projectThreadDetail(response.thread);
-              if (projected === null) {
-                return yield* Effect.die(new Error("The app-server returned an invalid thread."));
-              }
-              return projected;
-            }),
-          );
-          threadLoadsRef.current.set(loadKey, load);
-          const clearLoad = () => {
-            if (threadLoadsRef.current.get(loadKey) === load)
-              threadLoadsRef.current.delete(loadKey);
-          };
-          void load.then(clearLoad, clearLoad);
-        }
-        const projected = await load;
-        const selected = selectionRef.current;
-        if (selected.environmentId !== environmentId || selected.threadId !== threadId) return;
-        setThread(projected);
-        setThreadEnvironmentId(environmentId);
-        if (environment !== undefined) persistThreadDetail(environment.profile, projected);
-      } catch (error) {
-        setActionError(errorMessage(error));
-      } finally {
-        setThreadLoading(false);
-      }
-    },
-    [persistThreadDetail],
-  );
+      const projected = await load;
+      const selected = selectionRef.current;
+      if (selected.environmentId !== environmentId || selected.threadId !== threadId) return;
+      setThread((current) =>
+        current?.id === projected.id ? mergeThreadDetails(current, projected) : projected,
+      );
+      setThreadEnvironmentId(environmentId);
+    } catch (error) {
+      setActionError(errorMessage(error));
+    } finally {
+      setThreadLoading(false);
+    }
+  }, []);
 
   const selectProject = useCallback(
     (environmentId: string, workspace: string) => {

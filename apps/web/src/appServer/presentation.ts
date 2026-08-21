@@ -286,13 +286,59 @@ export function projectModels(value: unknown): ReadonlyArray<ModelOption> {
 }
 
 export function upsertTurn(detail: ThreadDetail, value: unknown): ThreadDetail {
-  const turn = projectTurn(value);
-  if (turn === null) return detail;
-  const index = detail.turns.findIndex((candidate) => candidate.id === turn.id);
+  const incoming = projectTurn(value);
+  if (incoming === null) return detail;
+  const index = detail.turns.findIndex((candidate) => candidate.id === incoming.id);
   const turns = [...detail.turns];
-  if (index === -1) turns.push(turn);
-  else turns[index] = turn;
-  return { ...detail, status: turn.status === "inProgress" ? "active" : "idle", turns };
+  if (index === -1) {
+    turns.push(incoming);
+  } else {
+    const existing = turns[index]!;
+    const items = [...existing.items];
+    for (const item of incoming.items) {
+      const itemIndex = items.findIndex((candidate) => candidate.id === item.id);
+      if (itemIndex === -1) items.push(item);
+      else items[itemIndex] = item;
+    }
+    turns[index] = {
+      ...existing,
+      ...incoming,
+      items,
+      startedAt: incoming.startedAt ?? existing.startedAt,
+      completedAt: incoming.completedAt ?? existing.completedAt,
+      error: incoming.error ?? existing.error,
+    };
+  }
+  return { ...detail, status: incoming.status === "inProgress" ? "active" : "idle", turns };
+}
+
+export function mergeThreadDetails(current: ThreadDetail, incoming: ThreadDetail): ThreadDetail {
+  let merged: ThreadDetail = { ...current, ...incoming, turns: current.turns };
+  for (const incomingTurn of incoming.turns) {
+    const index = merged.turns.findIndex((turn) => turn.id === incomingTurn.id);
+    if (index === -1) {
+      merged = { ...merged, turns: [...merged.turns, incomingTurn] };
+      continue;
+    }
+    const existingTurn = merged.turns[index]!;
+    const items = [...existingTurn.items];
+    for (const item of incomingTurn.items) {
+      const itemIndex = items.findIndex((candidate) => candidate.id === item.id);
+      if (itemIndex === -1) items.push(item);
+      else items[itemIndex] = item;
+    }
+    const turns = [...merged.turns];
+    turns[index] = {
+      ...existingTurn,
+      ...incomingTurn,
+      items,
+      startedAt: incomingTurn.startedAt ?? existingTurn.startedAt,
+      completedAt: incomingTurn.completedAt ?? existingTurn.completedAt,
+      error: incomingTurn.error ?? existingTurn.error,
+    };
+    merged = { ...merged, turns };
+  }
+  return merged;
 }
 
 export function upsertTimelineItem(

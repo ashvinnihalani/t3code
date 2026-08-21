@@ -2,10 +2,12 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   appendAgentMessageDelta,
+  mergeThreadDetails,
   projectModels,
   projectThreadDetail,
   projectThreadSummary,
   upsertTimelineItem,
+  upsertTurn,
 } from "./presentation";
 
 const thread = {
@@ -57,6 +59,65 @@ describe("app-server presentation projection", () => {
     });
     const streamed = appendAgentMessageDelta(started, "turn-1", "agent-1", " now");
     expect(streamed.turns[0]?.items[1]?.text).toBe("Starting now");
+  });
+
+  it("keeps prior messages and tool items when a completed turn snapshot is sparse", () => {
+    const detail = projectThreadDetail(thread);
+    expect(detail).not.toBeNull();
+    if (detail === null) return;
+
+    const withTool = upsertTimelineItem(detail, "turn-1", {
+      id: "tool-1",
+      type: "commandExecution",
+      command: "git status",
+      status: "inProgress",
+    });
+    const completed = upsertTurn(withTool, {
+      id: "turn-1",
+      status: "completed",
+      items: [
+        {
+          id: "agent-1",
+          type: "agentMessage",
+          text: "Done",
+        },
+      ],
+    });
+
+    expect(completed.turns[0]?.items.map((item) => item.id)).toEqual([
+      "user-1",
+      "tool-1",
+      "agent-1",
+    ]);
+  });
+
+  it("merges a late hydration snapshot with notifications already rendered", () => {
+    const current = projectThreadDetail(thread);
+    expect(current).not.toBeNull();
+    if (current === null) return;
+    const withLiveMessage = appendAgentMessageDelta(current, "turn-1", "agent-live", "Live");
+    const hydration = projectThreadDetail({
+      ...thread,
+      turns: [
+        {
+          id: "turn-1",
+          status: "inProgress",
+          items: [
+            {
+              id: "user-1",
+              type: "userMessage",
+              content: [{ type: "text", text: "Build the desktop" }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(hydration).not.toBeNull();
+    if (hydration === null) return;
+
+    expect(
+      mergeThreadDetails(withLiveMessage, hydration).turns[0]?.items.map((item) => item.id),
+    ).toEqual(["user-1", "agent-live"]);
   });
 
   it("preserves app-server model traits for composer controls", () => {

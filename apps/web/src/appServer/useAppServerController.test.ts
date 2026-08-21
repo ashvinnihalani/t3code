@@ -74,6 +74,7 @@ describe("app-server environment controller", () => {
       account: null,
       remote: null,
       models: [],
+      workspaceOpeners: [],
     });
 
     expect(
@@ -100,6 +101,7 @@ describe("app-server environment controller", () => {
       account: null,
       remote: null,
       models: [],
+      workspaceOpeners: [],
     };
     expect(projectEnvironmentProjects([environment])).toMatchObject([
       { key: "local:/workspace", threads: [] },
