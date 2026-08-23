@@ -133,7 +133,10 @@ export function toServerProvider(
     enabled: true,
     installed: true,
     version: null,
-    status: environment?.phase === "connected" ? "ready" : "warning",
+    status:
+      environment?.phase === "connected" || (environment?.models.length ?? 0) > 0
+        ? "ready"
+        : "warning",
     auth: {
       status: environment?.account === null ? "unknown" : "authenticated",
       type: "OpenAI",

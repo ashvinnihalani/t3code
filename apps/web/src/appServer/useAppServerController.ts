@@ -2074,6 +2074,25 @@ export function useAppServerController() {
     [selectedEnvironmentId],
   );
 
+  const refreshModels = useCallback(
+    async (environmentId = selectedEnvironmentId) => {
+      if (environmentId === null) return false;
+      const client = clientsRef.current.get(environmentId);
+      if (client === undefined) return false;
+      try {
+        const response = await Effect.runPromise(client.request("model/list", {}));
+        updateEnvironment(environmentId, (current) => ({
+          ...current,
+          models: projectModels(response),
+        }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [selectedEnvironmentId, updateEnvironment],
+  );
+
   const beginRemotePairing = useCallback(
     async (environmentId = selectedEnvironmentId) => {
       if (environmentId === null) return;
@@ -2218,6 +2237,7 @@ export function useAppServerController() {
     saveEnvironment,
     removeEnvironment,
     retry,
+    refreshModels,
     beginRemotePairing,
     checkRemotePairing,
     closeRemotePairing,

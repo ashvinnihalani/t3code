@@ -99,6 +99,25 @@ describe("upstream app-server adapter", () => {
     expect(resolveSelectableProviderInstanceEntry(entries, undefined)?.instanceId).toBe("codex");
   });
 
+  it("keeps cached app-server models available while reconnecting", () => {
+    const reconnecting = controller();
+    const config = toServerConfig(
+      {
+        ...reconnecting,
+        environments: reconnecting.environments.map((environment) => ({
+          ...environment,
+          phase: "reconnecting" as const,
+        })),
+      } as AppServerController,
+      "local",
+    );
+
+    expect(config.providers[0]).toMatchObject({
+      status: "ready",
+      models: [{ slug: "gpt-test" }],
+    });
+  });
+
   it("keeps direct projects on the app-server workspace path", () => {
     const project = toEnvironmentProject({
       key: "local:/workspace",

@@ -3174,6 +3174,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       : {})}
                     onOpenChange={(open) => {
                       setIsComposerModelPickerOpen(open);
+                      if (open && appServerController !== null) {
+                        void appServerController.refreshModels(environmentId);
+                      }
                     }}
                     getModelDisabledReason={getModelDisabledReason}
                     onInstanceModelChange={onProviderModelSelect}
