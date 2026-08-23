@@ -313,6 +313,25 @@ export function resolveSelectableProviderInstanceEntry(
 }
 
 /**
+ * Resolve the provider entry used by the composer.
+ *
+ * Direct app-server connections expose one authoritative provider for the
+ * active environment. Their selection must not be invalidated by stale T3
+ * provider ids or continuation constraints persisted on an existing thread.
+ * Upstream mode keeps its exact instance-id lookup and compatibility rules.
+ */
+export function resolveComposerProviderInstanceEntry(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  selectedInstanceId: ProviderInstanceId,
+  directAppServer: boolean,
+): ProviderInstanceEntry | undefined {
+  if (directAppServer) {
+    return resolveSelectableProviderInstanceEntry(entries, undefined) ?? entries[0];
+  }
+  return entries.find((entry) => entry.instanceId === selectedInstanceId);
+}
+
+/**
  * Resolve the routing key for a selection that may reference an instance
  * id that no longer exists (e.g. a persisted thread selection after the
  * user deleted the custom instance). Returns a ready or non-error fallback,

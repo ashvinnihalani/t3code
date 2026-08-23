@@ -6,6 +6,7 @@ import {
   getDefaultProviderInstanceModel,
   isProviderInstancePickerReady,
   isProviderInstancePickerVisible,
+  resolveComposerProviderInstanceEntry,
   resolveDefaultProviderModelSelection,
   resolveSelectableProviderInstance,
   resolveProviderDriverKindForInstanceSelection,
@@ -239,6 +240,29 @@ describe("resolveSelectableProviderInstance", () => {
     expect(resolveSelectableProviderInstance(providers, disabled)).toBeUndefined();
     expect(resolveSelectableProviderInstance(providers, unavailable)).toBeUndefined();
     expect(resolveSelectableProviderInstance(providers, unknown)).toBeUndefined();
+  });
+});
+
+describe("resolveComposerProviderInstanceEntry", () => {
+  it("pins a direct app-server composer to its live provider after a stale thread selection", () => {
+    const entries = deriveProviderInstanceEntries([
+      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" }),
+    ]);
+
+    expect(
+      resolveComposerProviderInstanceEntry(
+        entries,
+        ProviderInstanceId.make("t3code_no_provider"),
+        true,
+      )?.instanceId,
+    ).toBe("codex");
+    expect(
+      resolveComposerProviderInstanceEntry(
+        entries,
+        ProviderInstanceId.make("t3code_no_provider"),
+        false,
+      ),
+    ).toBeUndefined();
   });
 });
 

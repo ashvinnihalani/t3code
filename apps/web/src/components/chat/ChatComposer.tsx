@@ -208,6 +208,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  resolveComposerProviderInstanceEntry,
   resolveProviderDriverKindForInstanceSelection,
   resolveSelectableProviderInstanceEntry,
   sortProviderInstanceEntries,
@@ -738,6 +739,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       appServerController === null ? applyProviderInstanceSettings(entries, settings) : entries,
     );
   }, [appServerController, providerStatuses, settings]);
+  const directProviderEntry = useMemo(
+    () =>
+      appServerController === null
+        ? undefined
+        : resolveComposerProviderInstanceEntry(
+            providerInstanceEntries,
+            NO_PROVIDER_MODEL_SELECTION.instanceId,
+            true,
+          ),
+    [appServerController, providerInstanceEntries],
+  );
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const threadProvider =
     activeThread?.session?.providerInstanceId ??
@@ -754,8 +766,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ) ??
     providerInstanceEntries[0]?.driverKind ??
     ProviderDriverKind.make("unconfigured");
-  const requestedDriverKind: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
+  const requestedDriverKind: ProviderDriverKind =
+    directProviderEntry?.driverKind ?? lockedProvider ?? unlockedSelectedProvider;
   const lockedContinuationGroupKey = useMemo((): string | null => {
+    if (directProviderEntry) return null;
     if (!lockedProvider || !activeThread) return null;
     const lockedInstanceId =
       activeThread.session?.providerInstanceId ?? activeThreadModelSelection?.instanceId;
@@ -767,6 +781,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, [
     activeThread,
     activeThreadModelSelection?.instanceId,
+    directProviderEntry,
     lockedProvider,
     providerInstanceEntries,
   ]);
@@ -782,6 +797,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   //   5. First enabled entry overall / default instance for the kind.
   //
   const selectedInstanceId = useMemo<ProviderInstanceId>(() => {
+    if (directProviderEntry) return directProviderEntry.instanceId;
     const candidates: Array<string | null | undefined> = [
       composerDraft.activeProvider,
       activeThread?.session?.providerInstanceId,
@@ -824,6 +840,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThread?.session?.providerInstanceId,
     activeThreadModelSelection?.instanceId,
     composerDraft.activeProvider,
+    directProviderEntry,
     lockedContinuationGroupKey,
     lockedProvider,
     providerInstanceEntries,
@@ -834,8 +851,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // instance gets its own slash commands, skills, and model list — not
   // the first snapshot for the same driver kind.
   const selectedProviderEntry = useMemo(
-    () => providerInstanceEntries.find((entry) => entry.instanceId === selectedInstanceId),
-    [providerInstanceEntries, selectedInstanceId],
+    () =>
+      resolveComposerProviderInstanceEntry(
+        providerInstanceEntries,
+        selectedInstanceId,
+        appServerController !== null,
+      ),
+    [appServerController, providerInstanceEntries, selectedInstanceId],
   );
   const noProviderAvailable = selectedProviderEntry === undefined;
   // The driver kind follows the instance that will actually run the turn,
