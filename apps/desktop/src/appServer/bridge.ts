@@ -87,6 +87,7 @@ const openConnection = Effect.fn("desktop.appServerBridge.openConnection")(funct
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
   let closed = false;
+  let lastDiagnostic: string | null = null;
 
   const close = () => {
     if (closed) return;
@@ -103,7 +104,13 @@ const openConnection = Effect.fn("desktop.appServerBridge.openConnection")(funct
   yield* child.stderr.pipe(
     Stream.decodeText(),
     Stream.splitLines,
-    Stream.runForEach((message) => Effect.sync(() => runtime.writeDiagnostic(message))),
+    Stream.runForEach((message) =>
+      Effect.sync(() => {
+        const diagnostic = message.trim();
+        if (diagnostic.length > 0) lastDiagnostic = diagnostic;
+        runtime.writeDiagnostic(message);
+      }),
+    ),
     Effect.ignore,
     Effect.forkIn(scope),
   );
@@ -114,7 +121,7 @@ const openConnection = Effect.fn("desktop.appServerBridge.openConnection")(funct
           sendConnectionError(
             event,
             profile.id,
-            `App-server connection closed with exit code ${String(code)}.`,
+            `App-server connection closed with exit code ${String(code)}.${lastDiagnostic === null ? "" : ` ${lastDiagnostic}`}`,
           );
         }
       }),

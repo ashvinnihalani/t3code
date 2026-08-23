@@ -9,7 +9,7 @@ The desktop can run a local app-server and any number of app-servers over SSH at
 - macOS, Windows, or Linux
 - [mise](https://mise.jdx.dev/) for repository tooling
 - A compatible executable on each host. The default is `codex app-server`.
-- For SSH connections, an OpenSSH host reachable by the desktop and a compatible executable installed on that host. Persistent default Codex connections require the standalone managed Codex installation.
+- For SSH connections, an OpenSSH host reachable by the desktop and a compatible executable installed on that host. Persistent connections use the user-configured executable's daemon and proxy commands.
 
 Authenticate Codex on each machine before connecting:
 

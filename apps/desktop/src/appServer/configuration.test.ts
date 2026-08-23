@@ -84,7 +84,8 @@ describe("app-server desktop configuration", () => {
       username: "dev",
       port: 2222,
       identityFile: "/keys/id test",
-      executable: "codex",
+      persistent: true,
+      executable: "/opt/custom/codex-dev",
       args: ["app-server"],
       workspace: "/repo with spaces",
       env: { RUST_LOG: "info" },
@@ -101,10 +102,29 @@ describe("app-server desktop configuration", () => {
     expect(configuration.args).toContain("2222");
     expect(configuration.args.at(-1)).toBe(buildRemoteAppServerCommand(connection));
     expect(configuration.args.at(-1)).toContain(
-      "'codex' 'app-server' 'daemon' 'bootstrap' '--remote-control' >/dev/null",
+      "'/opt/custom/codex-dev' 'app-server' 'daemon' 'bootstrap' '--remote-control' >/dev/null",
     );
     expect(configuration.args.at(-1)).toContain(
-      "exec env 'RUST_LOG=info' 'codex' 'app-server' 'proxy'",
+      "exec env 'RUST_LOG=info' '/opt/custom/codex-dev' 'app-server' 'proxy'",
+    );
+  });
+
+  it("runs the exact configured SSH command when persistence is disabled", () => {
+    expect(
+      buildRemoteAppServerCommand({
+        kind: "ssh",
+        host: "buildbox",
+        username: "",
+        port: null,
+        identityFile: "",
+        persistent: false,
+        executable: "/opt/custom/codex-dev",
+        args: ["app-server"],
+        workspace: "/repo",
+        env: { CODEX_HOME: "/state/codex" },
+      }),
+    ).toBe(
+      "cd -- '/repo' && exec env 'CODEX_HOME=/state/codex' '/opt/custom/codex-dev' 'app-server'",
     );
   });
 

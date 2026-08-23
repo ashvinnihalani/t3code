@@ -44,6 +44,7 @@ describe("app-server environment controller", () => {
         username: "agent",
         port: "2222",
         identityFile: "/keys/build-box",
+        persistent: true,
       }),
     ).toEqual({
       id: "build-box",
@@ -58,6 +59,7 @@ describe("app-server environment controller", () => {
         username: "agent",
         port: 2222,
         identityFile: "/keys/build-box",
+        persistent: true,
       },
     });
   });

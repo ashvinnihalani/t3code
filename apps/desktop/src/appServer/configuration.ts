@@ -119,7 +119,7 @@ function commandWithEnvironment(
   return environment.length > 0 ? `env ${environment.join(" ")} ${command}` : command;
 }
 
-function usesDefaultCodexAppServer(connection: SshAppServerConnectionSettings): boolean {
+function inferredPersistentCodexAppServer(connection: SshAppServerConnectionSettings): boolean {
   const executable = connection.executable.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
   return (
     (executable === "codex" || executable === "codex.exe") &&
@@ -132,7 +132,8 @@ export function buildRemoteAppServerCommand(connection: SshAppServerConnectionSe
   const environment = Object.entries(connection.env)
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => shellQuote(`${name}=${value}`));
-  if (usesDefaultCodexAppServer(connection)) {
+  const persistent = connection.persistent ?? inferredPersistentCodexAppServer(connection);
+  if (persistent) {
     const bootstrap = commandWithEnvironment(
       connection.executable,
       ["app-server", "daemon", "bootstrap", "--remote-control"],

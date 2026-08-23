@@ -108,6 +108,7 @@ export interface SettingsDraft {
   readonly username: string;
   readonly port: string;
   readonly identityFile: string;
+  readonly persistent: boolean;
 }
 
 export interface CachedSnapshot {
@@ -377,6 +378,7 @@ export function toSettingsDraft(profile: AppServerConnectionProfile): SettingsDr
     username: connection.kind === "ssh" ? connection.username : "",
     port: connection.kind === "ssh" && connection.port !== null ? String(connection.port) : "",
     identityFile: connection.kind === "ssh" ? connection.identityFile : "",
+    persistent: connection.kind === "ssh" ? (connection.persistent ?? true) : false,
   };
 }
 
@@ -394,6 +396,7 @@ export function newSshSettingsDraft(
     username: "",
     port: "",
     identityFile: "",
+    persistent: true,
   };
 }
 
@@ -445,6 +448,7 @@ export function fromSettingsDraft(draft: SettingsDraft): AppServerConnectionProf
       username: draft.username.trim(),
       port: parsedPort,
       identityFile: draft.identityFile.trim(),
+      persistent: draft.persistent,
     },
   };
 }

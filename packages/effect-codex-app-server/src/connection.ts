@@ -17,6 +17,7 @@ export const SshAppServerConnectionSettings = Schema.Struct({
   username: Schema.String,
   port: Schema.NullOr(Schema.Int),
   identityFile: Schema.String,
+  persistent: Schema.optional(Schema.Boolean),
   executable: Schema.String,
   args: Schema.Array(Schema.String),
   workspace: Schema.String,

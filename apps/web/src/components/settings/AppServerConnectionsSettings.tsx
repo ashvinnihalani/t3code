@@ -26,6 +26,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 function ConnectionEditor({
@@ -144,6 +145,22 @@ function ConnectionEditor({
               onChange={(event) => field("env")(event.currentTarget.value)}
             />
           </div>
+          {draft.kind === "ssh" ? (
+            <label className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+              <span className="grid gap-0.5">
+                <span className="text-sm font-medium">Persistent remote control</span>
+                <span className="text-xs text-muted-foreground">
+                  Use this executable to bootstrap a daemon and connect through its app-server
+                  proxy, so turns continue after the desktop closes.
+                </span>
+              </span>
+              <Switch
+                aria-label="Persistent remote control"
+                checked={draft.persistent}
+                onCheckedChange={(checked) => onChange({ ...draft, persistent: Boolean(checked) })}
+              />
+            </label>
+          ) : null}
         </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel}>
