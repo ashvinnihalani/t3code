@@ -24,7 +24,7 @@ describe("buildThreadActionMenuItems", () => {
         ...baseState,
         supports: { settlement: false, snooze: false, pinning: false },
       }),
-    ).toEqual(["rename", "mark-unread", "copy-path", "archive"]);
+    ).toEqual(["rename", "mark-unread", "copy", "archive"]);
   });
 
   it("flips lifecycle labels with thread state", () => {
@@ -40,6 +40,11 @@ describe("buildThreadActionMenuItems", () => {
     );
     expect(snooze?.disabled).toBe(true);
     expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour"]);
+  });
+
+  it("matches upstream's copy submenu", () => {
+    const copy = buildThreadActionMenuItems(baseState).find((item) => item.id === "copy");
+    expect(copy?.children?.map((child) => child.id)).toEqual(["copy-path", "copy-thread-id"]);
   });
 
   it("keeps archive as the final lifecycle action", () => {

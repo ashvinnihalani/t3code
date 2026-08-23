@@ -11,7 +11,7 @@ import {
   effectiveSnoozed,
   type ChangeRequestStateLike,
 } from "@t3tools/client-runtime/state/thread-settled";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useCallback } from "react";
 
 import { resolveSnoozePresets, snoozeWakeDescription } from "../components/Sidebar.snooze";
@@ -78,6 +78,12 @@ export function useThreadActionMenu(input: {
       toastManager.add({ type: "success", title: "Path copied", description: path });
     },
     onError: (error) => failureToast("Failed to copy path", error),
+  });
+  const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
+    onCopy: ({ threadId }) => {
+      toastManager.add({ type: "success", title: "Thread ID copied", description: threadId });
+    },
+    onError: (error) => failureToast("Failed to copy thread ID", error),
   });
 
   const openMenu = useCallback(
@@ -192,6 +198,9 @@ export function useThreadActionMenu(input: {
             copyPathToClipboard(workspacePath, { path: workspacePath });
             return;
           }
+          case "copy-thread-id":
+            copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
           case "archive": {
             await reportFailure("Failed to archive thread", () => archiveThread(threadRef));
             return;
@@ -206,6 +215,7 @@ export function useThreadActionMenu(input: {
       changeRequestState,
       archiveThread,
       copyPathToClipboard,
+      copyThreadIdToClipboard,
       markThreadUnread,
       onStartRename,
       pinThread,

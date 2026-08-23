@@ -28,7 +28,7 @@ import {
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
@@ -1610,6 +1610,24 @@ export default function Sidebar() {
       );
     },
   });
+  const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
+    onCopy: ({ threadId }) => {
+      toastManager.add({
+        type: "success",
+        title: "Thread ID copied",
+        description: threadId,
+      });
+    },
+    onError: (error) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to copy thread ID",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    },
+  });
   const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
@@ -2876,6 +2894,9 @@ export default function Sidebar() {
             }
             copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
             return;
+          case "copy-thread-id":
+            copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
           case "archive": {
             const result = await archiveThread(threadRef);
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -2905,6 +2926,7 @@ export default function Sidebar() {
       attemptUnsettle,
       attemptUnsnooze,
       copyPathToClipboard,
+      copyThreadIdToClipboard,
       handleMultiSelectContextMenu,
       markThreadUnread,
       projectCwdByKey,

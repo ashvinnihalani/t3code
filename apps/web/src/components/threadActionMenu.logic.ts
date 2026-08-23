@@ -16,7 +16,9 @@ export type ThreadActionMenuId =
   | "unsnooze"
   | "rename"
   | "mark-unread"
+  | "copy"
   | "copy-path"
+  | "copy-thread-id"
   | "archive";
 
 export interface ThreadActionMenuState {
@@ -75,7 +77,15 @@ export function buildThreadActionMenuItems(
       : []),
     { id: "rename", label: "Rename thread" },
     { id: "mark-unread", label: "Mark unread" },
-    { id: "copy-path", label: "Copy path", icon: "copy" },
+    {
+      id: "copy",
+      label: "Copy",
+      icon: "copy",
+      children: [
+        { id: "copy-path", label: "Path", icon: "folder" },
+        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+      ],
+    },
     { id: "archive", label: "Archive thread" },
   ];
 }
