@@ -77,7 +77,7 @@ describe("app-server desktop configuration", () => {
     expect(configuration.env.PATH).toContain("/Users/test/.local/bin");
   });
 
-  it("builds a non-interactive SSH stdio launch", () => {
+  it("builds a non-interactive SSH proxy to a durable Codex daemon", () => {
     const connection = {
       kind: "ssh" as const,
       host: "buildbox",
@@ -100,6 +100,28 @@ describe("app-server desktop configuration", () => {
     expect(configuration.args).toContain("dev@buildbox");
     expect(configuration.args).toContain("2222");
     expect(configuration.args.at(-1)).toBe(buildRemoteAppServerCommand(connection));
+    expect(configuration.args.at(-1)).toContain(
+      "'codex' 'app-server' 'daemon' 'bootstrap' '--remote-control' >/dev/null",
+    );
+    expect(configuration.args.at(-1)).toContain(
+      "exec env 'RUST_LOG=info' 'codex' 'app-server' 'proxy'",
+    );
+  });
+
+  it("keeps generic app-server harnesses on their configured SSH stdio command", () => {
+    expect(
+      buildRemoteAppServerCommand({
+        kind: "ssh",
+        host: "buildbox",
+        username: "",
+        port: null,
+        identityFile: "",
+        executable: "generic-agent",
+        args: ["serve", "--stdio"],
+        workspace: "/repo",
+        env: {},
+      }),
+    ).toBe("cd -- '/repo' && exec 'generic-agent' 'serve' '--stdio'");
   });
 
   it("quotes remote shell values without interpolation", () => {

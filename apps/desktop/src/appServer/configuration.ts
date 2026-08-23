@@ -110,14 +110,43 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+function commandWithEnvironment(
+  executable: string,
+  args: ReadonlyArray<string>,
+  environment: ReadonlyArray<string>,
+): string {
+  const command = [shellQuote(executable), ...args.map(shellQuote)].join(" ");
+  return environment.length > 0 ? `env ${environment.join(" ")} ${command}` : command;
+}
+
+function usesDefaultCodexAppServer(connection: SshAppServerConnectionSettings): boolean {
+  const executable = connection.executable.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  return (
+    (executable === "codex" || executable === "codex.exe") &&
+    connection.args.length === 1 &&
+    connection.args[0] === "app-server"
+  );
+}
+
 export function buildRemoteAppServerCommand(connection: SshAppServerConnectionSettings): string {
   const environment = Object.entries(connection.env)
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => shellQuote(`${name}=${value}`));
-  const command = [shellQuote(connection.executable), ...connection.args.map(shellQuote)].join(" ");
-  const launch =
-    environment.length > 0 ? `exec env ${environment.join(" ")} ${command}` : `exec ${command}`;
-  return `cd -- ${shellQuote(connection.workspace)} && ${launch}`;
+  if (usesDefaultCodexAppServer(connection)) {
+    const bootstrap = commandWithEnvironment(
+      connection.executable,
+      ["app-server", "daemon", "bootstrap", "--remote-control"],
+      environment,
+    );
+    const proxy = commandWithEnvironment(
+      connection.executable,
+      ["app-server", "proxy"],
+      environment,
+    );
+    return `cd -- ${shellQuote(connection.workspace)} && ${bootstrap} >/dev/null && exec ${proxy}`;
+  }
+  const launch = commandWithEnvironment(connection.executable, connection.args, environment);
+  return `cd -- ${shellQuote(connection.workspace)} && exec ${launch}`;
 }
 
 function withDesktopExecutablePath(

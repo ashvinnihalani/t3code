@@ -7,7 +7,7 @@ The retained application has four runtime pieces:
 3. The typed app-server client in `packages/effect-codex-app-server`.
 4. Shared UI contracts and state helpers in `packages/contracts`, `packages/client-runtime`, and `packages/shared`.
 
-Electron serves the packaged renderer directly from `apps/web/dist`; it does not launch or proxy a T3 server. The preload bridge starts local or SSH app-server processes and transfers a MessagePort to the renderer. JSONL protocol traffic stays end-to-end between the app-server client and that process.
+Electron serves the packaged renderer directly from `apps/web/dist`; it does not launch or proxy a T3 server. The preload bridge starts local app-server processes or SSH transports and transfers a MessagePort to the renderer. Default Codex SSH profiles use the managed remote app-server daemon plus a disposable stdio proxy, so closing Electron does not terminate remote turns. JSONL protocol traffic stays end-to-end between the app-server client and the connected process or proxy.
 
 The renderer adapts app-server threads, projects, messages, models, approvals, and requests into the shapes consumed by upstream T3 Code components. Relevant upstream commands are intercepted at the atom-command boundary and translated to app-server RPC. Unsupported provider, Git, relay, server-hosting, update, and mobile surfaces are removed.
 
