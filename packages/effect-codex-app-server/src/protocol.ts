@@ -166,6 +166,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
     const nextRequestId = yield* Ref.make(1);
     const remainder = yield* Ref.make("");
     const terminationHandled = yield* Ref.make(false);
+    const requestScope = yield* Effect.scope;
 
     const logProtocol = (event: CodexAppServerProtocolLogEvent) => {
       if (event.direction === "incoming" && !options.logIncoming) {
@@ -292,6 +293,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
                     ),
                   onSuccess: (result) => respond(request.id, result),
                 }),
+                Effect.forkIn(requestScope),
               )
             : Effect.void,
         ),

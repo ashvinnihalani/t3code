@@ -34,6 +34,32 @@ const decodeConsumeRateLimitResetCreditResponse = Schema.decodeUnknownEffect(
 );
 
 it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
+  it.effect("continues routing notifications while a server request is pending", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const requestStarted = yield* Deferred.make<void>();
+      const notificationHandled = yield* Deferred.make<void>();
+      yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio,
+        onRequest: () =>
+          Deferred.succeed(requestStarted, undefined).pipe(Effect.andThen(Effect.never)),
+        onNotification: () => Deferred.succeed(notificationHandled, undefined),
+      });
+
+      yield* Queue.offer(input, encodeJsonl({ id: 77, method: "approval/pending", params: {} }));
+      yield* Deferred.await(requestStarted);
+      yield* Queue.offer(
+        input,
+        encodeJsonl({
+          method: "serverRequest/resolved",
+          params: { requestId: 77, threadId: "thread-1" },
+        }),
+      );
+
+      yield* Deferred.await(notificationHandled);
+    }),
+  );
+
   it.effect("maps account usage responses to the upstream token usage schema", () =>
     Effect.gen(function* () {
       assert.strictEqual(

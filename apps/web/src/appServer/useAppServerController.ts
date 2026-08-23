@@ -847,8 +847,11 @@ export function useAppServerController() {
         setPendingUserInputs((current) => current.filter((request) => request.id !== id));
       };
 
-      const connectClient = (connectedPort: DesktopAppServerPort) =>
-        Effect.gen(function* () {
+      const connectClient = (connectedPort: DesktopAppServerPort) => {
+        const pendingServerRequestResolutions = new Map<string, () => void>();
+        const externallyResolvedServerRequests = new Set<string>();
+        const locallyResolvedServerRequests = new Set<string>();
+        return Effect.gen(function* () {
           const nextScope = yield* Scope.make();
           const client = yield* CodexClient.makeTransport(fromMessagePort(connectedPort)).pipe(
             Effect.provideService(Scope.Scope, nextScope),
@@ -886,6 +889,19 @@ export function useAppServerController() {
                   status: status.status,
                 },
               }));
+            }),
+          );
+          yield* client.handleServerNotification("serverRequest/resolved", ({ requestId }) =>
+            Effect.sync(() => {
+              const requestKey = String(requestId);
+              if (locallyResolvedServerRequests.delete(requestKey)) return;
+              const resolve = pendingServerRequestResolutions.get(requestKey);
+              if (resolve === undefined) {
+                externallyResolvedServerRequests.add(requestKey);
+                return;
+              }
+              pendingServerRequestResolutions.delete(requestKey);
+              resolve();
             }),
           );
           yield* client.handleServerNotification("thread/started", ({ thread: started }) =>
@@ -947,57 +963,98 @@ export function useAppServerController() {
                 );
               }),
           );
-          yield* client.handleServerRequest("item/commandExecution/requestApproval", (request) =>
-            Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
-              const id = `${profile.id}:${request.turnId}:${request.approvalId ?? request.itemId}`;
-              setPendingApprovals((current) => [
-                ...current.filter((approval) => approval.id !== id),
-                {
-                  id,
-                  createdAt: Date.now(),
-                  environmentId: profile.id,
-                  threadId: request.threadId,
-                  kind: "command",
-                  title: request.command ?? "Run command",
-                  detail: request.cwd ?? null,
-                  reason: request.reason ?? null,
-                  respond: (decision) => {
-                    removeApproval(id);
-                    resume(Effect.succeed({ decision }));
+          yield* client.handleServerRequest(
+            "item/commandExecution/requestApproval",
+            (request, requestId) =>
+              Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
+                const id = `${profile.id}:${request.turnId}:${request.approvalId ?? request.itemId}`;
+                const requestKey = String(requestId);
+                if (externallyResolvedServerRequests.delete(requestKey)) {
+                  resume(Effect.interrupt);
+                  return Effect.void;
+                }
+                pendingServerRequestResolutions.set(requestKey, () => {
+                  removeApproval(id);
+                  resume(Effect.interrupt);
+                });
+                setPendingApprovals((current) => [
+                  ...current.filter((approval) => approval.id !== id),
+                  {
+                    id,
+                    createdAt: Date.now(),
+                    environmentId: profile.id,
+                    threadId: request.threadId,
+                    kind: "command",
+                    title: request.command ?? "Run command",
+                    detail: request.cwd ?? null,
+                    reason: request.reason ?? null,
+                    respond: (decision) => {
+                      pendingServerRequestResolutions.delete(requestKey);
+                      locallyResolvedServerRequests.add(requestKey);
+                      removeApproval(id);
+                      resume(Effect.succeed({ decision }));
+                    },
                   },
-                },
-              ]);
-              return Effect.sync(() => removeApproval(id));
-            }),
+                ]);
+                return Effect.sync(() => {
+                  pendingServerRequestResolutions.delete(requestKey);
+                  removeApproval(id);
+                });
+              }),
           );
-          yield* client.handleServerRequest("item/fileChange/requestApproval", (request) =>
-            Effect.callback<CodexSchema.FileChangeRequestApprovalResponse>((resume) => {
-              const id = `${profile.id}:${request.turnId}:${request.itemId}`;
-              setPendingApprovals((current) => [
-                ...current.filter((approval) => approval.id !== id),
-                {
-                  id,
-                  createdAt: Date.now(),
-                  environmentId: profile.id,
-                  threadId: request.threadId,
-                  kind: "fileChange",
-                  title: request.grantRoot
-                    ? `Write files under ${request.grantRoot}`
-                    : "Apply file changes",
-                  detail: request.grantRoot ?? null,
-                  reason: request.reason ?? null,
-                  respond: (decision) => {
-                    removeApproval(id);
-                    resume(Effect.succeed({ decision }));
+          yield* client.handleServerRequest(
+            "item/fileChange/requestApproval",
+            (request, requestId) =>
+              Effect.callback<CodexSchema.FileChangeRequestApprovalResponse>((resume) => {
+                const id = `${profile.id}:${request.turnId}:${request.itemId}`;
+                const requestKey = String(requestId);
+                if (externallyResolvedServerRequests.delete(requestKey)) {
+                  resume(Effect.interrupt);
+                  return Effect.void;
+                }
+                pendingServerRequestResolutions.set(requestKey, () => {
+                  removeApproval(id);
+                  resume(Effect.interrupt);
+                });
+                setPendingApprovals((current) => [
+                  ...current.filter((approval) => approval.id !== id),
+                  {
+                    id,
+                    createdAt: Date.now(),
+                    environmentId: profile.id,
+                    threadId: request.threadId,
+                    kind: "fileChange",
+                    title: request.grantRoot
+                      ? `Write files under ${request.grantRoot}`
+                      : "Apply file changes",
+                    detail: request.grantRoot ?? null,
+                    reason: request.reason ?? null,
+                    respond: (decision) => {
+                      pendingServerRequestResolutions.delete(requestKey);
+                      locallyResolvedServerRequests.add(requestKey);
+                      removeApproval(id);
+                      resume(Effect.succeed({ decision }));
+                    },
                   },
-                },
-              ]);
-              return Effect.sync(() => removeApproval(id));
-            }),
+                ]);
+                return Effect.sync(() => {
+                  pendingServerRequestResolutions.delete(requestKey);
+                  removeApproval(id);
+                });
+              }),
           );
-          yield* client.handleServerRequest("item/tool/requestUserInput", (request) =>
+          yield* client.handleServerRequest("item/tool/requestUserInput", (request, requestId) =>
             Effect.callback<CodexSchema.ToolRequestUserInputResponse>((resume) => {
               const id = `${profile.id}:${request.turnId}:${request.itemId}`;
+              const requestKey = String(requestId);
+              if (externallyResolvedServerRequests.delete(requestKey)) {
+                resume(Effect.interrupt);
+                return Effect.void;
+              }
+              pendingServerRequestResolutions.set(requestKey, () => {
+                removeUserInput(id);
+                resume(Effect.interrupt);
+              });
               setPendingUserInputs((current) => [
                 ...current.filter((candidate) => candidate.id !== id),
                 {
@@ -1020,6 +1077,8 @@ export function useAppServerController() {
                     multiSelect: false,
                   })),
                   respond: (answers) => {
+                    pendingServerRequestResolutions.delete(requestKey);
+                    locallyResolvedServerRequests.add(requestKey);
                     removeUserInput(id);
                     resume(
                       Effect.succeed({
@@ -1034,7 +1093,10 @@ export function useAppServerController() {
                   },
                 },
               ]);
-              return Effect.sync(() => removeUserInput(id));
+              return Effect.sync(() => {
+                pendingServerRequestResolutions.delete(requestKey);
+                removeUserInput(id);
+              });
             }),
           );
           yield* client.handleServerNotification("turn/started", ({ threadId, turn }) =>
@@ -1138,6 +1200,7 @@ export function useAppServerController() {
             remote: remoteStatus._tag === "Some" ? remoteStatus.value : null,
           };
         });
+      };
 
       const handlePort = (connectionId: string, connectedPort: DesktopAppServerPort) => {
         if (connectionId !== profile.id) return;
