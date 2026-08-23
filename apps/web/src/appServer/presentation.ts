@@ -285,6 +285,32 @@ export function projectModels(value: unknown): ReadonlyArray<ModelOption> {
   });
 }
 
+function mergeTurnItems(
+  existingItems: ReadonlyArray<TimelineItem>,
+  incomingItems: ReadonlyArray<TimelineItem>,
+): ReadonlyArray<TimelineItem> {
+  const items = [...existingItems];
+  const incomingUserMessages = incomingItems.filter((item) => item.type === "userMessage");
+  for (const item of incomingItems) {
+    let itemIndex = items.findIndex((candidate) => candidate.id === item.id);
+    if (itemIndex === -1 && item.type === "userMessage" && incomingUserMessages.length === 1) {
+      const contentMatches = items
+        .map((candidate, index) => ({ candidate, index }))
+        .filter(
+          ({ candidate }) => candidate.type === "userMessage" && candidate.text === item.text,
+        );
+      if (contentMatches.length === 1) {
+        itemIndex = contentMatches[0]!.index;
+        items[itemIndex] = { ...item, id: items[itemIndex]!.id };
+        continue;
+      }
+    }
+    if (itemIndex === -1) items.push(item);
+    else items[itemIndex] = item;
+  }
+  return items;
+}
+
 export function upsertTurn(detail: ThreadDetail, value: unknown): ThreadDetail {
   const incoming = projectTurn(value);
   if (incoming === null) return detail;
@@ -294,12 +320,7 @@ export function upsertTurn(detail: ThreadDetail, value: unknown): ThreadDetail {
     turns.push(incoming);
   } else {
     const existing = turns[index]!;
-    const items = [...existing.items];
-    for (const item of incoming.items) {
-      const itemIndex = items.findIndex((candidate) => candidate.id === item.id);
-      if (itemIndex === -1) items.push(item);
-      else items[itemIndex] = item;
-    }
+    const items = mergeTurnItems(existing.items, incoming.items);
     turns[index] = {
       ...existing,
       ...incoming,
@@ -321,12 +342,7 @@ export function mergeThreadDetails(current: ThreadDetail, incoming: ThreadDetail
       continue;
     }
     const existingTurn = merged.turns[index]!;
-    const items = [...existingTurn.items];
-    for (const item of incomingTurn.items) {
-      const itemIndex = items.findIndex((candidate) => candidate.id === item.id);
-      if (itemIndex === -1) items.push(item);
-      else items[itemIndex] = item;
-    }
+    const items = mergeTurnItems(existingTurn.items, incomingTurn.items);
     const turns = [...merged.turns];
     turns[index] = {
       ...existingTurn,
@@ -339,6 +355,36 @@ export function mergeThreadDetails(current: ThreadDetail, incoming: ThreadDetail
     merged = { ...merged, turns };
   }
   return merged;
+}
+
+/**
+ * Replace an app-server user item id with the id of the optimistic message
+ * already rendered by the upstream chat view. Later snapshots can continue
+ * using the server id; `mergeTurnItems` preserves this client-facing alias.
+ */
+export function aliasTurnUserMessage(
+  detail: ThreadDetail,
+  turnId: string,
+  serverMessageId: string,
+  clientMessageId: string,
+): ThreadDetail {
+  return {
+    ...detail,
+    turns: detail.turns.map((turn) => {
+      if (turn.id !== turnId) return turn;
+      const serverMessage = turn.items.find((item) => item.id === serverMessageId);
+      if (serverMessage?.type !== "userMessage") return turn;
+      const clientMessageIndex = turn.items.findIndex((item) => item.id === clientMessageId);
+      const items = turn.items.flatMap((item, index) => {
+        if (item.id === serverMessageId) {
+          return clientMessageIndex === -1 ? [{ ...item, id: clientMessageId }] : [];
+        }
+        if (index === clientMessageIndex) return [{ ...serverMessage, id: clientMessageId }];
+        return [item];
+      });
+      return { ...turn, items };
+    }),
+  };
 }
 
 export function upsertTimelineItem(

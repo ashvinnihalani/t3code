@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  aliasTurnUserMessage,
   appendAgentMessageDelta,
   mergeThreadDetails,
   projectModels,
@@ -89,6 +90,28 @@ describe("app-server presentation projection", () => {
       "tool-1",
       "agent-1",
     ]);
+  });
+
+  it("reconciles an optimistic user message with the app-server item across turn snapshots", () => {
+    const detail = projectThreadDetail(thread);
+    expect(detail).not.toBeNull();
+    if (detail === null) return;
+
+    const aliased = aliasTurnUserMessage(detail, "turn-1", "user-1", "optimistic-1");
+    const completed = upsertTurn(aliased, {
+      id: "turn-1",
+      status: "completed",
+      items: [
+        {
+          id: "user-1",
+          type: "userMessage",
+          content: [{ type: "text", text: "Build the desktop" }],
+        },
+        { id: "agent-1", type: "agentMessage", text: "Done" },
+      ],
+    });
+
+    expect(completed.turns[0]?.items.map((item) => item.id)).toEqual(["optimistic-1", "agent-1"]);
   });
 
   it("merges a late hydration snapshot with notifications already rendered", () => {

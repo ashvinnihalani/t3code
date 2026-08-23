@@ -31,10 +31,12 @@ import type {
 } from "@t3tools/contracts";
 
 import {
+  aliasTurnUserMessage,
   appendAgentMessageDelta,
   isRecord,
   mergeThreadDetails,
   projectModels,
+  projectTurn,
   projectThreadDetail,
   projectThreadSummary,
   upsertTimelineItem,
@@ -69,6 +71,28 @@ let nextDraftId = 0;
 let nextTerminalProcessId = 0;
 
 type Client = CodexClient.CodexAppServerClient["Service"];
+
+interface UserMessageAlias {
+  readonly serverMessageId: string;
+  readonly clientMessageId: string;
+}
+
+function userMessageAliasKey(threadId: string, turnId: string): string {
+  return JSON.stringify([threadId, turnId]);
+}
+
+function applyKnownUserMessageAliases(
+  detail: ThreadDetail,
+  aliases: ReadonlyMap<string, UserMessageAlias>,
+): ThreadDetail {
+  let current = detail;
+  for (const turn of detail.turns) {
+    const alias = aliases.get(userMessageAliasKey(detail.id, turn.id));
+    if (alias === undefined) continue;
+    current = aliasTurnUserMessage(current, turn.id, alias.serverMessageId, alias.clientMessageId);
+  }
+  return current;
+}
 
 export interface SettingsDraft {
   readonly id: string;
@@ -551,6 +575,7 @@ export function useAppServerController() {
   const clientsRef = useRef(new Map<string, Client>());
   const runtimesRef = useRef(new Map<string, EnvironmentRuntime>());
   const threadLoadsRef = useRef(new Map<string, Promise<ThreadDetail>>());
+  const userMessageAliasesRef = useRef(new Map<string, UserMessageAlias>());
   const environmentStatesRef = useRef(environmentStates);
   environmentStatesRef.current = environmentStates;
   const selectionRef = useRef({ environmentId: selectedEnvironmentId, threadId: selectedThreadId });
@@ -994,7 +1019,12 @@ export function useAppServerController() {
               const selected = selectionRef.current;
               if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
               setThread((current) =>
-                current?.id === threadId ? upsertTurn(current, turn) : current,
+                current?.id === threadId
+                  ? applyKnownUserMessageAliases(
+                      upsertTurn(current, turn),
+                      userMessageAliasesRef.current,
+                    )
+                  : current,
               );
             }),
           );
@@ -1003,7 +1033,12 @@ export function useAppServerController() {
               const selected = selectionRef.current;
               if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
               setThread((current) =>
-                current?.id === threadId ? upsertTurn(current, turn) : current,
+                current?.id === threadId
+                  ? applyKnownUserMessageAliases(
+                      upsertTurn(current, turn),
+                      userMessageAliasesRef.current,
+                    )
+                  : current,
               );
             }),
           );
@@ -1012,7 +1047,12 @@ export function useAppServerController() {
               const selected = selectionRef.current;
               if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
               setThread((current) =>
-                current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
+                current?.id === threadId
+                  ? applyKnownUserMessageAliases(
+                      upsertTimelineItem(current, turnId, item),
+                      userMessageAliasesRef.current,
+                    )
+                  : current,
               );
             }),
           );
@@ -1021,7 +1061,12 @@ export function useAppServerController() {
               const selected = selectionRef.current;
               if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
               setThread((current) =>
-                current?.id === threadId ? upsertTimelineItem(current, turnId, item) : current,
+                current?.id === threadId
+                  ? applyKnownUserMessageAliases(
+                      upsertTimelineItem(current, turnId, item),
+                      userMessageAliasesRef.current,
+                    )
+                  : current,
               );
             }),
           );
@@ -1214,7 +1259,10 @@ export function useAppServerController() {
       const selected = selectionRef.current;
       if (selected.environmentId !== environmentId || selected.threadId !== threadId) return;
       setThread((current) =>
-        current?.id === projected.id ? mergeThreadDetails(current, projected) : projected,
+        applyKnownUserMessageAliases(
+          current?.id === projected.id ? mergeThreadDetails(current, projected) : projected,
+          userMessageAliasesRef.current,
+        ),
       );
       setThreadEnvironmentId(environmentId);
     } catch (error) {
@@ -1755,7 +1803,7 @@ export function useAppServerController() {
   ]);
 
   const startThread = useCallback(
-    async (prompt: string, options: ComposerOptions) => {
+    async (prompt: string, options: ComposerOptions, clientMessageId?: string) => {
       if (selectedEnvironmentId === null || prompt.trim().length === 0) return null;
       const client = clientsRef.current.get(selectedEnvironmentId);
       const profile = environmentStates[selectedEnvironmentId]?.profile;
@@ -1788,7 +1836,24 @@ export function useAppServerController() {
             ...turnAccessOverrides(options.access),
           }),
         );
-        setThread((current) => (current ? upsertTurn(current, response.turn) : current));
+        const projectedTurn = projectTurn(response.turn);
+        const serverMessageId = projectedTurn?.items.find(
+          (item) => item.type === "userMessage",
+        )?.id;
+        if (clientMessageId && serverMessageId) {
+          userMessageAliasesRef.current.set(userMessageAliasKey(projected.id, response.turn.id), {
+            serverMessageId,
+            clientMessageId,
+          });
+        }
+        setThread((current) =>
+          current
+            ? applyKnownUserMessageAliases(
+                upsertTurn(current, response.turn),
+                userMessageAliasesRef.current,
+              )
+            : current,
+        );
         return projected.id;
       } catch (error) {
         setActionError(errorMessage(error));
@@ -1801,7 +1866,7 @@ export function useAppServerController() {
   );
 
   const sendTurn = useCallback(
-    async (prompt: string, options: ComposerOptions) => {
+    async (prompt: string, options: ComposerOptions, clientMessageId?: string) => {
       if (selectedEnvironmentId === null || thread === null || prompt.trim().length === 0) return;
       const client = clientsRef.current.get(selectedEnvironmentId);
       if (client === undefined) return;
@@ -1827,7 +1892,24 @@ export function useAppServerController() {
               ...turnAccessOverrides(options.access),
             }),
           );
-          setThread((current) => (current ? upsertTurn(current, response.turn) : current));
+          const projectedTurn = projectTurn(response.turn);
+          const serverMessageId = projectedTurn?.items.find(
+            (item) => item.type === "userMessage",
+          )?.id;
+          if (clientMessageId && serverMessageId) {
+            userMessageAliasesRef.current.set(userMessageAliasKey(thread.id, response.turn.id), {
+              serverMessageId,
+              clientMessageId,
+            });
+          }
+          setThread((current) =>
+            current
+              ? applyKnownUserMessageAliases(
+                  upsertTurn(current, response.turn),
+                  userMessageAliasesRef.current,
+                )
+              : current,
+          );
         }
       } catch (error) {
         setActionError(errorMessage(error));

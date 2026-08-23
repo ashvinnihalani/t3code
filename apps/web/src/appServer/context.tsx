@@ -205,6 +205,10 @@ export async function runAppServerCommand(
         return unsupported(label);
       }
       const text = typeof message.text === "string" ? message.text : "";
+      const clientMessageId =
+        "messageId" in message && typeof message.messageId === "string"
+          ? message.messageId
+          : undefined;
       const modelSelection = input.modelSelection;
       const selection =
         typeof modelSelection === "object" && modelSelection !== null
@@ -231,8 +235,8 @@ export async function runAppServerCommand(
       } as const;
       const started =
         input.bootstrap && threadId !== null
-          ? await controller.startThread(text, options)
-          : (await controller.sendTurn(text, options), threadId);
+          ? await controller.startThread(text, options, clientMessageId)
+          : (await controller.sendTurn(text, options, clientMessageId), threadId);
       return started === null ? unsupported(label) : success();
     }
     case "environment-data:commands:thread:interrupt-turn":
