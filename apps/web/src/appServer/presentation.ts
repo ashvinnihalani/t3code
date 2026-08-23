@@ -15,6 +15,7 @@ export interface TimelineItem {
   readonly title: string | null;
   readonly detail: string | null;
   readonly status: string | null;
+  readonly startedAtMs?: number;
 }
 
 export interface ThreadTurn {
@@ -68,6 +69,11 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timestampMilliseconds(value: number | null): number | null {
+  if (value === null) return null;
+  return value > 0 && value < 10_000_000_000 ? value * 1_000 : value;
 }
 
 function threadStatus(value: unknown): ThreadSummary["status"] {
@@ -226,15 +232,21 @@ export function projectTurn(value: unknown): ThreadTurn | null {
     rawStatus === "completed" || rawStatus === "interrupted" || rawStatus === "failed"
       ? rawStatus
       : "inProgress";
+  const startedAt = numberValue(value.startedAt);
+  const startedAtMs = timestampMilliseconds(startedAt);
   const items = Array.isArray(value.items)
-    ? value.items.map(projectTimelineItem).filter((item): item is TimelineItem => item !== null)
+    ? value.items.flatMap((rawItem, index) => {
+        const item = projectTimelineItem(rawItem);
+        if (item === null) return [];
+        return [startedAtMs === null ? item : { ...item, startedAtMs: startedAtMs + index }];
+      })
     : [];
   const rawError = value.error;
   return {
     id,
     status,
     items,
-    startedAt: numberValue(value.startedAt),
+    startedAt,
     completedAt: numberValue(value.completedAt),
     error: isRecord(rawError) ? stringValue(rawError.message) : stringValue(rawError),
   };
@@ -357,10 +369,20 @@ function mergeTurnItems(
         continue;
       }
     }
-    if (itemIndex === -1) items.push(item);
-    else items[itemIndex] = item;
+    if (itemIndex === -1) {
+      items.push(item);
+    } else {
+      const existingStartedAtMs = items[itemIndex]?.startedAtMs;
+      items[itemIndex] =
+        existingStartedAtMs === undefined ? item : { ...item, startedAtMs: existingStartedAtMs };
+    }
   }
-  return items;
+  return items.toSorted((left, right) => {
+    if (left.startedAtMs === undefined && right.startedAtMs === undefined) return 0;
+    if (left.startedAtMs === undefined) return 1;
+    if (right.startedAtMs === undefined) return -1;
+    return left.startedAtMs - right.startedAtMs;
+  });
 }
 
 export function upsertTurn(detail: ThreadDetail, value: unknown): ThreadDetail {
@@ -443,15 +465,24 @@ export function upsertTimelineItem(
   detail: ThreadDetail,
   turnId: string,
   value: unknown,
+  timing: { readonly startedAtMs?: number; readonly completedAtMs?: number } = {},
 ): ThreadDetail {
-  const item = projectTimelineItem(value);
-  if (item === null) return detail;
+  const projected = projectTimelineItem(value);
+  if (projected === null) return detail;
   return {
     ...detail,
     turns: detail.turns.map((turn) => {
       if (turn.id !== turnId) return turn;
-      const index = turn.items.findIndex((candidate) => candidate.id === item.id);
+      const index = turn.items.findIndex((candidate) => candidate.id === projected.id);
       const items = [...turn.items];
+      const existingStartedAtMs = index === -1 ? undefined : items[index]?.startedAtMs;
+      const turnStartedAtMs = timestampMilliseconds(turn.startedAt);
+      const startedAtMs =
+        timing.startedAtMs ??
+        existingStartedAtMs ??
+        timing.completedAtMs ??
+        (turnStartedAtMs === null ? undefined : turnStartedAtMs + Math.max(index, items.length));
+      const item = startedAtMs === undefined ? projected : { ...projected, startedAtMs };
       if (index === -1) items.push(item);
       else items[index] = item;
       return { ...turn, items };
@@ -470,6 +501,7 @@ export function appendAgentMessageDelta(
     turns: detail.turns.map((turn) => {
       if (turn.id !== turnId) return turn;
       const index = turn.items.findIndex((item) => item.id === itemId);
+      const turnStartedAtMs = timestampMilliseconds(turn.startedAt);
       if (index === -1) {
         return {
           ...turn,
@@ -482,6 +514,9 @@ export function appendAgentMessageDelta(
               title: null,
               detail: null,
               status: null,
+              ...(turnStartedAtMs === null
+                ? {}
+                : { startedAtMs: turnStartedAtMs + turn.items.length }),
             },
           ],
         };

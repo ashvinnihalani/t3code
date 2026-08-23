@@ -38,8 +38,12 @@ const CODEX_INSTANCE_ID = ProviderInstanceId.make("codex");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 
 function isoTimestamp(value: number): string {
+  return new Date(timestampMilliseconds(value)).toISOString();
+}
+
+function timestampMilliseconds(value: number): number {
   const milliseconds = value > 0 && value < 10_000_000_000 ? value * 1_000 : value;
-  return new Date(milliseconds > 0 ? milliseconds : Date.now()).toISOString();
+  return milliseconds > 0 ? milliseconds : Date.now();
 }
 
 function hashWorkspace(value: string): string {
@@ -361,6 +365,7 @@ function messageFromItem(
   turn: ThreadTurn,
   item: TimelineItem,
   index: number,
+  createdAt: string,
 ): OrchestrationMessage | null {
   const role =
     item.type === "userMessage"
@@ -369,7 +374,6 @@ function messageFromItem(
         ? "assistant"
         : null;
   if (role === null) return null;
-  const timestamp = isoTimestamp(turn.startedAt ?? 0);
   return {
     id: MessageId.make(item.id || `${turn.id}-message-${String(index)}`),
     role,
@@ -377,7 +381,7 @@ function messageFromItem(
     attachments: [],
     turnId: TurnId.make(turn.id),
     streaming: role === "assistant" && turn.status === "inProgress",
-    createdAt: timestamp,
+    createdAt,
     updatedAt: isoTimestamp(turn.completedAt ?? turn.startedAt ?? 0),
   };
 }
@@ -386,6 +390,7 @@ function activityFromItem(
   turn: ThreadTurn,
   item: TimelineItem,
   index: number,
+  createdAt: string,
 ): OrchestrationThreadActivity | null {
   if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") {
     return null;
@@ -397,8 +402,21 @@ function activityFromItem(
     summary: item.title || item.detail || item.type,
     payload: { text: item.text, detail: item.detail, status: item.status },
     turnId: TurnId.make(turn.id),
-    createdAt: isoTimestamp(turn.startedAt ?? 0),
+    createdAt,
   };
+}
+
+function orderedTurnItems(turn: ThreadTurn, threadCreatedAt: number) {
+  const turnStartedAtMs = timestampMilliseconds(turn.startedAt ?? threadCreatedAt);
+  let previousStartedAtMs = turnStartedAtMs - 1;
+  return turn.items.map((item, index) => {
+    const startedAtMs = Math.max(
+      item.startedAtMs ?? turnStartedAtMs + index,
+      previousStartedAtMs + 1,
+    );
+    previousStartedAtMs = startedAtMs;
+    return { turn, item, index, createdAt: isoTimestamp(startedAtMs) };
+  });
 }
 
 export function toEnvironmentThread(
@@ -407,18 +425,15 @@ export function toEnvironmentThread(
   detail: ThreadDetail,
 ): EnvironmentThread {
   const shell = toEnvironmentThreadShell(controller, connectionId, detail);
-  const messages = detail.turns.flatMap((turn) =>
-    turn.items.flatMap((item, index) => {
-      const message = messageFromItem(turn, item, index);
-      return message === null ? [] : [message];
-    }),
-  );
-  const timelineActivities = detail.turns.flatMap((turn) =>
-    turn.items.flatMap((item, index) => {
-      const activity = activityFromItem(turn, item, index);
-      return activity === null ? [] : [activity];
-    }),
-  );
+  const orderedItems = detail.turns.flatMap((turn) => orderedTurnItems(turn, detail.createdAt));
+  const messages = orderedItems.flatMap(({ turn, item, index, createdAt }) => {
+    const message = messageFromItem(turn, item, index, createdAt);
+    return message === null ? [] : [message];
+  });
+  const timelineActivities = orderedItems.flatMap(({ turn, item, index, createdAt }) => {
+    const activity = activityFromItem(turn, item, index, createdAt);
+    return activity === null ? [] : [activity];
+  });
   const approval =
     controller.pendingApproval?.environmentId === connectionId &&
     controller.pendingApproval.threadId === detail.id

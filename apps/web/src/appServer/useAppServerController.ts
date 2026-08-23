@@ -1065,33 +1065,37 @@ export function useAppServerController() {
               );
             }),
           );
-          yield* client.handleServerNotification("item/started", ({ item, threadId, turnId }) =>
-            Effect.sync(() => {
-              const selected = selectionRef.current;
-              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
-              setThread((current) =>
-                current?.id === threadId
-                  ? applyKnownUserMessageAliases(
-                      upsertTimelineItem(current, turnId, item),
-                      userMessageAliasesRef.current,
-                    )
-                  : current,
-              );
-            }),
+          yield* client.handleServerNotification(
+            "item/started",
+            ({ item, startedAtMs, threadId, turnId }) =>
+              Effect.sync(() => {
+                const selected = selectionRef.current;
+                if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+                setThread((current) =>
+                  current?.id === threadId
+                    ? applyKnownUserMessageAliases(
+                        upsertTimelineItem(current, turnId, item, { startedAtMs }),
+                        userMessageAliasesRef.current,
+                      )
+                    : current,
+                );
+              }),
           );
-          yield* client.handleServerNotification("item/completed", ({ item, threadId, turnId }) =>
-            Effect.sync(() => {
-              const selected = selectionRef.current;
-              if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
-              setThread((current) =>
-                current?.id === threadId
-                  ? applyKnownUserMessageAliases(
-                      upsertTimelineItem(current, turnId, item),
-                      userMessageAliasesRef.current,
-                    )
-                  : current,
-              );
-            }),
+          yield* client.handleServerNotification(
+            "item/completed",
+            ({ completedAtMs, item, threadId, turnId }) =>
+              Effect.sync(() => {
+                const selected = selectionRef.current;
+                if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+                setThread((current) =>
+                  current?.id === threadId
+                    ? applyKnownUserMessageAliases(
+                        upsertTimelineItem(current, turnId, item, { completedAtMs }),
+                        userMessageAliasesRef.current,
+                      )
+                    : current,
+                );
+              }),
           );
           yield* client.handleServerNotification(
             "item/agentMessage/delta",

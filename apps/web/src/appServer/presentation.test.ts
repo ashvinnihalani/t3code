@@ -63,6 +63,137 @@ describe("app-server presentation projection", () => {
     expect(streamed.turns[0]?.items[1]?.text).toBe("Starting now");
   });
 
+  it("preserves an item's start time when its completed lifecycle update arrives", () => {
+    const detail = projectThreadDetail(thread);
+    expect(detail).not.toBeNull();
+    if (detail === null) return;
+
+    const started = upsertTimelineItem(
+      detail,
+      "turn-1",
+      {
+        id: "tool-1",
+        type: "commandExecution",
+        command: "git status",
+        status: "inProgress",
+      },
+      { startedAtMs: 1_700_000_001_000 },
+    );
+    const completed = upsertTimelineItem(
+      started,
+      "turn-1",
+      {
+        id: "tool-1",
+        type: "commandExecution",
+        command: "git status",
+        status: "completed",
+      },
+      { completedAtMs: 1_700_000_002_000 },
+    );
+
+    expect(completed.turns[0]?.items[1]).toMatchObject({
+      id: "tool-1",
+      status: "completed",
+      startedAtMs: 1_700_000_001_000,
+    });
+  });
+
+  it("derives stable item timing from cached turn order", () => {
+    const detail = projectThreadDetail({
+      ...thread,
+      turns: [
+        {
+          id: "turn-1",
+          status: "completed",
+          startedAt: 1_700_000_000,
+          items: [
+            {
+              id: "user-1",
+              type: "userMessage",
+              content: [{ type: "text", text: "Build the desktop" }],
+            },
+            { id: "reasoning-1", type: "reasoning", summary: ["Checking files"] },
+            {
+              id: "tool-1",
+              type: "commandExecution",
+              command: "git status",
+              status: "completed",
+            },
+            { id: "agent-1", type: "agentMessage", text: "I found the issue." },
+          ],
+        },
+      ],
+    });
+
+    expect(detail?.turns[0]?.items.map((item) => item.startedAtMs)).toEqual([
+      1_700_000_000_000, 1_700_000_000_001, 1_700_000_000_002, 1_700_000_000_003,
+    ]);
+  });
+
+  it("restores cached chronology around items that arrived before hydration", () => {
+    const current = projectThreadDetail({
+      ...thread,
+      turns: [
+        {
+          id: "turn-1",
+          status: "inProgress",
+          startedAt: 1_700_000_000,
+          items: [
+            {
+              id: "user-1",
+              type: "userMessage",
+              content: [{ type: "text", text: "Build the desktop" }],
+            },
+          ],
+        },
+      ],
+    });
+    const hydration = projectThreadDetail({
+      ...thread,
+      turns: [
+        {
+          id: "turn-1",
+          status: "inProgress",
+          startedAt: 1_700_000_000,
+          items: [
+            {
+              id: "user-1",
+              type: "userMessage",
+              content: [{ type: "text", text: "Build the desktop" }],
+            },
+            { id: "reasoning-1", type: "reasoning", summary: ["Checking files"] },
+            {
+              id: "tool-1",
+              type: "commandExecution",
+              command: "git status",
+              status: "completed",
+            },
+            { id: "agent-1", type: "agentMessage", text: "I found the issue." },
+          ],
+        },
+      ],
+    });
+    expect(current).not.toBeNull();
+    expect(hydration).not.toBeNull();
+    if (current === null || hydration === null) return;
+
+    const withLateTool = upsertTimelineItem(
+      current,
+      "turn-1",
+      {
+        id: "tool-late",
+        type: "commandExecution",
+        command: "git diff",
+        status: "completed",
+      },
+      { startedAtMs: 1_700_000_000_004 },
+    );
+
+    expect(
+      mergeThreadDetails(withLateTool, hydration).turns[0]?.items.map((item) => item.id),
+    ).toEqual(["user-1", "reasoning-1", "tool-1", "agent-1", "tool-late"]);
+  });
+
   it("keeps prior messages and tool items when a completed turn snapshot is sparse", () => {
     const detail = projectThreadDetail(thread);
     expect(detail).not.toBeNull();

@@ -7,6 +7,7 @@ import {
   resolveSelectableProviderInstanceEntry,
 } from "../providerInstances";
 import type { AppServerController } from "./context";
+import { projectThreadDetail } from "./presentation";
 import {
   isNewAppServerThreadSelection,
   toEnvironmentProject,
@@ -150,6 +151,71 @@ describe("upstream app-server adapter", () => {
           detail: "Needs access",
         },
       },
+    ]);
+  });
+
+  it("keeps tool calls interleaved with assistant messages", () => {
+    const detail = projectThreadDetail({
+      id: "thread-1",
+      cwd: "/workspace",
+      name: "Ordered turn",
+      preview: "",
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_010,
+      status: { type: "idle" },
+      turns: [
+        {
+          id: "turn-1",
+          status: "completed",
+          startedAt: 1_700_000_000,
+          completedAt: 1_700_000_010,
+          items: [
+            { id: "user-1", type: "userMessage", content: [{ type: "text", text: "Go" }] },
+            { id: "reasoning-1", type: "reasoning", summary: ["Thinking"] },
+            {
+              id: "tool-1",
+              type: "commandExecution",
+              command: "first",
+              status: "completed",
+            },
+            { id: "commentary-1", type: "agentMessage", text: "Halfway there." },
+            {
+              id: "tool-2",
+              type: "commandExecution",
+              command: "second",
+              status: "completed",
+            },
+            { id: "final-1", type: "agentMessage", text: "Done." },
+          ],
+        },
+      ],
+    });
+    expect(detail).not.toBeNull();
+    if (detail === null) return;
+
+    const base = controller();
+    const projected = toEnvironmentThread(
+      { ...base, pendingApproval: null } as AppServerController,
+      "local",
+      detail,
+    );
+    const renderedOrder = [
+      ...projected.messages.map((message) => ({ id: message.id, createdAt: message.createdAt })),
+      ...projected.activities.map((activity) => ({
+        id: activity.id,
+        createdAt: activity.createdAt,
+      })),
+    ]
+      .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((entry) => entry.id);
+
+    expect(renderedOrder).toEqual([
+      "user-1",
+      "reasoning-1",
+      "tool-1",
+      "commentary-1",
+      "tool-2",
+      "final-1",
     ]);
   });
 
