@@ -5,6 +5,7 @@ import {
   type EnvironmentPresentation as BaseEnvironmentPresentation,
 } from "@t3tools/client-runtime/connection";
 import { Discovery } from "@t3tools/client-runtime/relay";
+import type { AppServerDesktopSettings } from "effect-codex-app-server/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useMemo } from "react";
@@ -38,6 +39,15 @@ export interface EnvironmentPresentation extends BaseEnvironmentPresentation {
   readonly label: string;
   readonly displayUrl: string | null;
   readonly relayManaged: boolean;
+}
+
+export function directPrimaryEnvironmentId(
+  settings: AppServerDesktopSettings | null,
+): EnvironmentId | null {
+  const profile =
+    settings?.connections.find((candidate) => candidate.connection.kind === "local") ??
+    settings?.connections[0];
+  return profile === undefined ? null : environmentIdFor(profile.id);
 }
 
 function projectEnvironmentPresentation(
@@ -116,9 +126,7 @@ export function usePrimaryEnvironmentId(): EnvironmentId | null {
   const environmentId = useAtomValue(
     appServer === null ? primaryEnvironmentIdAtom : EMPTY_ENVIRONMENT_ID_ATOM,
   );
-  return appServer?.selectedEnvironmentId
-    ? environmentIdFor(appServer.selectedEnvironmentId)
-    : environmentId;
+  return appServer === null ? environmentId : directPrimaryEnvironmentId(appServer.settings);
 }
 
 export function useEnvironment(

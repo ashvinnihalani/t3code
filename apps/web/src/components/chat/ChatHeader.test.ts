@@ -36,6 +36,17 @@ describe("shouldShowOpenInPicker", () => {
     ).toBe(false);
   });
 
+  it("keeps the picker for direct app-server SSH environments", () => {
+    expect(
+      shouldShowOpenInPicker({
+        activeProjectName: "codething-mvp",
+        activeThreadEnvironmentId: EnvironmentId.make("environment-remote"),
+        primaryEnvironmentId,
+        allowRemoteEnvironment: true,
+      }),
+    ).toBe(true);
+  });
+
   it("hides the picker when there is no active project", () => {
     expect(
       shouldShowOpenInPicker({

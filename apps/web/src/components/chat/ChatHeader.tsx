@@ -25,6 +25,7 @@ import { toastManager } from "../ui/toast";
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
+import { useOptionalAppServerController } from "../../appServer/context";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -71,11 +72,13 @@ export function shouldShowOpenInPicker(input: {
   readonly activeProjectName: string | undefined;
   readonly activeThreadEnvironmentId: EnvironmentId;
   readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly allowRemoteEnvironment?: boolean;
 }): boolean {
   return (
     Boolean(input.activeProjectName) &&
     input.primaryEnvironmentId !== null &&
-    input.activeThreadEnvironmentId === input.primaryEnvironmentId
+    (input.activeThreadEnvironmentId === input.primaryEnvironmentId ||
+      input.allowRemoteEnvironment === true)
   );
 }
 
@@ -94,11 +97,13 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   onNewThreadInProject,
 }: ChatHeaderProps) {
+  const appServer = useOptionalAppServerController();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const showOpenInPicker = shouldShowOpenInPicker({
     activeProjectName,
     activeThreadEnvironmentId,
     primaryEnvironmentId,
+    allowRemoteEnvironment: appServer !== null,
   });
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
