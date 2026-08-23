@@ -49,6 +49,14 @@ describe("app-server presentation projection", () => {
     expect(projectThreadDetail(thread)?.turns[0]?.items[0]?.text).toBe("Build the desktop");
   });
 
+  it.each([
+    ["ephemeral", { ephemeral: true }],
+    ["child", { parentThreadId: "parent-1" }],
+    ["sub-agent", { source: { subAgent: "review" } }],
+  ])("excludes %s app-server threads from the user-visible thread list", (_label, fields) => {
+    expect(projectThreadSummary({ ...thread, id: "internal-1", ...fields })).toBeNull();
+  });
+
   it("merges item lifecycle notifications and streaming deltas", () => {
     const detail = projectThreadDetail(thread);
     expect(detail).not.toBeNull();

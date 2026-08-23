@@ -91,6 +91,13 @@ function threadStatus(value: unknown): ThreadSummary["status"] {
 
 export function projectThreadSummary(value: unknown): ThreadSummary | null {
   if (!isRecord(value)) return null;
+  if (
+    value.ephemeral === true ||
+    typeof value.parentThreadId === "string" ||
+    (isRecord(value.source) && "subAgent" in value.source)
+  ) {
+    return null;
+  }
   const id = stringValue(value.id);
   const cwd = stringValue(value.cwd);
   if (id === null || cwd === null) return null;
