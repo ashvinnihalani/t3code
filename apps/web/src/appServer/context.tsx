@@ -6,15 +6,14 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import type { RuntimeMode } from "@t3tools/contracts";
 import { projectIdForWorkspace } from "./upstreamAdapter";
 import { useAppServerController } from "./useAppServerController";
+import { isDirectAppServerDesktop } from "./mode";
+
+export { isDirectAppServerDesktop } from "./mode";
 
 export type AppServerController = ReturnType<typeof useAppServerController>;
 
 const AppServerControllerContext = createContext<AppServerController | null>(null);
 let activeController: AppServerController | null = null;
-
-export function isDirectAppServerDesktop(): boolean {
-  return typeof window !== "undefined" && window.desktopBridge?.connectAppServer !== undefined;
-}
 
 function ActiveAppServerProvider({ children }: PropsWithChildren) {
   const controller = useAppServerController();

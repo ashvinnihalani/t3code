@@ -11,7 +11,12 @@ import {
   readThreadPreviewState,
   reconcilePreviewServerSessions,
 } from "~/previewStateStore";
+import { isDirectAppServerDesktop } from "~/appServer/mode";
 import { previewEnvironment } from "~/state/preview";
+
+const EMPTY_PREVIEW_SESSION_SYNC_ATOM = Atom.make(undefined).pipe(
+  Atom.withLabel("preview:session-sync:direct-empty"),
+);
 
 class PreviewSessionThreadKeyParseError extends Schema.TaggedErrorClass<PreviewSessionThreadKeyParseError>()(
   "PreviewSessionThreadKeyParseError",
@@ -79,5 +84,9 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
 });
 
 export function usePreviewSession(threadRef: ScopedThreadRef): void {
-  useAtomValue(previewSessionSyncAtom(scopedThreadKey(threadRef)));
+  useAtomValue(
+    isDirectAppServerDesktop()
+      ? EMPTY_PREVIEW_SESSION_SYNC_ATOM
+      : previewSessionSyncAtom(scopedThreadKey(threadRef)),
+  );
 }

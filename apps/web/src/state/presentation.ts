@@ -6,6 +6,7 @@ import { Atom } from "effect/unstable/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { serverEnvironment } from "./server";
+import { useOptionalAppServerController } from "../appServer/context";
 
 export const environmentPresentations = createEnvironmentPresentationAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
@@ -16,16 +17,23 @@ export const environmentPresentations = createEnvironmentPresentationAtoms({
 const EMPTY_ENVIRONMENT_PRESENTATION_ATOM = Atom.make<EnvironmentPresentation | null>(null).pipe(
   Atom.withLabel("web-environment-presentation:empty"),
 );
+const EMPTY_ENVIRONMENT_CATALOG_ATOM = Atom.make({
+  isReady: false,
+  entries: new Map<EnvironmentId, never>(),
+}).pipe(Atom.withLabel("web-environment-catalog:direct-empty"));
 
 export function useEnvironmentPresentation(environmentId: EnvironmentId | null) {
-  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
+  const appServer = useOptionalAppServerController();
+  const catalog = useAtomValue(
+    appServer === null ? environmentCatalog.catalogValueAtom : EMPTY_ENVIRONMENT_CATALOG_ATOM,
+  );
   const presentation = useAtomValue(
-    environmentId === null
+    appServer !== null || environmentId === null
       ? EMPTY_ENVIRONMENT_PRESENTATION_ATOM
       : environmentPresentations.presentationAtom(environmentId),
   );
   return {
-    isReady: catalog.isReady,
+    isReady: appServer !== null || catalog.isReady,
     presentation,
   };
 }

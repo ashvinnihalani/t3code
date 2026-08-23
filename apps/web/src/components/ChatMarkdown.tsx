@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -77,8 +76,7 @@ import {
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
-import { useActiveEnvironmentId } from "../state/entities";
-import { serverEnvironment } from "../state/server";
+import { useActiveEnvironmentId, useServerConfigs } from "../state/entities";
 import { assetEnvironment } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { previewEnvironment } from "../state/preview";
@@ -1271,7 +1269,8 @@ function ChatMarkdown({
   });
   const preparedConnection = usePreparedConnection(threadRef?.environmentId ?? null);
   const environmentId = useActiveEnvironmentId();
-  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const serverConfigs = useServerConfigs();
+  const serverConfig = environmentId === null ? null : serverConfigs.get(environmentId);
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
     serverConfig?.availableEditors ?? [],

@@ -66,7 +66,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useServerConfigs, useThreadShells } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -466,9 +466,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
   const selectedCheckout =
     group.memberProjects.find((member) => member.physicalProjectKey === selectedCheckoutKey) ??
     representative;
-  const selectedServerConfig = useAtomValue(
-    serverEnvironment.configValueAtom(selectedCheckout.environmentId),
-  );
+  const selectedServerConfig = useServerConfigs().get(selectedCheckout.environmentId);
   const keybindings = selectedServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const scripts = selectedCheckout.scripts;
   const [editorRequest, setEditorRequest] = useState<ProjectScriptEditorRequest | null>(null);

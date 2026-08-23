@@ -35,10 +35,13 @@ import {
   toEnvironmentProject,
   toEnvironmentThread,
   toEnvironmentThreadShell,
+  toServerConfig,
 } from "../appServer/upstreamAdapter";
 
 const EMPTY_PROJECT_REFS: ReadonlyArray<ScopedProjectRef> = Object.freeze([]);
 const EMPTY_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
+const EMPTY_PROJECTS: ReadonlyArray<EnvironmentProject> = Object.freeze([]);
+const EMPTY_THREADS: ReadonlyArray<EnvironmentThreadShell> = Object.freeze([]);
 const EMPTY_MESSAGES: ReadonlyArray<OrchestrationMessage> = Object.freeze([]);
 const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = Object.freeze([]);
 const EMPTY_PROPOSED_PLANS: ReadonlyArray<OrchestrationProposedPlan> = Object.freeze([]);
@@ -49,6 +52,14 @@ const EMPTY_PROJECT_ATOM = Atom.make<EnvironmentProject | null>(null).pipe(
 const EMPTY_PROJECT_REFS_ATOM = Atom.make(EMPTY_PROJECT_REFS).pipe(
   Atom.withLabel("web-project-refs:empty"),
 );
+const EMPTY_PROJECTS_ATOM = Atom.make(EMPTY_PROJECTS).pipe(Atom.withLabel("web-projects:empty"));
+const EMPTY_THREADS_ATOM = Atom.make(EMPTY_THREADS).pipe(Atom.withLabel("web-threads:empty"));
+const EMPTY_BOOTSTRAPPED_ATOM = Atom.make(false).pipe(
+  Atom.withLabel("web-environments-bootstrapped:empty"),
+);
+const EMPTY_SERVER_CONFIGS_ATOM = Atom.make<ReadonlyMap<EnvironmentId, ServerConfig>>(
+  new Map(),
+).pipe(Atom.withLabel("web-server-configs:empty"));
 const EMPTY_THREAD_REFS_ATOM = Atom.make(EMPTY_THREAD_REFS).pipe(
   Atom.withLabel("web-thread-refs:empty"),
 );
@@ -99,7 +110,9 @@ export function setActiveEnvironmentId(environmentId: EnvironmentId | null): voi
 
 export function useProjectRefs(): ReadonlyArray<ScopedProjectRef> {
   const appServer = useOptionalAppServerController();
-  const refs = useAtomValue(environmentProjects.projectRefsAtom);
+  const refs = useAtomValue(
+    appServer === null ? environmentProjects.projectRefsAtom : EMPTY_PROJECT_REFS_ATOM,
+  );
   return useMemo(
     () =>
       appServer === null
@@ -114,7 +127,9 @@ export function useProjectRefs(): ReadonlyArray<ScopedProjectRef> {
 
 export function useThreadRefs(): ReadonlyArray<ScopedThreadRef> {
   const appServer = useOptionalAppServerController();
-  const refs = useAtomValue(environmentThreadShells.threadRefsAtom);
+  const refs = useAtomValue(
+    appServer === null ? environmentThreadShells.threadRefsAtom : EMPTY_THREAD_REFS_ATOM,
+  );
   return useMemo(
     () =>
       appServer === null
@@ -134,7 +149,7 @@ export function useEnvironmentProjectRefs(
 ): ReadonlyArray<ScopedProjectRef> {
   const appServer = useOptionalAppServerController();
   const refs = useAtomValue(
-    environmentId === null
+    appServer !== null || environmentId === null
       ? EMPTY_PROJECT_REFS_ATOM
       : environmentProjects.environmentProjectRefsAtom(environmentId),
   );
@@ -157,7 +172,7 @@ export function useEnvironmentThreadRefs(
 ): ReadonlyArray<ScopedThreadRef> {
   const appServer = useOptionalAppServerController();
   const refs = useAtomValue(
-    environmentId === null
+    appServer !== null || environmentId === null
       ? EMPTY_THREAD_REFS_ATOM
       : environmentThreadShells.environmentThreadRefsAtom(environmentId),
   );
@@ -179,7 +194,9 @@ export function useEnvironmentThreadRefs(
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
   const appServer = useOptionalAppServerController();
-  const projects = useAtomValue(environmentProjects.projectsAtom);
+  const projects = useAtomValue(
+    appServer === null ? environmentProjects.projectsAtom : EMPTY_PROJECTS_ATOM,
+  );
   return useMemo(
     () => (appServer === null ? projects : appServer.projects.map(toEnvironmentProject)),
     [appServer, projects],
@@ -187,12 +204,29 @@ export function useProjects(): ReadonlyArray<EnvironmentProject> {
 }
 
 export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
-  return useAtomValue(environmentServerConfigsAtom);
+  const appServer = useOptionalAppServerController();
+  const configs = useAtomValue(
+    appServer === null ? environmentServerConfigsAtom : EMPTY_SERVER_CONFIGS_ATOM,
+  );
+  return useMemo(
+    () =>
+      appServer === null
+        ? configs
+        : new Map(
+            appServer.environments.map((environment) => [
+              environmentIdFor(environment.profile.id),
+              toServerConfig(appServer, environment.profile.id),
+            ]),
+          ),
+    [appServer, configs],
+  );
 }
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   const appServer = useOptionalAppServerController();
-  const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
+  const threads = useAtomValue(
+    appServer === null ? environmentThreadShells.threadShellsAtom : EMPTY_THREADS_ATOM,
+  );
   return useMemo(
     () =>
       appServer === null
@@ -208,7 +242,9 @@ export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
 
 export function useAllEnvironmentShellsBootstrapped(): boolean {
   const appServer = useOptionalAppServerController();
-  const bootstrapped = useAtomValue(allEnvironmentShellsBootstrappedAtom);
+  const bootstrapped = useAtomValue(
+    appServer === null ? allEnvironmentShellsBootstrappedAtom : EMPTY_BOOTSTRAPPED_ATOM,
+  );
   return appServer === null ? bootstrapped : appServer.settings !== null;
 }
 
@@ -216,7 +252,11 @@ export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
   const appServer = useOptionalAppServerController();
-  const threads = useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+  const threads = useAtomValue(
+    appServer === null
+      ? environmentThreadShells.threadShellsForProjectRefsAtom(refs)
+      : EMPTY_THREADS_ATOM,
+  );
   return useMemo(() => {
     if (appServer === null) return threads;
     const keys = new Set(refs.map((ref) => `${ref.environmentId}:${ref.projectId}`));
@@ -234,7 +274,7 @@ export function useThreadShellsForProjectRefs(
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {
   const appServer = useOptionalAppServerController();
   const project = useAtomValue(
-    ref === null ? EMPTY_PROJECT_ATOM : environmentProjects.projectAtom(ref),
+    appServer !== null || ref === null ? EMPTY_PROJECT_ATOM : environmentProjects.projectAtom(ref),
   );
   if (appServer === null || ref === null) return project;
   const direct = appServer.projects.find(
@@ -248,7 +288,9 @@ export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | n
 export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadShell | null {
   const appServer = useOptionalAppServerController();
   const thread = useAtomValue(
-    ref === null ? EMPTY_THREAD_SHELL_ATOM : environmentThreadShells.threadShellAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_THREAD_SHELL_ATOM
+      : environmentThreadShells.threadShellAtom(ref),
   );
   if (appServer === null || ref === null) return thread;
   for (const project of appServer.projects) {
@@ -262,7 +304,9 @@ export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadSh
 export function useThreadDetail(ref: ScopedThreadRef | null): EnvironmentThread | null {
   const appServer = useOptionalAppServerController();
   const thread = useAtomValue(
-    ref === null ? EMPTY_THREAD_DETAIL_ATOM : environmentThreadDetails.detailAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_THREAD_DETAIL_ATOM
+      : environmentThreadDetails.detailAtom(ref),
   );
   return appServer !== null && ref !== null
     ? appServer.thread?.id === ref.threadId && appServer.selectedEnvironmentId === ref.environmentId
@@ -274,7 +318,9 @@ export function useThreadDetail(ref: ScopedThreadRef | null): EnvironmentThread 
 export function useThreadStatus(ref: ScopedThreadRef | null): EnvironmentThreadStatus {
   const appServer = useOptionalAppServerController();
   const status = useAtomValue(
-    ref === null ? EMPTY_THREAD_STATUS_ATOM : environmentThreadDetails.statusAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_THREAD_STATUS_ATOM
+      : environmentThreadDetails.statusAtom(ref),
   );
   if (appServer === null || ref === null) return status;
   return appServer.thread?.id === ref.threadId ? "live" : "synchronizing";
@@ -317,7 +363,9 @@ export function useThreadMessages(
 ): ReadonlyArray<OrchestrationMessage> {
   const appServer = useOptionalAppServerController();
   const messages = useAtomValue(
-    ref === null ? EMPTY_MESSAGES_ATOM : environmentThreadDetails.messagesAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_MESSAGES_ATOM
+      : environmentThreadDetails.messagesAtom(ref),
   );
   if (
     appServer === null ||
@@ -335,7 +383,9 @@ export function useThreadActivities(
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const appServer = useOptionalAppServerController();
   const activities = useAtomValue(
-    ref === null ? EMPTY_ACTIVITIES_ATOM : environmentThreadDetails.activitiesAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_ACTIVITIES_ATOM
+      : environmentThreadDetails.activitiesAtom(ref),
   );
   if (
     appServer === null ||
@@ -354,7 +404,9 @@ export function useThreadProposedPlans(
 ): ReadonlyArray<OrchestrationProposedPlan> {
   const appServer = useOptionalAppServerController();
   const plans = useAtomValue(
-    ref === null ? EMPTY_PROPOSED_PLANS_ATOM : environmentThreadDetails.proposedPlansAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_PROPOSED_PLANS_ATOM
+      : environmentThreadDetails.proposedPlansAtom(ref),
   );
   return appServer === null ? plans : EMPTY_PROPOSED_PLANS;
 }
@@ -362,7 +414,9 @@ export function useThreadProposedPlans(
 export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
   const appServer = useOptionalAppServerController();
   const session = useAtomValue(
-    ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),
+    appServer !== null || ref === null
+      ? EMPTY_SESSION_ATOM
+      : environmentThreadDetails.sessionAtom(ref),
   );
   if (
     appServer === null ||
@@ -405,6 +459,12 @@ export function readThreadShell(ref: ScopedThreadRef): EnvironmentThreadShell | 
     False for pre-settlement servers (capability defaults false on decode),
     so clients under version skew fall back instead of erroring. */
 export function readEnvironmentSupportsSettlement(environmentId: EnvironmentId): boolean {
+  const appServer = readOptionalAppServerController();
+  if (appServer !== null) {
+    return (
+      toServerConfig(appServer, environmentId).environment.capabilities.threadSettlement === true
+    );
+  }
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadSettlement === true
@@ -414,6 +474,10 @@ export function readEnvironmentSupportsSettlement(environmentId: EnvironmentId):
 /** Whether the environment's server understands thread.snooze/unsnooze.
     Same version-skew contract as settlement. */
 export function readEnvironmentSupportsSnooze(environmentId: EnvironmentId): boolean {
+  const appServer = readOptionalAppServerController();
+  if (appServer !== null) {
+    return toServerConfig(appServer, environmentId).environment.capabilities.threadSnooze === true;
+  }
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadSnooze === true
@@ -423,6 +487,10 @@ export function readEnvironmentSupportsSnooze(environmentId: EnvironmentId): boo
 /** Whether the environment's server understands thread.pin/unpin.
     Same version-skew contract as settlement. */
 export function readEnvironmentSupportsPinning(environmentId: EnvironmentId): boolean {
+  const appServer = readOptionalAppServerController();
+  if (appServer !== null) {
+    return toServerConfig(appServer, environmentId).environment.capabilities.threadPinning === true;
+  }
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadPinning === true
@@ -432,6 +500,13 @@ export function readEnvironmentSupportsPinning(environmentId: EnvironmentId): bo
 /** Whether the environment's server understands thread title regeneration.
     Same version-skew contract as settlement. */
 export function readEnvironmentSupportsTitleRegeneration(environmentId: EnvironmentId): boolean {
+  const appServer = readOptionalAppServerController();
+  if (appServer !== null) {
+    return (
+      toServerConfig(appServer, environmentId).environment.capabilities.threadTitleRegeneration ===
+      true
+    );
+  }
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadTitleRegeneration === true
@@ -441,6 +516,12 @@ export function readEnvironmentSupportsTitleRegeneration(environmentId: Environm
 /** Whether the environment's server understands thread.pin.reorder (and
     orderKey on thread.pin). Same version-skew contract as settlement. */
 export function readEnvironmentSupportsPinReorder(environmentId: EnvironmentId): boolean {
+  const appServer = readOptionalAppServerController();
+  if (appServer !== null) {
+    return (
+      toServerConfig(appServer, environmentId).environment.capabilities.threadPinReorder === true
+    );
+  }
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadPinReorder === true
@@ -449,12 +530,14 @@ export function readEnvironmentSupportsPinReorder(environmentId: EnvironmentId):
 
 export function readThreadDetail(ref: ScopedThreadRef): EnvironmentThread | null {
   const appServer = readOptionalAppServerController();
-  if (
-    appServer !== null &&
-    appServer.thread?.id === ref.threadId &&
-    appServer.selectedEnvironmentId === ref.environmentId
-  ) {
-    return toEnvironmentThread(appServer, appServer.selectedEnvironmentId, appServer.thread);
+  if (appServer !== null) {
+    if (
+      appServer.thread?.id === ref.threadId &&
+      appServer.selectedEnvironmentId === ref.environmentId
+    ) {
+      return toEnvironmentThread(appServer, appServer.selectedEnvironmentId, appServer.thread);
+    }
+    return null;
   }
   return appAtomRegistry.get(environmentThreadDetails.detailAtom(ref));
 }

@@ -45,6 +45,7 @@ import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useOptionalAppServerController } from "~/appServer/context";
 
 import { previewBridge } from "./previewBridge";
 import {
@@ -244,8 +245,9 @@ const raisePreviewAutomationHostError = (
 };
 
 export function PreviewAutomationHosts() {
+  const appServer = useOptionalAppServerController();
   const { environments } = useEnvironments();
-  if (!isElectron || !previewBridge?.automation) return null;
+  if (appServer !== null || !isElectron || !previewBridge?.automation) return null;
   return (
     <>
       {/*

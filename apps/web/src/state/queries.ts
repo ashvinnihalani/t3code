@@ -24,6 +24,7 @@ import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { isDirectAppServerDesktop } from "../appServer/mode";
 import { orchestrationEnvironment } from "./orchestration";
 import { isPaginatedBranchesNextPagePending } from "./paginatedBranches";
 import { projectContentSearch, projectEnvironment } from "./projects";
@@ -84,6 +85,7 @@ export function useThreadSearch(
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly isPending: boolean;
 } {
+  const direct = isDirectAppServerDesktop();
   const normalizedQuery = query.trim();
   const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_SEARCH_DEBOUNCE_MS);
   const canSearch = environmentIds.length > 0 && normalizedQuery.length >= 2;
@@ -93,12 +95,12 @@ export function useThreadSearch(
     [environmentIds, settledQuery],
   );
   const result = useAtomValue(
-    searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),
+    direct || searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),
   );
   const isDebouncing = canSearch && normalizedQuery !== debouncedQuery;
   return {
     matches: isDebouncing ? EMPTY_THREAD_SEARCH_MATCHES : result.matches,
-    isPending: canSearch && (isDebouncing || result.isLoading),
+    isPending: !direct && canSearch && (isDebouncing || result.isLoading),
   };
 }
 
@@ -132,6 +134,7 @@ export function useBranches(target: VcsRefTarget) {
 }
 
 export function usePaginatedBranches(target: VcsRefTarget) {
+  const direct = isDirectAppServerDesktop();
   const query = target.query?.trim() ?? "";
   const targetKey =
     target.environmentId !== null && target.cwd !== null
@@ -147,7 +150,7 @@ export function usePaginatedBranches(target: VcsRefTarget) {
   const cursors = pagination.targetKey === targetKey ? pagination.cursors : INITIAL_BRANCH_CURSORS;
   const pageAtoms = useMemo(
     () =>
-      target.environmentId !== null && target.cwd !== null
+      !direct && target.environmentId !== null && target.cwd !== null
         ? cursors.map((cursor) =>
             vcsEnvironment.listRefs({
               environmentId: target.environmentId!,
@@ -160,7 +163,7 @@ export function usePaginatedBranches(target: VcsRefTarget) {
             }),
           )
         : [],
-    [cursors, query, target.cwd, target.environmentId],
+    [cursors, direct, query, target.cwd, target.environmentId],
   );
   const pagesAtom = useMemo(
     () =>
@@ -227,7 +230,7 @@ export function usePaginatedBranches(target: VcsRefTarget) {
     data,
     refs: data?.refs ?? EMPTY_REFS,
     error,
-    isPending: results.some((result) => result.waiting),
+    isPending: !direct && results.some((result) => result.waiting),
     isFetchingNextPage,
     refresh,
     loadNext,

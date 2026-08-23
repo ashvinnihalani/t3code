@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 import { useParams } from "@tanstack/react-router";
 import {
@@ -40,7 +39,7 @@ import {
 } from "../lib/diffRendering";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { useProject, useThread } from "../state/entities";
+import { useProject, useServerConfigs, useThread } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
@@ -71,7 +70,6 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
-import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
@@ -343,9 +341,8 @@ export default function DiffPanel({
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const serverConfig = useAtomValue(
-    serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
-  );
+  const serverConfigs = useServerConfigs();
+  const serverConfig = activeThread ? serverConfigs.get(activeThread.environmentId) : null;
   const openInPreferredEditor = useOpenInPreferredEditor(
     activeThread?.environmentId ?? null,
     serverConfig?.availableEditors ?? [],

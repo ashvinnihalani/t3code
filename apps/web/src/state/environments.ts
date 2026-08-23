@@ -17,6 +17,21 @@ import { relayEnvironmentDiscovery } from "./relay";
 import { usePreparedConnection } from "./session";
 import { useOptionalAppServerController } from "../appServer/context";
 import { environmentIdFor, toServerConfig } from "../appServer/upstreamAdapter";
+import { Atom } from "effect/unstable/reactivity";
+
+const EMPTY_CATALOG_ATOM = Atom.make({
+  isReady: false,
+  entries: new Map<EnvironmentId, never>(),
+}).pipe(Atom.withLabel("web-environments:direct-catalog-empty"));
+const DIRECT_NETWORK_STATUS_ATOM = Atom.make<"online">("online").pipe(
+  Atom.withLabel("web-environments:direct-network-status"),
+);
+const EMPTY_PRESENTATIONS_ATOM = Atom.make<ReadonlyMap<EnvironmentId, BaseEnvironmentPresentation>>(
+  new Map(),
+).pipe(Atom.withLabel("web-environments:direct-presentations-empty"));
+const EMPTY_ENVIRONMENT_ID_ATOM = Atom.make<EnvironmentId | null>(null).pipe(
+  Atom.withLabel("web-environments:direct-environment-id-empty"),
+);
 
 export interface EnvironmentPresentation extends BaseEnvironmentPresentation {
   readonly environmentId: EnvironmentId;
@@ -40,9 +55,15 @@ function projectEnvironmentPresentation(
 
 export function useEnvironments() {
   const appServer = useOptionalAppServerController();
-  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
-  const networkStatus = useAtomValue(environmentCatalog.networkStatusValueAtom);
-  const presentationById = useAtomValue(environmentPresentations.presentationsAtom);
+  const catalog = useAtomValue(
+    appServer === null ? environmentCatalog.catalogValueAtom : EMPTY_CATALOG_ATOM,
+  );
+  const networkStatus = useAtomValue(
+    appServer === null ? environmentCatalog.networkStatusValueAtom : DIRECT_NETWORK_STATUS_ATOM,
+  );
+  const presentationById = useAtomValue(
+    appServer === null ? environmentPresentations.presentationsAtom : EMPTY_PRESENTATIONS_ATOM,
+  );
 
   const environments = useMemo(() => {
     if (appServer !== null) {
@@ -92,7 +113,9 @@ export function useEnvironments() {
 
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
   const appServer = useOptionalAppServerController();
-  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const environmentId = useAtomValue(
+    appServer === null ? primaryEnvironmentIdAtom : EMPTY_ENVIRONMENT_ID_ATOM,
+  );
   return appServer?.selectedEnvironmentId
     ? environmentIdFor(appServer.selectedEnvironmentId)
     : environmentId;

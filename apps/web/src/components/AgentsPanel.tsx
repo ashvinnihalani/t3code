@@ -22,12 +22,18 @@ import {
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { isDirectAppServerDesktop } from "~/appServer/mode";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
+
+const EMPTY_WORKFLOW_SCRIPT_ATOM = Atom.make(AsyncResult.initial<never, never>(false)).pipe(
+  Atom.withLabel("web-workflow-script:direct-empty"),
+);
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -272,8 +278,14 @@ function WorkflowScriptView({
   scriptPath: string;
   onClose: () => void;
 }) {
+  const direct = isDirectAppServerDesktop();
   const result = useAtomValue(
-    orchestrationEnvironment.workflowScript({ environmentId, input: { threadId, scriptPath } }),
+    direct
+      ? EMPTY_WORKFLOW_SCRIPT_ATOM
+      : orchestrationEnvironment.workflowScript({
+          environmentId,
+          input: { threadId, scriptPath },
+        }),
   );
   return (
     <div className="mx-1.5 mb-1 rounded-md border border-border/60 bg-background/60">
@@ -292,7 +304,11 @@ function WorkflowScriptView({
         </button>
       </div>
       <div className="max-h-72 overflow-auto p-2">
-        {result._tag === "Success" ? (
+        {direct ? (
+          <p className="text-xs text-muted-foreground">
+            Workflow scripts are not exposed by app-server.
+          </p>
+        ) : result._tag === "Success" ? (
           <pre className="whitespace-pre-wrap break-words font-mono text-[.7rem] leading-relaxed text-foreground/90">
             {result.value.contents}
             {result.value.truncated ? "\n… (truncated)" : ""}

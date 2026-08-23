@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
+import { isDirectAppServerDesktop } from "../appServer/mode";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 
 export const environmentSession = createEnvironmentSessionAtoms(connectionAtomRuntime);
@@ -12,16 +13,20 @@ export const environmentSession = createEnvironmentSessionAtoms(connectionAtomRu
 const EMPTY_PREPARED_CONNECTION_ATOM = Atom.make(Option.none()).pipe(
   Atom.withLabel("web-prepared-connection:empty"),
 );
+const EMPTY_SESSION_STATE_ATOM = Atom.make(AsyncResult.initial<never, never>(false)).pipe(
+  Atom.withLabel("web-environment-session:empty"),
+);
 
 export function usePreparedConnection(environmentId: EnvironmentId | null) {
   return useAtomValue(
-    environmentId === null
+    isDirectAppServerDesktop() || environmentId === null
       ? EMPTY_PREPARED_CONNECTION_ATOM
       : environmentSession.preparedConnectionValueAtom(environmentId),
   );
 }
 
 export function readPreparedConnection(environmentId: EnvironmentId) {
+  if (isDirectAppServerDesktop()) return null;
   return Option.getOrNull(
     appAtomRegistry.get(environmentSession.preparedConnectionValueAtom(environmentId)),
   );
@@ -33,10 +38,13 @@ export function readPreparedConnection(environmentId: EnvironmentId) {
  * SWR revalidations; `isPending` is only meaningful before the first resolve.
  */
 export function useEnvironmentSessionState(environmentId: EnvironmentId) {
-  const result = useAtomValue(environmentSession.sessionStateAtom(environmentId));
+  const direct = isDirectAppServerDesktop();
+  const result = useAtomValue(
+    direct ? EMPTY_SESSION_STATE_ATOM : environmentSession.sessionStateAtom(environmentId),
+  );
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     hasError: result._tag === "Failure",
-    isPending: result.waiting,
+    isPending: !direct && result.waiting,
   };
 }

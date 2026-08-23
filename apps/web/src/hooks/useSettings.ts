@@ -39,8 +39,12 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 import { useOptionalAppServerController } from "~/appServer/context";
 import { toServerConfig } from "~/appServer/upstreamAdapter";
+import { Atom } from "effect/unstable/reactivity";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
+const DIRECT_DEFAULT_SERVER_SETTINGS_ATOM = Atom.make(DEFAULT_SERVER_SETTINGS).pipe(
+  Atom.withLabel("web-settings:direct-server-defaults"),
+);
 
 type UnifiedSettingsPatch = ServerSettingsPatch & ClientSettingsPatch;
 
@@ -286,7 +290,11 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
   const appServerController = useOptionalAppServerController();
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(
+    appServerController === null
+      ? serverEnvironment.settingsValueAtom(environmentId)
+      : DIRECT_DEFAULT_SERVER_SETTINGS_ATOM,
+  );
   const directSettings =
     appServerController === null
       ? null

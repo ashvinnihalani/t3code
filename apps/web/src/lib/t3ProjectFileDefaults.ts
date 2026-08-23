@@ -7,6 +7,7 @@ import {
   resolveProjectFileQueryData,
 } from "~/components/files/projectFilesQueryState";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { readOptionalAppServerController } from "~/appServer/context";
 
 /**
  * Read `defaultThreadEnvMode` from the project's checked-in `t3.json`.
@@ -22,6 +23,10 @@ export async function readT3ProjectFileDefaultThreadEnvMode(
   environmentId: EnvironmentId,
   workspaceRoot: string,
 ): Promise<ThreadEnvMode | null> {
+  // t3.json is a T3 orchestration convention, not an app-server contract.
+  // Direct projects use the explicit local default from the adapter and must
+  // never fall back to mounting this legacy RPC query.
+  if (readOptionalAppServerController() !== null) return null;
   const result = await executeAtomQuery(
     appAtomRegistry,
     getProjectFileQueryAtom(environmentId, workspaceRoot, T3_PROJECT_FILE_NAME),

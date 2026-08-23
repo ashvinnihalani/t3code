@@ -33,6 +33,8 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import { isDirectAppServerDesktop } from "../appServer/mode";
+
 const DATABASE_NAME = "t3code:connection-runtime";
 const DATABASE_VERSION = 4;
 const CATALOG_STORE_NAME = "catalog";
@@ -259,7 +261,11 @@ export interface CatalogBackend {
 
 export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
   const bridge = window.desktopBridge;
-  if (bridge?.getConnectionCatalog !== undefined && bridge.setConnectionCatalog !== undefined) {
+  if (
+    !isDirectAppServerDesktop() &&
+    bridge?.getConnectionCatalog !== undefined &&
+    bridge.setConnectionCatalog !== undefined
+  ) {
     return {
       read: Effect.tryPromise({
         try: () => bridge.getConnectionCatalog!(),
