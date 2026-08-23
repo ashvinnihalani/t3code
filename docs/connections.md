@@ -10,7 +10,9 @@ The desktop launches the configured executable directly. A typical configuration
 
 Add an OpenSSH host in Settings → Connections. T3 Codex invokes the system `ssh` client. The executable in the connection is authoritative; T3 Codex never replaces it with a managed binary.
 
-Persistent remote control is enabled for new SSH connections. It uses that same configured executable to run `app-server daemon bootstrap --remote-control`, then connects through its `app-server proxy`. The selected Codex build must support those commands and its own daemon installation requirements. Closing the desktop disconnects the proxy without stopping active remote threads, and reopening the desktop reconnects to the same daemon.
+Persistent remote control is enabled for new SSH connections. T3 Codex resolves the configured executable on the remote host and links it into Codex's expected `CODEX_HOME/packages/standalone/current/codex` location. It then enables remote control, starts the daemon idempotently, and connects through `app-server proxy`. It deliberately does not run `daemon bootstrap`, so Codex's standalone updater cannot replace the custom binary. Closing the desktop disconnects the proxy without stopping active remote threads, and reopening the desktop reconnects to the same daemon.
+
+If the managed path already contains a different binary, T3 Codex reports the conflict instead of replacing it. Select that binary explicitly or remove it yourself before retrying the connection.
 
 Turn off Persistent remote control to run the configured app-server command directly over SSH stdio. A custom harness must provide its own persistent transport if work needs to survive the desktop's SSH session. SSH configuration, keys, agents, jump hosts, and host aliases come from OpenSSH rather than a T3-specific tunnel.
 

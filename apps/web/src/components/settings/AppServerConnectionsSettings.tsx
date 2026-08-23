@@ -150,8 +150,8 @@ function ConnectionEditor({
               <span className="grid gap-0.5">
                 <span className="text-sm font-medium">Persistent remote control</span>
                 <span className="text-xs text-muted-foreground">
-                  Use this executable to bootstrap a daemon and connect through its app-server
-                  proxy, so turns continue after the desktop closes.
+                  Link this executable into Codex’s daemon runtime and connect through its
+                  app-server proxy, so turns continue after the desktop closes.
                 </span>
               </span>
               <Switch

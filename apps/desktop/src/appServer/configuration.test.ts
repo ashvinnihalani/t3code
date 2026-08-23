@@ -102,11 +102,40 @@ describe("app-server desktop configuration", () => {
     expect(configuration.args).toContain("2222");
     expect(configuration.args.at(-1)).toBe(buildRemoteAppServerCommand(connection));
     expect(configuration.args.at(-1)).toContain(
-      "'/opt/custom/codex-dev' 'app-server' 'daemon' 'bootstrap' '--remote-control' >/dev/null",
+      "configured_executable=$(env 'RUST_LOG=info' sh -c 'command -v \"$1\"' sh '/opt/custom/codex-dev')",
     );
     expect(configuration.args.at(-1)).toContain(
-      "exec env 'RUST_LOG=info' '/opt/custom/codex-dev' 'app-server' 'proxy'",
+      'ln -s -- "$configured_executable" "$managed_executable"',
     );
+    expect(configuration.args.at(-1)).toContain(
+      "env 'RUST_LOG=info' \"$managed_executable\" 'app-server' 'daemon' 'enable-remote-control' >/dev/null",
+    );
+    expect(configuration.args.at(-1)).toContain(
+      "env 'RUST_LOG=info' \"$managed_executable\" 'app-server' 'daemon' 'start' >/dev/null",
+    );
+    expect(configuration.args.at(-1)).toContain(
+      "exec env 'RUST_LOG=info' \"$managed_executable\" 'app-server' 'proxy'",
+    );
+  });
+
+  it("uses the configured remote CODEX_HOME for the custom daemon link", () => {
+    const command = buildRemoteAppServerCommand({
+      kind: "ssh",
+      host: "buildbox",
+      username: "",
+      port: null,
+      identityFile: "",
+      persistent: true,
+      executable: "custom-codex",
+      args: ["app-server"],
+      workspace: "/repo",
+      env: { CODEX_HOME: "/state/codex home", PATH: "/custom/bin:/usr/bin" },
+    });
+    expect(command).toContain("codex_home='/state/codex home'");
+    expect(command).toContain(
+      "configured_executable=$(env 'CODEX_HOME=/state/codex home' 'PATH=/custom/bin:/usr/bin' sh",
+    );
+    expect(command).not.toContain("daemon' 'bootstrap");
   });
 
   it("runs the exact configured SSH command when persistence is disabled", () => {

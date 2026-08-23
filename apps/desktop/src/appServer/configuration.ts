@@ -134,17 +134,40 @@ export function buildRemoteAppServerCommand(connection: SshAppServerConnectionSe
     .map(([name, value]) => shellQuote(`${name}=${value}`));
   const persistent = connection.persistent ?? inferredPersistentCodexAppServer(connection);
   if (persistent) {
-    const bootstrap = commandWithEnvironment(
-      connection.executable,
-      ["app-server", "daemon", "bootstrap", "--remote-control"],
-      environment,
+    const resolveExecutable = [
+      ...(environment.length > 0 ? ["env", ...environment] : []),
+      "sh",
+      "-c",
+      shellQuote('command -v "$1"'),
+      "sh",
+      shellQuote(connection.executable),
+    ].join(" ");
+    const configuredCodexHome = connection.env.CODEX_HOME?.trim();
+    const configuredHome = connection.env.HOME?.trim();
+    const codexHome = configuredCodexHome
+      ? shellQuote(configuredCodexHome)
+      : configuredHome
+        ? shellQuote(`${configuredHome}/.codex`)
+        : '"$HOME/.codex"';
+    const environmentPrefix = environment.length > 0 ? `env ${environment.join(" ")} ` : "";
+    const daemonCommand = (args: ReadonlyArray<string>) =>
+      `${environmentPrefix}"$managed_executable" ${args.map(shellQuote).join(" ")}`;
+    const managedPathConflict = shellQuote(
+      "Persistent remote control cannot replace an existing managed Codex binary. Remove it or select that binary explicitly.",
     );
-    const proxy = commandWithEnvironment(
-      connection.executable,
-      ["app-server", "proxy"],
-      environment,
-    );
-    return `cd -- ${shellQuote(connection.workspace)} && ${bootstrap} >/dev/null && exec ${proxy}`;
+    return [
+      `cd -- ${shellQuote(connection.workspace)}`,
+      `configured_executable=$(${resolveExecutable})`,
+      'case "$configured_executable" in /*) ;; *) configured_executable="$(pwd -P)/$configured_executable" ;; esac',
+      `codex_home=${codexHome}`,
+      'managed_directory="$codex_home/packages/standalone/current"',
+      'managed_executable="$managed_directory/codex"',
+      'mkdir -p -- "$managed_directory"',
+      `{ if [ ! -e "$managed_executable" ] && [ ! -L "$managed_executable" ]; then ln -s -- "$configured_executable" "$managed_executable"; elif ! [ "$managed_executable" -ef "$configured_executable" ]; then echo ${managedPathConflict} >&2; exit 1; fi; }`,
+      `${daemonCommand(["app-server", "daemon", "enable-remote-control"])} >/dev/null`,
+      `${daemonCommand(["app-server", "daemon", "start"])} >/dev/null`,
+      `exec ${daemonCommand(["app-server", "proxy"])}`,
+    ].join(" && ");
   }
   const launch = commandWithEnvironment(connection.executable, connection.args, environment);
   return `cd -- ${shellQuote(connection.workspace)} && exec ${launch}`;
