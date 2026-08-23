@@ -9,6 +9,7 @@ import type {
 import * as Remote from "effect-codex-app-server/remote";
 import type * as CodexSchema from "effect-codex-app-server/schema";
 import { fromMessagePort } from "effect-codex-app-server/transport";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
@@ -933,13 +934,14 @@ export function useAppServerController() {
               ),
           );
           yield* client.handleServerNotification("thread/status/changed", ({ threadId, status }) =>
-            Effect.sync(() =>
+            Effect.gen(function* () {
+              const updatedAt = yield* Clock.currentTimeMillis;
               updateThreadSnapshot(profile, (threads) =>
                 threads.map((item) =>
-                  item.id === threadId ? { ...item, status: status.type } : item,
+                  item.id === threadId ? { ...item, status: status.type, updatedAt } : item,
                 ),
-              ),
-            ),
+              );
+            }),
           );
           yield* client.handleServerNotification(
             "thread/settings/updated",
@@ -2273,6 +2275,8 @@ export function useAppServerController() {
     archivedThreads,
     archiveLoading,
     archiveError,
+    pendingApprovals,
+    pendingUserInputs,
     pendingApproval,
     pendingUserInput,
     terminalSessions,

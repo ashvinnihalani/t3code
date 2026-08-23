@@ -267,27 +267,27 @@ function latestTurn(turn: ThreadTurn | undefined): OrchestrationLatestTurn | nul
 }
 
 function session(
-  threadId: string,
+  thread: Pick<ThreadSummary, "id" | "status" | "updatedAt">,
   turn: ThreadTurn | undefined,
   runtimeMode: ThreadSettings["runtimeMode"],
 ): OrchestrationSession | null {
-  if (turn === undefined) return null;
+  if (turn === undefined && thread.status !== "active") return null;
+  const isRunning = turn?.status === "inProgress" || thread.status === "active";
   return {
-    threadId: ThreadId.make(threadId),
-    status:
-      turn.status === "inProgress"
-        ? "running"
-        : turn.status === "failed"
-          ? "error"
-          : turn.status === "interrupted"
-            ? "interrupted"
-            : "idle",
+    threadId: ThreadId.make(thread.id),
+    status: isRunning
+      ? "running"
+      : turn?.status === "failed"
+        ? "error"
+        : turn?.status === "interrupted"
+          ? "interrupted"
+          : "idle",
     providerName: "Codex",
     providerInstanceId: CODEX_INSTANCE_ID,
     runtimeMode,
-    activeTurnId: turn.status === "inProgress" ? TurnId.make(turn.id) : null,
-    lastError: turn.error,
-    updatedAt: isoTimestamp(turn.completedAt ?? turn.startedAt ?? 0),
+    activeTurnId: turn?.status === "inProgress" ? TurnId.make(turn.id) : null,
+    lastError: turn?.error ?? null,
+    updatedAt: isoTimestamp(turn?.completedAt ?? turn?.startedAt ?? thread.updatedAt),
   };
 }
 
@@ -319,13 +319,15 @@ export function toEnvironmentThreadShell(
   thread: ThreadSummary,
 ): EnvironmentThreadShell {
   const settings = settingsForThread(controller, connectionId, thread);
+  const cachedDetail = controller.environments.find(
+    (environment) => environment.profile.id === connectionId,
+  )?.snapshot?.details[thread.id];
+  const detail = controller.thread?.id === thread.id ? controller.thread : cachedDetail;
   const activeTurn =
-    controller.thread?.id === thread.id
-      ? controller.thread.turns.findLast((turn) => turn.status === "inProgress")
+    detail !== undefined && (controller.thread?.id === thread.id || thread.status === "active")
+      ? detail.turns.findLast((turn) => turn.status === "inProgress")
       : undefined;
-  const lastTurn =
-    activeTurn ??
-    (controller.thread?.id === thread.id ? controller.thread.turns.at(-1) : undefined);
+  const lastTurn = activeTurn ?? detail?.turns.at(-1);
   return {
     environmentId: environmentIdFor(connectionId),
     id: ThreadId.make(thread.id),
@@ -347,14 +349,14 @@ export function toEnvironmentThreadShell(
     pinnedAt: null,
     pinOrderKey: null,
     titleRegeneration: null,
-    session: session(thread.id, lastTurn, settings?.runtimeMode ?? "full-access"),
+    session: session(thread, lastTurn, settings?.runtimeMode ?? "full-access"),
     latestUserMessageAt: null,
-    hasPendingApprovals:
-      controller.pendingApproval?.environmentId === connectionId &&
-      controller.pendingApproval.threadId === thread.id,
-    hasPendingUserInput:
-      controller.pendingUserInput?.environmentId === connectionId &&
-      controller.pendingUserInput.threadId === thread.id,
+    hasPendingApprovals: controller.pendingApprovals.some(
+      (approval) => approval.environmentId === connectionId && approval.threadId === thread.id,
+    ),
+    hasPendingUserInput: controller.pendingUserInputs.some(
+      (request) => request.environmentId === connectionId && request.threadId === thread.id,
+    ),
     hasActionableProposedPlan: false,
     backgroundLiveness: null,
     planProgress: null,

@@ -12,10 +12,22 @@ import {
   isNewAppServerThreadSelection,
   toEnvironmentProject,
   toEnvironmentThread,
+  toEnvironmentThreadShell,
   toServerConfig,
 } from "./upstreamAdapter";
 
 function controller(): AppServerController {
+  const pendingApproval = {
+    id: "approval-1",
+    createdAt: 1_000,
+    environmentId: "local",
+    threadId: "thread-1",
+    kind: "command" as const,
+    title: "Run tests",
+    detail: "/workspace",
+    reason: "Needs access",
+    respond: () => undefined,
+  };
   return {
     environments: [
       {
@@ -59,17 +71,9 @@ function controller(): AppServerController {
         ],
       },
     ],
-    pendingApproval: {
-      id: "approval-1",
-      createdAt: 1_000,
-      environmentId: "local",
-      threadId: "thread-1",
-      kind: "command",
-      title: "Run tests",
-      detail: "/workspace",
-      reason: "Needs access",
-      respond: () => undefined,
-    },
+    pendingApprovals: [pendingApproval],
+    pendingUserInputs: [],
+    pendingApproval,
   } as unknown as AppServerController;
 }
 
@@ -129,6 +133,101 @@ describe("upstream app-server adapter", () => {
     });
 
     expect(project.defaultThreadEnvMode).toBe("local");
+  });
+
+  it("keeps a running sidebar breadcrumb after navigating to another thread", () => {
+    const base = controller();
+    const runningDetail = {
+      id: "thread-1",
+      name: "Running",
+      preview: "",
+      cwd: "/workspace",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      status: "active" as const,
+      turns: [
+        {
+          id: "turn-1",
+          status: "inProgress" as const,
+          items: [],
+          startedAt: 1_500,
+          completedAt: null,
+          error: null,
+        },
+      ],
+    };
+    const navigated = {
+      ...base,
+      thread: { ...runningDetail, id: "thread-2", status: "idle" as const, turns: [] },
+      environments: base.environments.map((environment) => ({
+        ...environment,
+        snapshot: {
+          updatedAt: 2_000,
+          threads: [runningDetail],
+          workspaces: ["/workspace"],
+          details: { "thread-1": runningDetail },
+        },
+      })),
+    } as AppServerController;
+
+    expect(toEnvironmentThreadShell(navigated, "local", runningDetail)).toMatchObject({
+      latestTurn: { turnId: "turn-1", state: "running" },
+      session: { status: "running", activeTurnId: "turn-1" },
+    });
+  });
+
+  it("uses an active app-server summary when a remote turn has not been loaded", () => {
+    const shell = toEnvironmentThreadShell(controller(), "local", {
+      id: "thread-remote",
+      name: "Remote work",
+      preview: "",
+      cwd: "/workspace",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      status: "active",
+    });
+
+    expect(shell).toMatchObject({
+      latestTurn: null,
+      session: { status: "running", activeTurnId: null },
+    });
+  });
+
+  it("keeps background approval and input breadcrumbs scoped to their threads", () => {
+    const base = controller();
+    const withBackgroundRequests = {
+      ...base,
+      selectedThreadId: "thread-2",
+      pendingApproval: null,
+      pendingApprovals: base.pendingApprovals,
+      pendingUserInput: null,
+      pendingUserInputs: [
+        {
+          id: "input-1",
+          createdAt: 2_000,
+          environmentId: "local",
+          threadId: "thread-3",
+          questions: [],
+          respond: () => undefined,
+        },
+      ],
+    } as AppServerController;
+    const summary = (id: string): Parameters<typeof toEnvironmentThreadShell>[2] => ({
+      id,
+      name: id,
+      preview: "",
+      cwd: "/workspace",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      status: "active",
+    });
+
+    expect(
+      toEnvironmentThreadShell(withBackgroundRequests, "local", summary("thread-1")),
+    ).toMatchObject({ hasPendingApprovals: true, hasPendingUserInput: false });
+    expect(
+      toEnvironmentThreadShell(withBackgroundRequests, "local", summary("thread-3")),
+    ).toMatchObject({ hasPendingApprovals: false, hasPendingUserInput: true });
   });
 
   it("projects app-server approvals into the upstream composer activity model", () => {
