@@ -1452,6 +1452,35 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  const directThreadSettingsKey =
+    appServerController !== null && isServerThread && activeThread
+      ? JSON.stringify([
+          activeThread.environmentId,
+          activeThread.id,
+          activeThread.modelSelection,
+          activeThread.runtimeMode,
+          activeThread.interactionMode,
+        ])
+      : null;
+  const syncedDirectThreadSettingsRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (directThreadSettingsKey === null || !activeThread) {
+      syncedDirectThreadSettingsRef.current = null;
+      return;
+    }
+    if (syncedDirectThreadSettingsRef.current === directThreadSettingsKey) return;
+    syncedDirectThreadSettingsRef.current = directThreadSettingsKey;
+    const target = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    setComposerDraftModelSelection(target, activeThread.modelSelection, { replaceOptions: true });
+    setComposerDraftRuntimeMode(target, activeThread.runtimeMode);
+    setComposerDraftInteractionMode(target, activeThread.interactionMode);
+  }, [
+    activeThread,
+    directThreadSettingsKey,
+    setComposerDraftInteractionMode,
+    setComposerDraftModelSelection,
+    setComposerDraftRuntimeMode,
+  ]);
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -5398,7 +5427,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
-      if (!activeThread) {
+      if (!activeThread || appServerController !== null) {
         return null;
       }
       const reason = getStartedThreadModelChangeBlockReason({
@@ -5410,7 +5439,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
       return reason ? `${reason.description} Start a new thread to use this model.` : null;
     },
-    [activeThread, providerStatuses],
+    [activeThread, appServerController, providerStatuses],
   );
 
   const onProviderModelSelect = useCallback(
@@ -5456,13 +5485,16 @@ function ChatViewContent(props: ChatViewProps) {
         instanceId,
         model: resolvedModel,
       };
-      const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
-        providers: providerStatuses,
-        hasStartedSession: activeThread.session !== null,
-        currentModelSelection: activeThread.modelSelection,
-        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
-        nextModelSelection,
-      });
+      const modelChangeBlockReason =
+        appServerController === null
+          ? getStartedThreadModelChangeBlockReason({
+              providers: providerStatuses,
+              hasStartedSession: activeThread.session !== null,
+              currentModelSelection: activeThread.modelSelection,
+              currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
+              nextModelSelection,
+            })
+          : null;
       if (modelChangeBlockReason) {
         toastManager.add({
           type: "warning",
@@ -5481,6 +5513,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeThread,
+      appServerController,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,

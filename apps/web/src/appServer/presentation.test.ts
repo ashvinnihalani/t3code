@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  applyThreadSettings,
   aliasTurnUserMessage,
   appendAgentMessageDelta,
   mergeThreadDetails,
@@ -180,5 +181,46 @@ describe("app-server presentation projection", () => {
         serviceTiers: [{ id: "standard", name: "Standard", description: "Standard priority" }],
       },
     ]);
+  });
+
+  it("normalizes authoritative app-server thread settings", () => {
+    const detail = projectThreadDetail(thread);
+    expect(detail).not.toBeNull();
+    if (detail === null) return;
+
+    const resumed = applyThreadSettings(detail, {
+      model: "gpt-5.6",
+      reasoningEffort: "high",
+      serviceTier: "fast",
+      approvalPolicy: "on-request",
+      sandbox: { type: "workspaceWrite" },
+    });
+    expect(resumed.settings).toEqual({
+      model: "gpt-5.6",
+      effort: "high",
+      serviceTier: "fast",
+      runtimeMode: "auto-accept-edits",
+      interactionMode: "default",
+    });
+
+    expect(
+      applyThreadSettings(resumed, {
+        model: "gpt-5.5",
+        effort: "low",
+        serviceTier: null,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "dangerFullAccess" },
+        collaborationMode: {
+          mode: "plan",
+          settings: { model: "gpt-5.5", reasoning_effort: "low" },
+        },
+      }).settings,
+    ).toEqual({
+      model: "gpt-5.5",
+      effort: "low",
+      serviceTier: null,
+      runtimeMode: "full-access",
+      interactionMode: "plan",
+    });
   });
 });

@@ -31,6 +31,7 @@ import type {
 } from "@t3tools/contracts";
 
 import {
+  applyThreadSettings,
   aliasTurnUserMessage,
   appendAgentMessageDelta,
   isRecord,
@@ -924,6 +925,28 @@ export function useAppServerController() {
               ),
             ),
           );
+          yield* client.handleServerNotification(
+            "thread/settings/updated",
+            ({ threadId, threadSettings }) =>
+              Effect.sync(() => {
+                updateSnapshot(profile, (snapshot) => {
+                  const detail = snapshot.details[threadId];
+                  if (detail === undefined) return snapshot;
+                  return {
+                    ...snapshot,
+                    details: {
+                      ...snapshot.details,
+                      [threadId]: applyThreadSettings(detail, threadSettings),
+                    },
+                  };
+                });
+                const selected = selectionRef.current;
+                if (selected.environmentId !== profile.id || selected.threadId !== threadId) return;
+                setThread((current) =>
+                  current?.id === threadId ? applyThreadSettings(current, threadSettings) : current,
+                );
+              }),
+          );
           yield* client.handleServerRequest("item/commandExecution/requestApproval", (request) =>
             Effect.callback<CodexSchema.CommandExecutionRequestApprovalResponse>((resume) => {
               const id = `${profile.id}:${request.turnId}:${request.approvalId ?? request.itemId}`;
@@ -1238,15 +1261,19 @@ export function useAppServerController() {
         load = Effect.runPromise(
           Effect.gen(function* () {
             const read = yield* client.request("thread/read", { threadId, includeTurns: true });
-            const response =
-              read.thread.status.type === "notLoaded"
-                ? yield* client.request("thread/resume", { threadId })
-                : read;
-            const projected = projectThreadDetail(response.thread);
-            if (projected === null) {
+            const resumed = yield* client.request("thread/resume", { threadId });
+            const readDetail = projectThreadDetail(read.thread);
+            const resumedDetail = projectThreadDetail(resumed.thread);
+            if (readDetail === null && resumedDetail === null) {
               return yield* Effect.die(new Error("The app-server returned an invalid thread."));
             }
-            return projected;
+            const projected =
+              readDetail === null
+                ? resumedDetail!
+                : resumedDetail === null
+                  ? readDetail
+                  : mergeThreadDetails(readDetail, resumedDetail);
+            return applyThreadSettings(projected, resumed);
           }),
         );
         threadLoadsRef.current.set(loadKey, load);
@@ -1819,8 +1846,9 @@ export function useAppServerController() {
             ...threadAccessOverrides(options.access),
           }),
         );
-        const projected = projectThreadDetail(started.thread);
-        if (projected === null) throw new Error("The app-server returned an invalid thread.");
+        const startedDetail = projectThreadDetail(started.thread);
+        if (startedDetail === null) throw new Error("The app-server returned an invalid thread.");
+        const projected = applyThreadSettings(startedDetail, started);
         setSelectedThreadId(projected.id);
         selectionRef.current = { environmentId: selectedEnvironmentId, threadId: projected.id };
         setThread(projected);

@@ -28,6 +28,15 @@ export interface ThreadTurn {
 
 export interface ThreadDetail extends ThreadSummary {
   readonly turns: ReadonlyArray<ThreadTurn>;
+  readonly settings?: ThreadSettings | null;
+}
+
+export interface ThreadSettings {
+  readonly model: string;
+  readonly effort: string | null;
+  readonly serviceTier: string | null;
+  readonly runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
+  readonly interactionMode: "default" | "plan";
 }
 
 export interface ModelOption {
@@ -238,6 +247,49 @@ export function projectThreadDetail(value: unknown): ThreadDetail | null {
     ? value.turns.map(projectTurn).filter((turn): turn is ThreadTurn => turn !== null)
     : [];
   return { ...summary, turns };
+}
+
+function runtimeModeFromThreadSettings(
+  approvalPolicy: unknown,
+  sandboxPolicy: unknown,
+): ThreadSettings["runtimeMode"] {
+  const sandboxType = isRecord(sandboxPolicy) ? stringValue(sandboxPolicy.type) : null;
+  if (sandboxType === "dangerFullAccess") return "full-access";
+  if (sandboxType === "workspaceWrite") {
+    return approvalPolicy === "untrusted" ? "auto" : "auto-accept-edits";
+  }
+  return "approval-required";
+}
+
+export function applyThreadSettings(detail: ThreadDetail, value: unknown): ThreadDetail {
+  if (!isRecord(value)) return detail;
+  const model = stringValue(value.model);
+  if (model === null) return detail;
+  const collaborationMode = isRecord(value.collaborationMode) ? value.collaborationMode : null;
+  const collaborationSettings =
+    collaborationMode !== null && isRecord(collaborationMode.settings)
+      ? collaborationMode.settings
+      : null;
+  const effort =
+    stringValue(value.effort) ??
+    stringValue(value.reasoningEffort) ??
+    (collaborationSettings === null ? null : stringValue(collaborationSettings.reasoning_effort));
+  const sandboxPolicy = value.sandboxPolicy ?? value.sandbox;
+  return {
+    ...detail,
+    settings: {
+      model,
+      effort,
+      serviceTier: stringValue(value.serviceTier),
+      runtimeMode: runtimeModeFromThreadSettings(value.approvalPolicy, sandboxPolicy),
+      interactionMode:
+        collaborationMode?.mode === "plan"
+          ? "plan"
+          : collaborationMode?.mode === "default"
+            ? "default"
+            : (detail.settings?.interactionMode ?? "default"),
+    },
+  };
 }
 
 export function projectModels(value: unknown): ReadonlyArray<ModelOption> {

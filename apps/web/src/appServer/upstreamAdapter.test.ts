@@ -134,6 +134,39 @@ describe("upstream app-server adapter", () => {
     ]);
   });
 
+  it("projects per-thread app-server settings into composer controls", () => {
+    const thread = toEnvironmentThread(controller(), "local", {
+      id: "thread-1",
+      name: "Test",
+      preview: "",
+      cwd: "/workspace",
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      status: "idle",
+      turns: [],
+      settings: {
+        model: "gpt-other",
+        effort: "high",
+        serviceTier: "fast",
+        runtimeMode: "auto-accept-edits",
+        interactionMode: "plan",
+      },
+    });
+
+    expect(thread).toMatchObject({
+      modelSelection: {
+        instanceId: "codex",
+        model: "gpt-other",
+        options: [
+          { id: "reasoningEffort", value: "high" },
+          { id: "serviceTier", value: "fast" },
+        ],
+      },
+      runtimeMode: "auto-accept-edits",
+      interactionMode: "plan",
+    });
+  });
+
   it("projects app-server questions into the upstream structured-input model", () => {
     const base = controller();
     const withUserInput = {

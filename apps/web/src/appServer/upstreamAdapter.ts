@@ -26,7 +26,13 @@ import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { APP_VERSION } from "../branding";
 import type { AppServerController } from "./context";
 import type { EnvironmentProject as AppServerProject } from "./useAppServerController";
-import type { ThreadDetail, ThreadSummary, ThreadTurn, TimelineItem } from "./presentation";
+import type {
+  ThreadDetail,
+  ThreadSettings,
+  ThreadSummary,
+  ThreadTurn,
+  TimelineItem,
+} from "./presentation";
 
 const CODEX_INSTANCE_ID = ProviderInstanceId.make("codex");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -69,15 +75,47 @@ function threadTitle(thread: ThreadSummary): string {
   return thread.name?.trim() || thread.preview.trim().split("\n")[0] || "Untitled thread";
 }
 
-function modelSelection(controller: AppServerController, connectionId: string): ModelSelection {
+function modelSelection(
+  controller: AppServerController,
+  connectionId: string,
+  settings: ThreadSettings | null,
+): ModelSelection {
   const environment = controller.environments.find(
     (candidate) => candidate.profile.id === connectionId,
   );
   const model =
+    settings?.model ??
     environment?.models.find((candidate) => candidate.isDefault)?.model ??
     environment?.models[0]?.model ??
     "gpt-5.4";
-  return { instanceId: CODEX_INSTANCE_ID, model };
+  const options = [
+    ...(settings?.effort ? [{ id: "reasoningEffort", value: settings.effort }] : []),
+    ...(settings?.serviceTier ? [{ id: "serviceTier", value: settings.serviceTier }] : []),
+  ];
+  return {
+    instanceId: CODEX_INSTANCE_ID,
+    model,
+    ...(options.length > 0 ? { options } : {}),
+  };
+}
+
+function settingsForThread(
+  controller: AppServerController,
+  connectionId: string,
+  thread: ThreadSummary | ThreadDetail,
+): ThreadSettings | null {
+  if ("settings" in thread && thread.settings) return thread.settings;
+  if (
+    controller.selectedEnvironmentId === connectionId &&
+    controller.thread?.id === thread.id &&
+    controller.thread.settings
+  ) {
+    return controller.thread.settings;
+  }
+  return (
+    controller.environments.find((candidate) => candidate.profile.id === connectionId)?.snapshot
+      ?.details[thread.id]?.settings ?? null
+  );
 }
 
 export function toServerProvider(
@@ -221,7 +259,11 @@ function latestTurn(turn: ThreadTurn | undefined): OrchestrationLatestTurn | nul
   };
 }
 
-function session(threadId: string, turn: ThreadTurn | undefined): OrchestrationSession | null {
+function session(
+  threadId: string,
+  turn: ThreadTurn | undefined,
+  runtimeMode: ThreadSettings["runtimeMode"],
+): OrchestrationSession | null {
   if (turn === undefined) return null;
   return {
     threadId: ThreadId.make(threadId),
@@ -235,7 +277,7 @@ function session(threadId: string, turn: ThreadTurn | undefined): OrchestrationS
             : "idle",
     providerName: "Codex",
     providerInstanceId: CODEX_INSTANCE_ID,
-    runtimeMode: "full-access",
+    runtimeMode,
     activeTurnId: turn.status === "inProgress" ? TurnId.make(turn.id) : null,
     lastError: turn.error,
     updatedAt: isoTimestamp(turn.completedAt ?? turn.startedAt ?? 0),
@@ -269,6 +311,7 @@ export function toEnvironmentThreadShell(
   connectionId: string,
   thread: ThreadSummary,
 ): EnvironmentThreadShell {
+  const settings = settingsForThread(controller, connectionId, thread);
   const activeTurn =
     controller.thread?.id === thread.id
       ? controller.thread.turns.findLast((turn) => turn.status === "inProgress")
@@ -281,9 +324,9 @@ export function toEnvironmentThreadShell(
     id: ThreadId.make(thread.id),
     projectId: projectIdForWorkspace(thread.cwd),
     title: threadTitle(thread),
-    modelSelection: modelSelection(controller, connectionId),
-    runtimeMode: "full-access",
-    interactionMode: "default",
+    modelSelection: modelSelection(controller, connectionId, settings),
+    runtimeMode: settings?.runtimeMode ?? "full-access",
+    interactionMode: settings?.interactionMode ?? "default",
     branch: null,
     worktreePath: null,
     latestTurn: latestTurn(lastTurn),
@@ -297,7 +340,7 @@ export function toEnvironmentThreadShell(
     pinnedAt: null,
     pinOrderKey: null,
     titleRegeneration: null,
-    session: session(thread.id, lastTurn),
+    session: session(thread.id, lastTurn, settings?.runtimeMode ?? "full-access"),
     latestUserMessageAt: null,
     hasPendingApprovals:
       controller.pendingApproval?.environmentId === connectionId &&
